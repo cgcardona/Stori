@@ -255,3 +255,76 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Built with ❤️ for musicians and creators**
 
 *Transform your musical ideas into tradeable digital assets with the power of AI and blockchain technology.*
+
+## 🎛️ **DAW UI Element Terminology**
+
+### **🎚️ Main Interface Areas**
+
+1. **Transport Bar** (top section)
+   - **New/Open/Save Buttons** - Project management controls
+   - **Project Info** - "boom v4, 2 tracks • 120 BPM"
+   - **CPU Meter** - Shows processing load (6%)
+
+2. **Timeline/Arrangement View** (main center area)
+   - **Timeline Ruler** - Time markers (0:01, 0:02, etc.)
+   - **Playhead** - The red vertical line showing current position
+   - **Track Lanes** - Horizontal strips for each track
+   - **Track Headers** - Left side with track names and controls
+
+3. **Mixer Panel** (right side)
+   - **Channel Strip** - Complete set of controls for one track
+   - **Track Selector** - Blue dot showing selected track
+
+### **🎛️ Track Controls (Left Side)**
+
+- **Track Name** - "Track 1", "Track 2"
+- **Record Arm Button** - Red circle (●) to enable recording
+- **Mute Button** - (M) to silence the track
+- **Solo Button** - (S) to isolate the track
+- **Track Color Indicator** - Blue/Red dots for visual identification
+- **Delete Track Button** - Red trash icon
+
+### **🎚️ Mixer Controls (Right Panel)**
+
+**EQ Section:**
+- **HI Knob** - High frequency control
+- **MID Knob** - Mid frequency control  
+- **LO Knob** - Low frequency control
+
+**Pan & Volume:**
+- **PAN Knob** - Stereo positioning control
+- **Volume Fader** - Vertical slider for track level
+- **Volume Percentage** - Numeric display (80%, 38%)
+
+**Channel Buttons:**
+- **M Button** - Mute (gray when off, orange when active)
+- **S Button** - Solo (gray when off, yellow when active)  
+- **R Button** - Record arm
+
+### **🎮 Transport Controls (Bottom)**
+
+- **Stop Button** - Blue square (■)
+- **Play Button** - Blue triangle (▶)
+- **Record Button** - Red circle (●)
+
+**Time Display:**
+- **Time Counter** - "00:00.00" (minutes:seconds.milliseconds)
+- **Bar Counter** - "1.1.0" (bar.beat.tick)
+
+### **🎯 Additional Elements**
+
+- **Add Track Button** - Blue "⊕ Add Track" button
+- **Mixer Toggle** - Hamburger menu icon (≡) to show/hide mixer
+- **Waveform Display Area** - Where audio regions will appear
+- **Grid Lines** - Vertical lines for timing reference
+
+### **🏗️ Professional DAW Terminology**
+
+- **Arrangement View** = Your main timeline area
+- **Channel Strip** = Complete set of mixer controls for one track
+- **Playhead/Cursor** = The red line showing playback position
+- **Track Lane** = Horizontal area where audio/MIDI regions go
+- **Session** = Your entire project
+- **Regions/Clips** = Audio or MIDI segments on tracks
+- **Fader** = Volume slider
+- **Knob/Pot** = Rotary control (EQ, Pan)
