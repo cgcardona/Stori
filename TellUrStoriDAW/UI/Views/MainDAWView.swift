@@ -26,14 +26,6 @@ struct MainDAWView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Top toolbar
-                ToolbarView(
-                    projectManager: projectManager,
-                    audioEngine: audioEngine,
-                    onNewProject: { showingNewProjectSheet = true },
-                    onOpenProject: { showingProjectBrowser = true }
-                )
-                .frame(height: 60)
                 
                 // Main content area
                 HStack(spacing: 0) {
@@ -71,6 +63,39 @@ struct MainDAWView: View {
                 // Transport controls
                 TransportView(audioEngine: audioEngine)
                     .frame(height: 80)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                HStack {
+                    Button("New") {
+                        showingNewProjectSheet = true
+                    }
+                    .help("Create New Project")
+                    
+                    Button("Open") {
+                        showingProjectBrowser = true
+                    }
+                    .help("Open Project")
+                    
+                    if let project = projectManager.currentProject {
+                        Button("Save") {
+                            projectManager.saveCurrentProject()
+                        }
+                        .help("Save Project")
+                    }
+                }
+            }
+            
+            ToolbarItem(placement: .principal) {
+                HStack {
+                    if let project = projectManager.currentProject {
+                        Text(project.name)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
+                    // Remove the "TellUrStori DAW" fallback text to avoid duplication
+                }
             }
         }
         .sheet(isPresented: $showingNewProjectSheet) {
@@ -361,29 +386,90 @@ struct NewProjectView: View {
 struct ProjectBrowserView: View {
     @ObservedObject var projectManager: ProjectManager
     @Environment(\.dismiss) private var dismiss
+    @State private var showingDeleteAlert = false
+    @State private var projectToDelete: AudioProject?
     
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(projectManager.recentProjects) { project in
-                    ProjectRowView(project: project) {
-                        projectManager.loadProject(project)
-                        dismiss()
-                    }
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Recent Projects")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                Button("Cancel") {
+                    dismiss()
                 }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
             }
-            .navigationTitle("Recent Projects")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(Color(NSColor.windowBackgroundColor))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color(NSColor.separatorColor)),
+                alignment: .bottom
+            )
+            
+            // Projects List
+            if projectManager.recentProjects.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                    
+                    Text("No Recent Projects")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    
+                    Text("Create a new project to get started")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 1) {
+                        ForEach(projectManager.recentProjects) { project in
+                            ProjectRowView(
+                                project: project,
+                                onSelect: {
+                                    projectManager.loadProject(project)
+                                    dismiss()
+                                },
+                                onDelete: {
+                                    projectToDelete = project
+                                    showingDeleteAlert = true
+                                }
+                            )
+                        }
                     }
                 }
+                .background(Color(NSColor.controlBackgroundColor))
             }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 600, height: 350)
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
         .onAppear {
             projectManager.loadRecentProjects()
+        }
+        .alert("Delete Project", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let project = projectToDelete {
+                    projectManager.deleteProject(project)
+                }
+            }
+        } message: {
+            if let project = projectToDelete {
+                Text("Are you sure you want to delete \"\(project.name)\"? This action cannot be undone.")
+            }
         }
     }
 }
@@ -392,30 +478,105 @@ struct ProjectBrowserView: View {
 struct ProjectRowView: View {
     let project: AudioProject
     let onSelect: () -> Void
+    let onDelete: () -> Void
+    
+    @State private var isHovered = false
     
     var body: some View {
-        Button(action: onSelect) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(project.name)
-                        .font(.headline)
-                    
-                    Text("\(project.trackCount) tracks • \(Int(project.tempo)) BPM")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text("Modified: \(project.modifiedAt, style: .relative)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+        HStack(spacing: 16) {
+            // Project Icon
+            RoundedRectangle(cornerRadius: 8)
+                .fill(LinearGradient(
+                    colors: [Color.blue.opacity(0.7), Color.purple.opacity(0.7)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .frame(width: 48, height: 48)
+                .overlay(
+                    Image(systemName: "music.note")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(.white)
+                )
+            
+            // Project Info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.name)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.primary)
                 
-                Spacer()
+                Text("\(project.trackCount) tracks • \(Int(project.tempo)) BPM")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
                 
-                Image(systemName: "chevron.right")
+                Text("Modified: \(relativeTimeString(from: project.modifiedAt))")
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
-            .contentShape(Rectangle())
+            
+            Spacer()
+            
+            // Actions
+            HStack(spacing: 8) {
+                if isHovered {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14))
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete Project")
+                    .transition(.opacity.combined(with: .scale))
+                }
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isHovered ? Color(NSColor.controlAccentColor).opacity(0.1) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovered = hovering
+            }
+        }
+        .contextMenu {
+            Button("Open Project") {
+                onSelect()
+            }
+            
+            Divider()
+            
+            Button("Delete Project", role: .destructive) {
+                onDelete()
+            }
+        }
+    }
+    
+    private func relativeTimeString(from date: Date) -> String {
+        let now = Date()
+        let timeInterval = now.timeIntervalSince(date)
+        
+        let minutes = Int(timeInterval / 60)
+        let hours = Int(timeInterval / 3600)
+        let days = Int(timeInterval / 86400)
+        
+        if days > 0 {
+            return days == 1 ? "1 day ago" : "\(days) days ago"
+        } else if hours > 0 {
+            return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
+        } else if minutes > 0 {
+            return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
+        } else {
+            return "Just now"
+        }
     }
 }

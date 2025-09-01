@@ -43,7 +43,8 @@ struct TimelineView: View {
                 EmptyTimelineView(onCreateProject: onCreateProject)
             }
         }
-        .frame(minWidth: 1000, minHeight: 400)
+        .frame(minWidth: 600, minHeight: 300)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

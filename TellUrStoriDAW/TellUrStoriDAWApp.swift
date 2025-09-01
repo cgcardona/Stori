@@ -13,8 +13,9 @@ struct TellUrStoriDAWApp: App {
         WindowGroup {
             ContentView()
         }
-        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
+        .defaultSize(width: 1400, height: 900)
+        .windowResizability(.contentSize)
         .commands {
             // File menu commands
             CommandGroup(replacing: .newItem) {

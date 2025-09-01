@@ -10,7 +10,8 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         MainDAWView()
-            .frame(minWidth: 1200, minHeight: 800)
+            .frame(minWidth: 800, minHeight: 600)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
