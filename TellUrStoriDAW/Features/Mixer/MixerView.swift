@@ -113,7 +113,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $highEQ, range: -12...12) { value in
-                        audioEngine.setTrackVolume(track.id, volume: value) // Simplified
+                        // TODO: Implement EQ control
                     }
                     .frame(width: 40, height: 40)
                 }
@@ -152,7 +152,7 @@ struct MixerChannelView: View {
                     .foregroundColor(.secondary)
                 
                 KnobView(value: $pan, range: -1...1) { value in
-                    audioEngine.setTrackPan(track.id, pan: value)
+                    audioEngine.updateTrackPan(trackId: track.id, pan: value)
                 }
                 .frame(width: 40, height: 40)
                 
@@ -170,7 +170,7 @@ struct MixerChannelView: View {
                     .foregroundColor(.secondary)
                 
                 VSliderView(value: $volume, range: 0...1) { value in
-                    audioEngine.setTrackVolume(track.id, volume: value)
+                    audioEngine.updateTrackVolume(trackId: track.id, volume: value)
                 }
                 .frame(width: 30, height: 120)
                 
@@ -183,28 +183,28 @@ struct MixerChannelView: View {
             HStack(spacing: 8) {
                 // Mute
                 Button(action: {
-                    audioEngine.muteTrack(track.id, muted: !track.isMuted)
+                    audioEngine.updateTrackMute(trackId: track.id, isMuted: !track.mixerSettings.isMuted)
                 }) {
                     Text("M")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(track.isMuted ? Color.orange : Color.gray.opacity(0.3))
-                        .foregroundColor(track.isMuted ? .white : .primary)
+                        .background(track.mixerSettings.isMuted ? Color.orange : Color.gray.opacity(0.3))
+                        .foregroundColor(track.mixerSettings.isMuted ? .white : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
                 
                 // Solo
                 Button(action: {
-                    audioEngine.soloTrack(track.id, solo: !track.isSolo)
+                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: !track.mixerSettings.isSolo)
                 }) {
                     Text("S")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(track.isSolo ? Color.yellow : Color.gray.opacity(0.3))
-                        .foregroundColor(track.isSolo ? .black : .primary)
+                        .background(track.mixerSettings.isSolo ? Color.yellow : Color.gray.opacity(0.3))
+                        .foregroundColor(track.mixerSettings.isSolo ? .black : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)

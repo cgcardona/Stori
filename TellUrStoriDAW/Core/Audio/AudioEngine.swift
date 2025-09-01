@@ -23,9 +23,10 @@ class AudioEngine: ObservableObject {
     // MARK: - Private Properties
     private let engine = AVAudioEngine()
     private let mixer = AVAudioMixerNode()
-    private let playerNodes: [AVAudioPlayerNode] = []
+    private var trackNodes: [UUID: TrackAudioNode] = [:]
     private var startTime: TimeInterval = 0
     private var pausedTime: TimeInterval = 0
+    private var soloTracks: Set<UUID> = []
     
     // MARK: - Current Project
     private var currentProject: AudioProject?
@@ -52,8 +53,15 @@ class AudioEngine: ObservableObject {
         engine.connect(mixer, to: engine.outputNode, format: nil)
         
         // Start the engine
+        startAudioEngine()
+    }
+    
+    private func startAudioEngine() {
+        guard !engine.isRunning else { return }
+        
         do {
             try engine.start()
+            print("Audio engine started successfully")
         } catch {
             print("Failed to start audio engine: \(error)")
         }
@@ -97,36 +105,99 @@ class AudioEngine: ObservableObject {
         transportState = .stopped
         stopPlayback()
         currentProject = project
-        setupTracksForProject(project)
+        
+        // Ensure engine is running before setting up tracks
+        startAudioEngine()
+        
+        // Small delay to ensure engine is fully ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.setupTracksForProject(project)
+        }
     }
     
     private func setupTracksForProject(_ project: AudioProject) {
-        // Clear existing setup
-        engine.disconnectNodeOutput(mixer)
+        // Clear existing track nodes
+        clearAllTracks()
         
-        // Setup tracks
+        // Create track nodes for each track
         for track in project.tracks {
-            setupTrack(track)
+            let trackNode = createTrackNode(for: track)
+            trackNodes[track.id] = trackNode
         }
         
-        // Reconnect mixer to output
-        engine.connect(mixer, to: engine.outputNode, format: nil)
+        // Update solo state
+        updateSoloState()
     }
     
-    private func setupTrack(_ track: AudioTrack) {
-        // Create player node for each track
+    private func createTrackNode(for track: AudioTrack) -> TrackAudioNode {
         let playerNode = AVAudioPlayerNode()
-        engine.attach(playerNode)
-        
-        // Apply mixer settings
         let volumeNode = AVAudioMixerNode()
-        engine.attach(volumeNode)
-        volumeNode.outputVolume = track.mixerSettings.volume
-        volumeNode.pan = track.mixerSettings.pan
+        let panNode = AVAudioMixerNode()
         
-        // Connect: player -> volume -> mixer
-        engine.connect(playerNode, to: volumeNode, format: nil)
-        engine.connect(volumeNode, to: mixer, format: nil)
+        // Ensure engine is running before attaching nodes
+        startAudioEngine()
+        
+        // Attach nodes to engine
+        engine.attach(playerNode)
+        engine.attach(volumeNode)
+        engine.attach(panNode)
+        
+        // Connect the audio chain: player -> volume -> pan -> main mixer
+        do {
+            engine.connect(playerNode, to: volumeNode, format: nil)
+            engine.connect(volumeNode, to: panNode, format: nil)
+            engine.connect(panNode, to: mixer, format: nil)
+        } catch {
+            print("Failed to connect audio nodes: \(error)")
+        }
+        
+        let trackNode = TrackAudioNode(
+            id: track.id,
+            playerNode: playerNode,
+            volumeNode: volumeNode,
+            panNode: panNode,
+            volume: track.mixerSettings.volume,
+            pan: track.mixerSettings.pan,
+            isMuted: track.mixerSettings.isMuted,
+            isSolo: track.mixerSettings.isSolo
+        )
+        
+        // Apply initial settings
+        trackNode.setVolume(track.mixerSettings.volume)
+        trackNode.setPan(track.mixerSettings.pan)
+        trackNode.setMuted(track.mixerSettings.isMuted)
+        trackNode.setSolo(track.mixerSettings.isSolo)
+        
+        // Load audio regions for this track
+        for region in track.regions {
+            loadAudioRegion(region, trackNode: trackNode)
+        }
+        
+        return trackNode
+    }
+    
+    private func clearAllTracks() {
+        for (_, trackNode) in trackNodes {
+            // Safely disconnect and remove nodes
+            do {
+                if engine.attachedNodes.contains(trackNode.panNode) {
+                    engine.disconnectNodeInput(trackNode.panNode)
+                    engine.detach(trackNode.panNode)
+                }
+                if engine.attachedNodes.contains(trackNode.volumeNode) {
+                    engine.disconnectNodeInput(trackNode.volumeNode)
+                    engine.detach(trackNode.volumeNode)
+                }
+                if engine.attachedNodes.contains(trackNode.playerNode) {
+                    engine.disconnectNodeInput(trackNode.playerNode)
+                    engine.detach(trackNode.playerNode)
+                }
+            } catch {
+                print("Error clearing track nodes: \(error)")
+            }
+        }
+        trackNodes.removeAll()
+        soloTracks.removeAll()
     }
     
     // MARK: - Transport Controls
@@ -178,11 +249,11 @@ class AudioEngine: ObservableObject {
     }
     
     func stopRecording() {
-        isRecording = false
         if transportState == .recording {
-            transportState = .playing
+            transportState = .stopped
+            isRecording = false
+            stopPlayback()
         }
-        stopRecordingInternal()
     }
     
     // MARK: - Playback Implementation
@@ -388,6 +459,131 @@ class AudioEngine: ObservableObject {
             fileSize: fileSize,
             format: audioFileFormat
         )
+    }
+    
+    // MARK: - Audio Region Loading
+    private func loadAudioRegion(_ region: AudioRegion, trackNode: TrackAudioNode) {
+        let audioFile = region.audioFile
+        
+        do {
+            try trackNode.loadAudioFile(audioFile)
+        } catch {
+            print("Failed to load audio file: \(error)")
+        }
+    }
+    
+    // MARK: - Mixer Controls
+    func updateTrackVolume(trackId: UUID, volume: Float) {
+        guard let trackNode = trackNodes[trackId] else { return }
+        trackNode.setVolume(volume)
+        
+        // Update the project model
+        updateProjectTrackMixerSettings(trackId: trackId) { settings in
+            settings.volume = volume
+        }
+    }
+    
+    func updateTrackPan(trackId: UUID, pan: Float) {
+        guard let trackNode = trackNodes[trackId] else { return }
+        trackNode.setPan(pan)
+        
+        // Update the project model
+        updateProjectTrackMixerSettings(trackId: trackId) { settings in
+            settings.pan = pan
+        }
+    }
+    
+    func updateTrackMute(trackId: UUID, isMuted: Bool) {
+        guard let trackNode = trackNodes[trackId] else { return }
+        trackNode.setMuted(isMuted)
+        
+        // Update the project model
+        updateProjectTrackMixerSettings(trackId: trackId) { settings in
+            settings.isMuted = isMuted
+        }
+    }
+    
+    func updateTrackSolo(trackId: UUID, isSolo: Bool) {
+        guard let trackNode = trackNodes[trackId] else { return }
+        
+        if isSolo {
+            soloTracks.insert(trackId)
+        } else {
+            soloTracks.remove(trackId)
+        }
+        
+        trackNode.setSolo(isSolo)
+        updateSoloState()
+        
+        // Update the project model
+        updateProjectTrackMixerSettings(trackId: trackId) { settings in
+            settings.isSolo = isSolo
+        }
+    }
+    
+    private func updateSoloState() {
+        let hasSoloTracks = !soloTracks.isEmpty
+        
+        for (trackId, trackNode) in trackNodes {
+            if hasSoloTracks {
+                // If there are solo tracks, mute all non-solo tracks
+                let shouldBeMuted = !soloTracks.contains(trackId)
+                trackNode.setMuted(shouldBeMuted || trackNode.isMuted)
+            } else {
+                // If no solo tracks, restore original mute state
+                if let project = currentProject,
+                   let track = project.tracks.first(where: { $0.id == trackId }) {
+                    trackNode.setMuted(track.mixerSettings.isMuted)
+                }
+            }
+        }
+    }
+    
+    private func updateProjectTrackMixerSettings(trackId: UUID, update: (inout MixerSettings) -> Void) {
+        guard var project = currentProject else { return }
+        
+        if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
+            update(&project.tracks[trackIndex].mixerSettings)
+            currentProject = project
+        }
+    }
+    
+
+    
+    func removeTrack(trackId: UUID) {
+        guard var project = currentProject else { return }
+        
+        // Remove from project
+        project.tracks.removeAll { $0.id == trackId }
+        currentProject = project
+        
+        // Remove track node
+        if let trackNode = trackNodes[trackId] {
+            engine.disconnectNodeInput(trackNode.panNode)
+            engine.disconnectNodeInput(trackNode.volumeNode)
+            engine.disconnectNodeInput(trackNode.playerNode)
+            
+            engine.detach(trackNode.panNode)
+            engine.detach(trackNode.volumeNode)
+            engine.detach(trackNode.playerNode)
+            
+            trackNodes.removeValue(forKey: trackId)
+        }
+        
+        // Remove from solo tracks if present
+        soloTracks.remove(trackId)
+        updateSoloState()
+    }
+    
+    // MARK: - Level Monitoring
+    func getTrackLevels() -> [UUID: (current: Float, peak: Float)] {
+        var levels: [UUID: (current: Float, peak: Float)] = [:]
+        
+        for (trackId, trackNode) in trackNodes {
+            levels[trackId] = (current: trackNode.currentLevel, peak: trackNode.peakLevel)
+        }
+        
+        return levels
     }
 }
 

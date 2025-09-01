@@ -201,6 +201,10 @@ class ProjectManager: ObservableObject {
         
         currentProject = project
         saveCurrentProject()
+        
+        // Notify audio engine to create the track node
+        // This would need to be done via a delegate or notification
+        // For now, we'll handle this in the AudioEngine.addTrack method
     }
     
     func removeTrack(_ trackId: UUID) {

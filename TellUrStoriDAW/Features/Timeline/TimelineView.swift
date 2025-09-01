@@ -12,6 +12,7 @@ struct TimelineView: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     @Binding var selectedTrackId: UUID?
+    let onAddTrack: () -> Void
     
     private let trackHeight: CGFloat = 80
     private let pixelsPerSecond: CGFloat = 100
@@ -33,7 +34,7 @@ struct TimelineView: View {
                 
                 // Add track button
                 AddTrackButton {
-                    projectManager.addTrack()
+                    onAddTrack()
                 }
                 .frame(height: 40)
                 
@@ -444,7 +445,8 @@ extension Color {
         project: nil,
         audioEngine: AudioEngine(),
         projectManager: ProjectManager(),
-        selectedTrackId: .constant(nil)
+        selectedTrackId: .constant(nil),
+        onAddTrack: {}
     )
     .frame(width: 1000, height: 600)
 }

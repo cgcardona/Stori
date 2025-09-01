@@ -8,6 +8,28 @@
 import Foundation
 import AVFoundation
 
+// MARK: - Track Type
+enum TrackType: String, Codable, CaseIterable {
+    case audio = "audio"
+    case midi = "midi"
+    case instrument = "instrument"
+    case bus = "bus"
+}
+
+// MARK: - Track Color
+enum TrackColor: String, Codable, CaseIterable {
+    case blue = "#3B82F6"
+    case red = "#EF4444"
+    case green = "#10B981"
+    case yellow = "#F59E0B"
+    case purple = "#8B5CF6"
+    case pink = "#EC4899"
+    case orange = "#F97316"
+    case teal = "#14B8A6"
+    case indigo = "#6366F1"
+    case gray = "#6B7280"
+}
+
 // MARK: - Time Signature
 struct TimeSignature: Codable, Equatable {
     let numerator: Int
@@ -234,6 +256,8 @@ struct MixerSettings: Codable, Equatable {
     var midEQ: Float
     var lowEQ: Float
     var sendLevel: Float
+    var isMuted: Bool
+    var isSolo: Bool
     
     init(
         volume: Float = 0.8,
@@ -241,7 +265,9 @@ struct MixerSettings: Codable, Equatable {
         highEQ: Float = 0.0,
         midEQ: Float = 0.0,
         lowEQ: Float = 0.0,
-        sendLevel: Float = 0.0
+        sendLevel: Float = 0.0,
+        isMuted: Bool = false,
+        isSolo: Bool = false
     ) {
         self.volume = volume
         self.pan = pan
@@ -249,6 +275,8 @@ struct MixerSettings: Codable, Equatable {
         self.midEQ = midEQ
         self.lowEQ = lowEQ
         self.sendLevel = sendLevel
+        self.isMuted = isMuted
+        self.isSolo = isSolo
     }
 }
 

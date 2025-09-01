@@ -14,6 +14,15 @@ struct MainDAWView: View {
     @State private var showingProjectBrowser = false
     @State private var selectedTrackId: UUID?
     
+    // MARK: - Track Management
+    private func addTrack(name: String? = nil) {
+        let trackNumber = (projectManager.currentProject?.tracks.count ?? 0) + 1
+        let trackName = name ?? "Track \(trackNumber)"
+        
+        // Add track to project manager - onChange handler will update audio engine
+        projectManager.addTrack(name: trackName)
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
@@ -43,7 +52,8 @@ struct MainDAWView: View {
                                 project: projectManager.currentProject,
                                 audioEngine: audioEngine,
                                 projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId
+                                selectedTrackId: $selectedTrackId,
+                                onAddTrack: { addTrack() }
                             )
                         }
                     }
@@ -69,14 +79,19 @@ struct MainDAWView: View {
             ProjectBrowserView(projectManager: projectManager)
         }
         .onAppear {
-            // Load the current project into the audio engine
-            if let project = projectManager.currentProject {
-                audioEngine.loadProject(project)
+            // Load the current project into the audio engine with a small delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let project = projectManager.currentProject {
+                    audioEngine.loadProject(project)
+                }
             }
         }
         .onChange(of: projectManager.currentProject) { _, newProject in
             if let project = newProject {
-                audioEngine.loadProject(project)
+                // Small delay to ensure UI is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    audioEngine.loadProject(project)
+                }
             }
         }
     }
