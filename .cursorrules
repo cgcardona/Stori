@@ -415,6 +415,37 @@ Use this format for all commits:
 - **Document testing approaches** and results
 - **Record any external dependencies** or setup requirements
 
+## Code Quality & Maintenance
+
+### MANDATORY: Deadcode Vigilance
+Every coding session MUST include active deadcode removal:
+
+#### 1. Deadcode Detection & Removal
+- **When**: Before every commit and during refactoring
+- **What**: Remove unused imports, functions, variables, classes, and files
+- **Tools**: Use Xcode's "Find Unused Code" and Swift compiler warnings
+- **Principle**: "If it's not used, delete it immediately"
+
+#### 2. Code Bloat Prevention
+- **Unused Imports**: Remove all unused import statements
+- **Unused Variables**: Delete variables that are declared but never read
+- **Unused Functions**: Remove functions/methods with no callers
+- **Unused Classes/Structs**: Delete types that are never instantiated
+- **Commented Code**: Remove commented-out code blocks (use git history instead)
+- **Debug Code**: Remove temporary debug prints and test code
+
+#### 3. Refactoring Standards
+- **DRY Principle**: Eliminate duplicate code through abstraction
+- **Single Responsibility**: Keep functions and classes focused
+- **Minimal Dependencies**: Only import what you actually use
+- **Clean Interfaces**: Remove unused protocol methods and extensions
+
+#### 4. Performance Impact
+- **Compile Time**: Unused code slows down compilation
+- **Binary Size**: Deadcode increases app size unnecessarily
+- **Maintenance**: Unused code creates confusion and technical debt
+- **Cognitive Load**: Clean code is easier to understand and modify
+
 Remember: This is a cutting-edge project combining professional audio software, AI, and blockchain technology. Prioritize user experience, performance, and security in all development decisions. When in doubt, favor the approach that provides the best experience for musicians and creators.
 
 **CRITICAL**: Future agents depend on accurate, up-to-date documentation to continue development effectively. Treat documentation updates as essential as code implementation.
