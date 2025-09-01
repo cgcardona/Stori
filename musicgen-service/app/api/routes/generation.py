@@ -275,6 +275,11 @@ async def process_generation_job(
             "message": "AI model processing prompt..."
         })
         
+        # Create progress callback
+        def update_progress(progress: float):
+            jobs[job_id]["progress"] = progress
+            jobs[job_id]["message"] = f"AI generating music... {int(progress * 100)}%"
+        
         # Generate music
         logger.info(f"🎵 Calling generation_service.generate_music for job {job_id}")
         logger.info(f"📝 Prompt: '{request.prompt}', Duration: {request.duration}s")
@@ -285,7 +290,8 @@ async def process_generation_job(
             temperature=request.temperature,
             top_k=request.top_k,
             top_p=request.top_p,
-            cfg_coef=request.cfg_coef
+            cfg_coef=request.cfg_coef,
+            progress_callback=update_progress
         )
         
         logger.info(f"✅ Generation service returned audio tensor: {audio_tensor.shape} @ {sample_rate}Hz")

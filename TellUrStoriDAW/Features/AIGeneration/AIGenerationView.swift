@@ -1,7 +1,9 @@
 import SwiftUI
+import AVFoundation
 
 struct AIGenerationView: View {
     let targetTrack: AudioTrack
+    @ObservedObject var projectManager: ProjectManager
     @StateObject private var musicGenClient = MusicGenClient()
     @Environment(\.dismiss) private var dismiss
     
@@ -34,15 +36,42 @@ struct AIGenerationView: View {
     let instruments = ["Piano", "Guitar", "Drums", "Bass", "Violin", "Saxophone", "Synthesizer", "Flute", "Trumpet", "Cello"]
     
     var body: some View {
-        NavigationView {
+        VStack(spacing: 0) {
+            // Custom header
+            HStack {
+                Button("Cancel") {
+                    cancelGeneration()
+                    dismiss()
+                }
+                
+                Spacer()
+                
+                Text("Generate AI Music")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                // Invisible button for balance
+                Button("Cancel") {
+                    cancelGeneration()
+                    dismiss()
+                }
+                .opacity(0)
+            }
+            .padding()
+            .background(Color(.windowBackgroundColor))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color(.separatorColor)),
+                alignment: .bottom
+            )
+            
             ScrollView {
                 VStack(spacing: 24) {
-                    // Header
+                    // Track info
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Generate AI Music")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        
                         Text("Creating music for track: \(targetTrack.name)")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
@@ -125,20 +154,12 @@ struct AIGenerationView: View {
                 }
                 .padding()
             }
-            .navigationTitle("AI Generation")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        cancelGeneration()
-                        dismiss()
-                    }
-                }
-            }
-            .alert("Generation Error", isPresented: $showingError) {
-                Button("OK") { }
-            } message: {
-                Text(errorMessage)
-            }
+        }
+        .frame(minWidth: 600, minHeight: 500)
+        .alert("Generation Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
         }
     }
     
@@ -346,13 +367,40 @@ struct AIGenerationView: View {
     }
     
     private func startStatusPolling() {
-        // The MusicGenClient handles status polling internally
-        // We just need to observe the job updates
-        // For now, we'll simulate the completion after a delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.generationProgress = 1.0
-            self.generationStatus = "Generation complete!"
-            self.completeGeneration()
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            Task {
+                await self.pollJobStatus()
+            }
+        }
+    }
+    
+    private func pollJobStatus() async {
+        guard let jobId = currentJobId else { return }
+        
+        do {
+            let status = try await musicGenClient.getJobStatus(jobId: jobId)
+            
+            await MainActor.run {
+                self.generationProgress = status.progress
+                
+                switch status.status.lowercased() {
+                case "pending":
+                    self.generationStatus = "Queued for processing..."
+                case "processing":
+                    self.generationStatus = "AI is creating your music... \(Int(status.progress * 100))%"
+                case "completed":
+                    self.generationStatus = "Generation complete! Downloading..."
+                    self.completeGeneration()
+                case "failed":
+                    self.handleGenerationError(NSError(domain: "MusicGen", code: -1, userInfo: [NSLocalizedDescriptionKey: status.errorMessage ?? "Generation failed"]))
+                default:
+                    self.generationStatus = "Processing... \(Int(status.progress * 100))%"
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.handleGenerationError(error)
+            }
         }
     }
     
@@ -360,7 +408,7 @@ struct AIGenerationView: View {
         statusTimer?.invalidate()
         statusTimer = nil
         
-        generationStatus = "Download complete! Adding to track..."
+        generationStatus = "Downloading audio file..."
         
         Task {
             do {
@@ -370,21 +418,32 @@ struct AIGenerationView: View {
                 let tempURL = try await musicGenClient.downloadAudio(for: jobId)
                 
                 await MainActor.run {
-                    // TODO: Add the audio to the track as an AudioRegion
-                    // This will be implemented when we have the audio region creation system
+                    // Create AudioFile from downloaded audio
+                    self.createAudioRegionFromFile(tempURL)
                     
                     generationStatus = "Success! Audio added to track."
                     isGenerating = false
+                    generationProgress = 1.0
                     
-                    // Auto-dismiss after a short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    print("🎵 Generated audio saved to: \(tempURL)")
+                    
+                    // Auto-dismiss after showing success
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         dismiss()
                     }
                 }
                 
             } catch {
                 await MainActor.run {
-                    handleGenerationError(error)
+                    // If download fails, it might not be ready yet - continue polling
+                    print("⚠️ Download not ready yet, continuing to poll...")
+                    generationStatus = "Still processing... \(Int(generationProgress * 100))%"
+                    
+                    // Restart polling if download fails (file might not be ready)
+                    if !isGenerating {
+                        isGenerating = true
+                        startStatusPolling()
+                    }
                 }
             }
         }
@@ -409,6 +468,51 @@ struct AIGenerationView: View {
         generationProgress = 0.0
         currentJobId = nil
     }
+    
+    private func createAudioRegionFromFile(_ fileURL: URL) {
+        do {
+            // Get audio file information using AVAudioFile
+            let audioFile = try AVAudioFile(forReading: fileURL)
+            let duration = Double(audioFile.length) / audioFile.fileFormat.sampleRate
+            let sampleRate = audioFile.fileFormat.sampleRate
+            let channels = Int(audioFile.fileFormat.channelCount)
+            
+            // Get file size
+            let fileAttributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            let fileSize = fileAttributes[.size] as? Int64 ?? 0
+            
+            // Create AudioFile model
+            let audioFileModel = AudioFile(
+                name: "AI Generated - \(selectedGenre) \(selectedMood)",
+                url: fileURL,
+                duration: duration,
+                sampleRate: sampleRate,
+                channels: channels,
+                bitDepth: 16, // WAV files from MusicGen are typically 16-bit
+                fileSize: fileSize,
+                format: .wav
+            )
+            
+            // Create AudioRegion
+            let audioRegion = AudioRegion(
+                audioFile: audioFileModel,
+                startTime: 0, // Place at beginning of track
+                duration: duration
+            )
+            
+            // Add region to track via project manager
+            var updatedTrack = targetTrack
+            updatedTrack.addRegion(audioRegion)
+            projectManager.updateTrack(updatedTrack)
+            
+            print("✅ Added audio region to track: \(audioFileModel.name)")
+            
+        } catch {
+            print("❌ Failed to create audio region: \(error)")
+            errorMessage = "Failed to add audio to track: \(error.localizedDescription)"
+            showingError = true
+        }
+    }
 }
 
 struct TemplateButtonStyle: ButtonStyle {
@@ -427,8 +531,3 @@ struct TemplateButtonStyle: ButtonStyle {
     }
 }
 
-#Preview {
-    AIGenerationView(targetTrack: AudioTrack(
-        name: "Lead Synth"
-    ))
-}

@@ -39,7 +39,8 @@ class GenerationService:
         temperature: float = 1.0,
         top_k: int = 250,
         top_p: float = 0.0,
-        cfg_coef: float = 3.0
+        cfg_coef: float = 3.0,
+        progress_callback=None
     ) -> Tuple[torch.Tensor, int]:
         """
         Generate music from a text prompt.
@@ -73,7 +74,8 @@ class GenerationService:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
-                cfg_coef=cfg_coef
+                cfg_coef=cfg_coef,
+                progress_callback=progress_callback
             )
             
             # Validate output

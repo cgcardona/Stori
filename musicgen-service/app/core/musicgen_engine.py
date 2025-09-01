@@ -7,6 +7,7 @@ async support and proper resource management.
 
 import asyncio
 import logging
+import os
 import torch
 import torchaudio
 from typing import Optional, Tuple, Dict, Any
@@ -94,11 +95,38 @@ class MusicGenEngine:
         """Load MusicGen model from Hugging Face (runs in thread pool)."""
         try:
             model_name = f"facebook/musicgen-{self.model_size}"
-            logger.info(f"📥 Downloading {model_name} from Hugging Face...")
             
-            # Load model and processor
-            model = MusicgenForConditionalGeneration.from_pretrained(model_name)
-            processor = AutoProcessor.from_pretrained(model_name)
+            # Set up cache directory
+            cache_dir = os.getenv('HF_HOME', os.path.expanduser('~/.cache/huggingface'))
+            logger.info(f"📁 Using Hugging Face cache directory: {cache_dir}")
+            
+            # First try to load from cache
+            try:
+                logger.info(f"🔍 Checking for cached {model_name}...")
+                model = MusicgenForConditionalGeneration.from_pretrained(
+                    model_name, 
+                    local_files_only=True,
+                    cache_dir=cache_dir
+                )
+                processor = AutoProcessor.from_pretrained(
+                    model_name, 
+                    local_files_only=True,
+                    cache_dir=cache_dir
+                )
+                logger.info(f"✅ Loaded {model_name} from cache")
+                
+            except Exception as cache_error:
+                # Cache miss - download from Hugging Face
+                logger.info(f"📥 Cache miss ({cache_error}) - downloading {model_name} from Hugging Face...")
+                model = MusicgenForConditionalGeneration.from_pretrained(
+                    model_name,
+                    cache_dir=cache_dir
+                )
+                processor = AutoProcessor.from_pretrained(
+                    model_name,
+                    cache_dir=cache_dir
+                )
+                logger.info(f"✅ Downloaded and cached {model_name} to {cache_dir}")
             
             # Move to appropriate device
             model = model.to(self.device)
@@ -129,7 +157,8 @@ class MusicGenEngine:
         temperature: float = 1.0,
         top_k: int = 250,
         top_p: float = 0.0,
-        cfg_coef: float = 3.0
+        cfg_coef: float = 3.0,
+        progress_callback=None
     ) -> Tuple[torch.Tensor, int]:
         """
         Generate music from text prompt.
@@ -152,19 +181,56 @@ class MusicGenEngine:
         
         # Generate in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
-        audio_tensor = await loop.run_in_executor(
-            None,
-            self._generate_audio,
-            prompt,
-            duration,
-            temperature,
-            top_k,
-            top_p,
-            cfg_coef
-        )
+        
+        # Start a progress simulation task if callback provided
+        progress_task = None
+        if progress_callback:
+            progress_task = asyncio.create_task(
+                self._simulate_progress(progress_callback, duration)
+            )
+        
+        try:
+            audio_tensor = await loop.run_in_executor(
+                None,
+                self._generate_audio,
+                prompt,
+                duration,
+                temperature,
+                top_k,
+                top_p,
+                cfg_coef
+            )
+        finally:
+            # Cancel progress simulation
+            if progress_task:
+                progress_task.cancel()
+                try:
+                    await progress_task
+                except asyncio.CancelledError:
+                    pass
         
         logger.info("✅ Music generation complete")
         return audio_tensor, self.sample_rate
+    
+    async def _simulate_progress(self, progress_callback, duration: float):
+        """Simulate smooth progress during generation."""
+        try:
+            # Estimate generation time based on duration (roughly 2-4x real-time)
+            estimated_time = max(duration * 2, 10)  # At least 10 seconds
+            
+            # Progress from 0.3 to 0.75 over the estimated time
+            start_progress = 0.3
+            end_progress = 0.75
+            steps = 20  # Number of progress updates
+            
+            for i in range(steps):
+                await asyncio.sleep(estimated_time / steps)
+                progress = start_progress + (end_progress - start_progress) * (i + 1) / steps
+                progress_callback(progress)
+                
+        except asyncio.CancelledError:
+            # Generation completed, final progress will be set by caller
+            pass
     
     def _generate_audio(self, prompt: str, duration: float, temperature: float, 
                        top_k: int, top_p: float, cfg_coef: float) -> torch.Tensor:

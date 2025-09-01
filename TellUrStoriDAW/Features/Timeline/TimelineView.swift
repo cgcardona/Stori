@@ -233,7 +233,7 @@ struct TrackHeaderView: View {
             onSelect()
         }
         .sheet(isPresented: $showingAIGeneration) {
-            AIGenerationView(targetTrack: track)
+            AIGenerationView(targetTrack: track, projectManager: projectManager)
         }
     }
 }

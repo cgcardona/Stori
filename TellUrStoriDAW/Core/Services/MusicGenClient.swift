@@ -106,6 +106,20 @@ class MusicGenClient: ObservableObject {
     }
     
     // MARK: - Status Tracking
+    func getJobStatus(jobId: String) async throws -> GenerationStatusResponse {
+        let statusURL = baseURL.appendingPathComponent("api/v1/status/\(jobId)")
+        let (data, response) = try await session.data(from: statusURL)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw MusicGenError.requestFailed("Failed to get job status")
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(GenerationStatusResponse.self, from: data)
+    }
+    
     private func startStatusPolling(for jobId: String) {
         Timer.publish(every: 2.0, on: .main, in: .common)
             .autoconnect()
