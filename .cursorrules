@@ -354,4 +354,67 @@ function mintSTEM(address to, uint256 amount) external {
 - Set up alerts for critical system failures
 - Regular performance reviews and optimization
 
+## Documentation Requirements
+
+### MANDATORY: Always Update Project Documentation
+Every coding session MUST include updates to these key documentation files:
+
+#### 1. Implementation Roadmap Updates
+- **File**: `TellUrStori-V2-Implementation-Roadmap.md`
+- **When**: After completing any task or making significant progress
+- **What**: Update checklist items from [ ] to [x], add completion dates, document any architectural decisions
+- **Format**: Mark completed items with ✅ and current date
+
+#### 2. Agent Onboarding Updates
+- **File**: `agent-onboarding.md`
+- **When**: When you discover something important that future agents should know
+- **What**: Add insights about architecture, gotchas, development patterns, or setup requirements
+- **Purpose**: Help future agents get up to speed quickly without losing context
+
+#### 3. Status Documentation Pattern
+```markdown
+## Current Status: [Phase] - [Date]
+### ✅ Recently Completed
+- [List what was just finished]
+
+### 🔄 Currently Working On
+- [Current focus areas]
+
+### 🎯 Next Priorities
+- [What should be tackled next]
+
+### 💡 Key Insights
+- [Important discoveries or decisions]
+```
+
+#### 4. Commit Message Standards
+Use this format for all commits:
+```
+🎵 [Phase]: [Brief Description]
+
+✅ Completed:
+- [Specific accomplishments]
+
+🏗️ Architecture:
+- [Any architectural changes]
+
+🎯 Next: [What should be done next]
+```
+
+### Documentation Workflow
+1. **Before Starting**: Read current status in `agent-onboarding.md`
+2. **During Development**: Take notes on insights and decisions
+3. **After Each Major Change**: Update roadmap progress
+4. **End of Session**: Update agent onboarding with new insights
+5. **Before Committing**: Ensure documentation reflects current state
+
+### Context Preservation
+- **Always document WHY** decisions were made, not just what was implemented
+- **Include performance considerations** and trade-offs
+- **Note any deviations** from the original plan and reasons
+- **Document testing approaches** and results
+- **Record any external dependencies** or setup requirements
+
 Remember: This is a cutting-edge project combining professional audio software, AI, and blockchain technology. Prioritize user experience, performance, and security in all development decisions. When in doubt, favor the approach that provides the best experience for musicians and creators.
+
+**CRITICAL**: Future agents depend on accurate, up-to-date documentation to continue development effectively. Treat documentation updates as essential as code implementation.
