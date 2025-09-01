@@ -1,0 +1,357 @@
+# TellUrStori V2 - Digital Audio Workstation with AI Music Generation & NFT Tokenization
+# Swift/SwiftUI DAW + Python MusicGen Backend + Avalanche L1 Blockchain
+
+## Project Overview
+You are working on TellUrStori V2, an innovative digital audio workstation that combines:
+- Professional DAW functionality in Swift/SwiftUI
+- AI music generation using Meta's AudioCraft MusicGen
+- NFT tokenization of STEMs on custom Avalanche L1
+- Comprehensive marketplace for trading music NFTs
+
+## Core Technologies
+- **Frontend**: Swift 6, SwiftUI, AVFoundation, Core Audio, Metal
+- **AI Backend**: Python 3.11+, PyTorch, AudioCraft MusicGen, FastAPI
+- **Blockchain**: Solidity, Hardhat, OpenZeppelin, Avalanche L1
+- **Infrastructure**: Docker, Redis, PostgreSQL, IPFS, GraphQL
+
+## Development Philosophy
+- **Performance First**: Audio applications demand < 10ms latency
+- **Apple Ecosystem Excellence**: Leverage native frameworks and design patterns
+- **Startup Velocity**: Balance rapid iteration with code quality
+- **User Experience**: Prioritize intuitive, delightful interactions
+- **Security**: Blockchain and audio data require robust security practices
+
+## Swift/SwiftUI Guidelines
+
+### Code Style
+- Use Swift 6 modern concurrency (async/await, actors, structured concurrency)
+- Prefer SwiftUI over UIKit for new development
+- Follow Apple's Swift API Design Guidelines
+- Use meaningful, descriptive names for all identifiers
+- Leverage Swift's type system for safety and clarity
+
+### Architecture Patterns
+- **MVVM**: Use ObservableObject and @Published for state management
+- **Dependency Injection**: Use protocols and dependency containers
+- **Modular Design**: Separate concerns into focused Swift packages
+- **Reactive Programming**: Use Combine for data flow and async operations
+- **Error Handling**: Use Result types and structured error handling
+
+### Audio Development
+- Always use real-time safe code in audio callbacks
+- Avoid memory allocation in audio render threads
+- Use SIMD and Accelerate framework for performance-critical operations
+- Implement proper buffer management with circular buffers
+- Profile audio code with Instruments regularly
+
+### SwiftUI Best Practices
+- Use @StateObject for view model ownership
+- Prefer @ObservedObject for passed-in dependencies
+- Use @State for simple view-local state
+- Implement custom ViewModifiers for reusable styling
+- Use PreferenceKeys for child-to-parent communication
+- Optimize with LazyVStack/LazyHStack for large datasets
+
+### Testing
+- Write unit tests for all business logic
+- Use XCTest for standard testing
+- Implement UI tests for critical user flows
+- Mock external dependencies (network, file system)
+- Test audio components with synthetic data
+- Aim for 90%+ code coverage
+
+## Python Backend Guidelines
+
+### Code Style
+- Follow PEP 8 style guidelines
+- Use type hints for all function signatures
+- Prefer async/await for I/O operations
+- Use dataclasses or Pydantic models for data structures
+- Document all public APIs with docstrings
+
+### FastAPI Development
+- Use dependency injection for database and service dependencies
+- Implement proper error handling with HTTPException
+- Use Pydantic models for request/response validation
+- Add comprehensive OpenAPI documentation
+- Implement rate limiting and authentication middleware
+
+### AI/ML Best Practices
+- Cache model weights to avoid repeated loading
+- Use GPU acceleration when available
+- Implement proper memory management for large models
+- Add progress tracking for long-running operations
+- Handle model inference errors gracefully
+
+### Performance
+- Use Redis for caching frequently accessed data
+- Implement connection pooling for database access
+- Use Celery for background task processing
+- Monitor memory usage during model inference
+- Profile code with cProfile for bottlenecks
+
+## Blockchain Development Guidelines
+
+### Smart Contract Development
+- Use OpenZeppelin contracts as base implementations
+- Follow Checks-Effects-Interactions pattern
+- Implement proper access controls
+- Use events for off-chain indexing
+- Add comprehensive NatSpec documentation
+- Test with 95%+ code coverage
+
+### Security Best Practices
+- Audit all smart contracts before deployment
+- Use multi-signature wallets for admin functions
+- Implement reentrancy guards where needed
+- Validate all inputs and handle edge cases
+- Use established patterns for upgradeable contracts
+
+### Gas Optimization
+- Minimize storage operations
+- Use packed structs where appropriate
+- Batch operations when possible
+- Consider L2 solutions for high-frequency operations
+- Profile gas usage in tests
+
+## File Organization
+
+### Swift Project Structure
+```
+TellUrStoriDAW/
+├── Sources/
+│   ├── TellUrStoriDAW/           # Main app target
+│   ├── AudioEngine/              # Core audio processing
+│   ├── UIComponents/             # Reusable SwiftUI components
+│   ├── Models/                   # Data models and business logic
+│   └── Services/                 # External service integrations
+├── Tests/                        # Unit and integration tests
+└── Resources/                    # Assets, localizations, etc.
+```
+
+### Python Service Structure
+```
+musicgen-service/
+├── app/
+│   ├── api/                      # FastAPI routes and models
+│   ├── core/                     # Business logic and AI models
+│   ├── services/                 # External service integrations
+│   └── utils/                    # Utility functions
+├── tests/                        # Test suite
+└── requirements/                 # Dependency management
+```
+
+### Blockchain Structure
+```
+blockchain/
+├── contracts/                    # Solidity smart contracts
+├── scripts/                      # Deployment and utility scripts
+├── test/                         # Contract test suite
+└── deployments/                  # Deployment artifacts
+```
+
+## Naming Conventions
+
+### Swift
+- **Classes/Structs**: PascalCase (AudioEngine, TrackManager)
+- **Functions/Variables**: camelCase (playAudio, currentTrack)
+- **Constants**: camelCase (maxBufferSize, defaultSampleRate)
+- **Protocols**: PascalCase, often with -able suffix (Playable, Recordable)
+- **Enums**: PascalCase with lowercase cases (PlaybackState.playing)
+
+### Python
+- **Classes**: PascalCase (MusicGenEngine, AudioProcessor)
+- **Functions/Variables**: snake_case (generate_music, audio_file)
+- **Constants**: UPPER_SNAKE_CASE (MAX_DURATION, DEFAULT_SAMPLE_RATE)
+- **Modules**: lowercase with underscores (audio_utils, prompt_builder)
+
+### Solidity
+- **Contracts**: PascalCase (TellUrStoriSTEM, STEMMarketplace)
+- **Functions**: camelCase (mintSTEM, createListing)
+- **Variables**: camelCase (tokenId, pricePerToken)
+- **Constants**: UPPER_SNAKE_CASE (MAX_SUPPLY, MARKETPLACE_FEE)
+
+## Performance Requirements
+
+### Audio Performance
+- **Latency**: < 10ms round-trip audio latency
+- **CPU Usage**: < 30% on Apple Silicon M1/M2
+- **Memory**: < 500MB for typical 8-track project
+- **Startup Time**: < 2 seconds to ready state
+
+### AI Generation
+- **Generation Time**: < 60 seconds for 30s audio clip
+- **Model Loading**: < 30 seconds cold start
+- **Memory Usage**: < 8GB VRAM for medium model
+- **Concurrent Processing**: Support 10+ simultaneous generations
+
+### Blockchain
+- **Transaction Time**: < 5 seconds on Avalanche L1
+- **Gas Optimization**: Minimize transaction costs
+- **Indexing Latency**: < 1 second for new events
+- **API Response**: < 200ms for standard queries
+
+## Error Handling
+
+### Swift
+```swift
+// Use Result types for operations that can fail
+func loadAudioFile(url: URL) -> Result<AudioFile, AudioError> {
+    // Implementation
+}
+
+// Use async throws for async operations
+func generateMusic(prompt: String) async throws -> AudioFile {
+    // Implementation
+}
+```
+
+### Python
+```python
+# Use custom exception classes
+class MusicGenError(Exception):
+    """Base exception for MusicGen operations"""
+    pass
+
+# Handle errors gracefully in API endpoints
+@app.post("/generate")
+async def generate_music(request: GenerationRequest):
+    try:
+        result = await music_gen_service.generate(request.prompt)
+        return result
+    except MusicGenError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+```
+
+### Solidity
+```solidity
+// Use custom errors for gas efficiency
+error InsufficientBalance(uint256 required, uint256 available);
+
+// Validate inputs and provide clear error messages
+function mintSTEM(address to, uint256 amount) external {
+    if (amount == 0) revert InvalidAmount();
+    if (to == address(0)) revert InvalidAddress();
+    // Implementation
+}
+```
+
+## Documentation Standards
+
+### Code Documentation
+- Document all public APIs with comprehensive examples
+- Include performance characteristics in documentation
+- Document error conditions and handling strategies
+- Use inline comments for complex algorithms
+- Maintain up-to-date README files for each component
+
+### API Documentation
+- Use OpenAPI/Swagger for REST APIs
+- Document all GraphQL schemas
+- Include example requests and responses
+- Document rate limits and authentication requirements
+- Provide SDK examples for common use cases
+
+## Security Guidelines
+
+### General Security
+- Never commit secrets or private keys to version control
+- Use environment variables for configuration
+- Implement proper input validation and sanitization
+- Use HTTPS for all external communications
+- Regular dependency updates and security audits
+
+### Blockchain Security
+- Use hardware wallets for production deployments
+- Implement multi-signature requirements for critical operations
+- Regular smart contract audits by third parties
+- Monitor for unusual transaction patterns
+- Implement emergency pause mechanisms
+
+### Audio Security
+- Validate audio file formats and sizes
+- Implement rate limiting for resource-intensive operations
+- Secure temporary file handling
+- Protect against audio-based attacks (buffer overflows, etc.)
+
+## Testing Strategy
+
+### Unit Testing
+- Test all business logic with comprehensive unit tests
+- Mock external dependencies for isolated testing
+- Use property-based testing for complex algorithms
+- Test error conditions and edge cases
+- Maintain high code coverage (90%+ for critical components)
+
+### Integration Testing
+- Test API endpoints with realistic data
+- Test blockchain interactions on testnets
+- Test audio processing with various file formats
+- Test cross-service communication
+- Performance testing under load
+
+### User Acceptance Testing
+- Test complete user workflows
+- Validate audio quality and performance
+- Test blockchain transactions end-to-end
+- Gather feedback from musicians and producers
+- Accessibility testing for inclusive design
+
+## Deployment Guidelines
+
+### Development Environment
+- Use Docker for consistent development environments
+- Implement hot reloading for rapid iteration
+- Use environment-specific configuration
+- Maintain separate databases for development/testing
+- Document setup procedures clearly
+
+### Production Deployment
+- Use infrastructure as code (Terraform, CloudFormation)
+- Implement blue-green deployments for zero downtime
+- Monitor application performance and errors
+- Implement proper logging and alerting
+- Regular backups and disaster recovery procedures
+
+## Code Review Standards
+
+### Review Checklist
+- [ ] Code follows established style guidelines
+- [ ] All tests pass and coverage is maintained
+- [ ] Performance requirements are met
+- [ ] Security best practices are followed
+- [ ] Documentation is updated
+- [ ] Error handling is comprehensive
+- [ ] No hardcoded secrets or configuration
+
+### Review Process
+- All code must be reviewed before merging
+- Focus on architecture, security, and performance
+- Provide constructive feedback with examples
+- Test locally when reviewing significant changes
+- Ensure backward compatibility is maintained
+
+## Additional Guidelines
+
+### Accessibility
+- Implement VoiceOver support for all UI elements
+- Use semantic colors and support dark mode
+- Provide keyboard navigation alternatives
+- Test with assistive technologies
+- Follow WCAG guidelines for web components
+
+### Internationalization
+- Use localized strings for all user-facing text
+- Support right-to-left languages where applicable
+- Format numbers, dates, and currencies appropriately
+- Test with different locales and languages
+- Consider cultural differences in UX design
+
+### Analytics and Monitoring
+- Implement privacy-respecting analytics
+- Monitor application performance metrics
+- Track user engagement and feature usage
+- Set up alerts for critical system failures
+- Regular performance reviews and optimization
+
+Remember: This is a cutting-edge project combining professional audio software, AI, and blockchain technology. Prioritize user experience, performance, and security in all development decisions. When in doubt, favor the approach that provides the best experience for musicians and creators.
