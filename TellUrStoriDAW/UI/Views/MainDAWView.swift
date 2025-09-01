@@ -48,13 +48,14 @@ struct MainDAWView: View {
                         
                         // Tracks area
                         ScrollView([.horizontal, .vertical]) {
-                            TimelineView(
-                                project: projectManager.currentProject,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId,
-                                onAddTrack: { addTrack() }
-                            )
+                                            TimelineView(
+                    project: projectManager.currentProject,
+                    audioEngine: audioEngine,
+                    projectManager: projectManager,
+                    selectedTrackId: $selectedTrackId,
+                    onAddTrack: { addTrack() },
+                    onCreateProject: { showingNewProjectSheet = true }
+                )
                         }
                     }
                     
@@ -235,50 +236,118 @@ struct NewProjectView: View {
     @ObservedObject var projectManager: ProjectManager
     @Environment(\.dismiss) private var dismiss
     
-    @State private var projectName = "Untitled Project"
+    @State private var projectName = "Untitled"
     @State private var tempo: Double = 120
     @State private var timeSignature = TimeSignature.fourFour
     @State private var sampleRate: Double = 44100
     
     var body: some View {
-        NavigationView {
-            Form {
-                Section("Project Settings") {
-                    TextField("Project Name", text: $projectName)
-                    
-                    HStack {
-                        Text("Tempo")
-                        Spacer()
-                        TextField("BPM", value: $tempo, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                    }
-                    
-                    Picker("Sample Rate", selection: $sampleRate) {
-                        Text("44.1 kHz").tag(44100.0)
-                        Text("48 kHz").tag(48000.0)
-                        Text("96 kHz").tag(96000.0)
-                    }
-                }
+        VStack(spacing: 0) {
+            // Header
+            VStack(spacing: 8) {
+                Text("Project")
+                    .font(.title2)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
             }
-            .navigationTitle("New Project")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            .padding(.top, 32)
+            .padding(.bottom, 24)
+            
+            // Form Content
+            VStack(spacing: 20) {
+                // Project Name
+                HStack {
+                    Text("Project Name")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(width: 120, alignment: .trailing)
+                    
+                    TextField("Untitled", text: $projectName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
                 }
                 
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        projectManager.createNewProject(name: projectName, tempo: tempo)
-                        dismiss()
+                // BPM
+                HStack {
+                    Text("BPM")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(width: 120, alignment: .trailing)
+                    
+                    TextField("120", value: $tempo, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                }
+                
+                // Sample Rate
+                HStack {
+                    Text("Sample Rate")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(width: 120, alignment: .trailing)
+                    
+                    Menu {
+                        Button("44.1 kHz") { sampleRate = 44100.0 }
+                        Button("48 kHz") { sampleRate = 48000.0 }
+                        Button("96 kHz") { sampleRate = 96000.0 }
+                    } label: {
+                        HStack {
+                            Text(sampleRateText)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(NSColor.separatorColor), lineWidth: 1)
+                        )
                     }
-                    .disabled(projectName.isEmpty)
+                    .frame(width: 200)
                 }
             }
+            .padding(.horizontal, 40)
+            
+            Spacer()
+            
+            // Buttons
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                
+                Button("Create") {
+                    projectManager.createNewProject(name: projectName.isEmpty ? "Untitled" : projectName, tempo: tempo)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            }
+            .padding(.bottom, 32)
         }
-        .frame(width: 400, height: 300)
+        .frame(width: 480, height: 320)
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+    }
+    
+    private var sampleRateText: String {
+        switch sampleRate {
+        case 44100: return "44.1 kHz"
+        case 48000: return "48 kHz"
+        case 96000: return "96 kHz"
+        default: return "\(Int(sampleRate/1000)) kHz"
+        }
     }
 }
 
