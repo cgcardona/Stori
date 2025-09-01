@@ -239,8 +239,14 @@ class AudioEngine: ObservableObject {
     }
     
     private func clearAllTracks() {
-        for (_, trackNode) in trackNodes {
-            // Safely disconnect and remove nodes
+        print("Clearing \(trackNodes.count) track nodes...")
+        
+        // First, explicitly clean up each track node to remove taps safely
+        for (trackId, trackNode) in trackNodes {
+            print("Cleaning up track node: \(trackId)")
+            
+            // The TrackAudioNode deinit will handle tap removal safely now
+            // Just disconnect and detach the nodes from the engine
             do {
                 if engine.attachedNodes.contains(trackNode.panNode) {
                     engine.disconnectNodeInput(trackNode.panNode)
@@ -254,12 +260,16 @@ class AudioEngine: ObservableObject {
                     engine.disconnectNodeInput(trackNode.playerNode)
                     engine.detach(trackNode.playerNode)
                 }
+                print("Successfully cleaned up track node: \(trackId)")
             } catch {
-                print("Error clearing track nodes: \(error)")
+                print("Error clearing track node \(trackId): \(error)")
             }
         }
+        
+        // Clear the collections
         trackNodes.removeAll()
         soloTracks.removeAll()
+        print("All track nodes cleared")
     }
     
     // MARK: - Transport Controls

@@ -128,10 +128,21 @@ class TrackAudioNode {
     }
     
     private func removeLevelMonitoring() {
-        if levelTapInstalled {
-            volumeNode.removeTap(onBus: 0)
-            levelTapInstalled = false
+        guard levelTapInstalled else { return }
+        
+        // Safety check: only remove tap if the node is still attached to an engine
+        if volumeNode.engine != nil {
+            do {
+                volumeNode.removeTap(onBus: 0)
+                print("Successfully removed level monitoring tap for track \(id)")
+            } catch {
+                print("Error removing level monitoring tap for track \(id): \(error)")
+            }
+        } else {
+            print("Skipping tap removal for track \(id) - node not attached to engine")
         }
+        
+        levelTapInstalled = false
     }
     
     // MARK: - Audio File Loading
