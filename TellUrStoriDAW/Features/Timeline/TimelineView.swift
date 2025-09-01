@@ -39,11 +39,14 @@ struct TimelineView: View {
                 }
                 .frame(height: 40)
                 
+                // Fill remaining space
+                Spacer()
+                
             } else {
                 EmptyTimelineView(onCreateProject: onCreateProject)
             }
         }
-        .frame(minWidth: 600, minHeight: 300)
+        .frame(minHeight: 300)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

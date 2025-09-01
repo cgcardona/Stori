@@ -38,17 +38,31 @@ struct MainDAWView: View {
                         )
                         .frame(height: 40)
                         
-                        // Tracks area
-                        ScrollView([.horizontal, .vertical]) {
-                                            TimelineView(
-                    project: projectManager.currentProject,
-                    audioEngine: audioEngine,
-                    projectManager: projectManager,
-                    selectedTrackId: $selectedTrackId,
-                    onAddTrack: { addTrack() },
-                    onCreateProject: { showingNewProjectSheet = true }
-                )
+                        // Step 4: Horizontal-only ScrollView
+                        ScrollView(.horizontal) {
+                            TimelineView(
+                                project: projectManager.currentProject,
+                                audioEngine: audioEngine,
+                                projectManager: projectManager,
+                                selectedTrackId: $selectedTrackId,
+                                onAddTrack: { addTrack() },
+                                onCreateProject: { showingNewProjectSheet = true }
+                            )
                         }
+                        
+                        // COMMENTED OUT - will add back step by step
+                        /*
+                        ScrollView([.horizontal, .vertical]) {
+                            TimelineView(
+                                project: projectManager.currentProject,
+                                audioEngine: audioEngine,
+                                projectManager: projectManager,
+                                selectedTrackId: $selectedTrackId,
+                                onAddTrack: { addTrack() },
+                                onCreateProject: { showingNewProjectSheet = true }
+                            )
+                        }
+                        */
                     }
                     
                     // Mixer panel
