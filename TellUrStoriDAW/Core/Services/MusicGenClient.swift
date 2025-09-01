@@ -1,12 +1,14 @@
-"""
-MusicGen Client
-
-Swift client for communicating with the MusicGen AI backend service.
-Handles music generation requests, status tracking, and file downloads.
-"""
+//
+//  MusicGenClient.swift
+//  TellUrStoriDAW
+//
+//  Swift client for communicating with the MusicGen AI backend service.
+//  Handles music generation requests, status tracking, and file downloads.
+//
 
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 class MusicGenClient: ObservableObject {
@@ -24,7 +26,11 @@ class MusicGenClient: ObservableObject {
     // MARK: - Initialization
     init(baseURL: String = "http://127.0.0.1:8000") {
         self.baseURL = URL(string: baseURL)!
-        checkConnection()
+        
+        // Check connection asynchronously after initialization
+        Task {
+            await checkConnection()
+        }
     }
     
     // MARK: - Connection Management

@@ -131,6 +131,7 @@ struct TrackHeaderView: View {
     
     @State private var isEditingName = false
     @State private var trackName: String
+    @State private var showingAIGeneration = false
     
     init(track: AudioTrack, audioEngine: AudioEngine, projectManager: ProjectManager, isSelected: Bool, onSelect: @escaping () -> Void) {
         self.track = track
@@ -202,6 +203,16 @@ struct TrackHeaderView: View {
                 }
                 .buttonStyle(.plain)
                 
+                // AI Generation
+                Button(action: {
+                    showingAIGeneration = true
+                }) {
+                    Image(systemName: "wand.and.stars")
+                        .foregroundColor(.purple)
+                }
+                .buttonStyle(.plain)
+                .help("Generate AI Music")
+                
                 Spacer()
                 
                 // Delete track
@@ -220,6 +231,9 @@ struct TrackHeaderView: View {
         .border(Color.gray.opacity(0.3), width: 0.5)
         .onTapGesture {
             onSelect()
+        }
+        .sheet(isPresented: $showingAIGeneration) {
+            AIGenerationView(targetTrack: track)
         }
     }
 }
