@@ -67,7 +67,9 @@ class ProjectManager: ObservableObject {
                 // Load project data from file
                 let projectURL = projectURL(for: project.id)
                 let data = try Data(contentsOf: projectURL)
-                let loadedProject = try JSONDecoder().decode(AudioProject.self, from: data)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let loadedProject = try decoder.decode(AudioProject.self, from: data)
                 
                 await MainActor.run {
                     currentProject = loadedProject
@@ -92,10 +94,17 @@ class ProjectManager: ObservableObject {
             for file in projectFiles where file.pathExtension == "tellur" {
                 do {
                     let data = try Data(contentsOf: file)
-                    let project = try JSONDecoder().decode(AudioProject.self, from: data)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    let project = try decoder.decode(AudioProject.self, from: data)
                     recentProjects.append(project)
                 } catch {
                     print("Failed to load project file \(file.lastPathComponent): \(error)")
+                    // Optionally delete corrupted files in development
+                    #if DEBUG
+                    try? FileManager.default.removeItem(at: file)
+                    print("Removed corrupted project file: \(file.lastPathComponent)")
+                    #endif
                 }
             }
             
