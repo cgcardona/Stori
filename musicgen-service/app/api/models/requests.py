@@ -86,7 +86,7 @@ class PromptBuilderRequest(BaseModel):
     )
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "genre": "electronic",
                 "tempo": "fast",

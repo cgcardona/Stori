@@ -13,12 +13,22 @@ from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 
 try:
+    # Try Hugging Face transformers approach first
+    from transformers import MusicgenForConditionalGeneration, AutoProcessor
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+try:
+    # Fallback to AudioCraft if available
     from audiocraft.models import MusicGen
     from audiocraft.data.audio import audio_write
+    AUDIOCRAFT_AVAILABLE = True
 except ImportError:
-    # Fallback for development without AudioCraft installed
+    # Neither available - use mock
     MusicGen = None
     audio_write = None
+    AUDIOCRAFT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +41,7 @@ class MusicGenEngine:
     GPU optimization, and async/await patterns for integration with FastAPI.
     """
     
-    def __init__(self, model_size: str = "medium"):
+    def __init__(self, model_size: str = "small"):
         """
         Initialize MusicGen engine.
         
@@ -51,30 +61,64 @@ class MusicGenEngine:
         if self.is_initialized:
             return
         
-        if MusicGen is None:
-            logger.warning("AudioCraft not available - using mock implementation")
-            self.model = MockMusicGenModel()
-            self.sample_rate = 44100
-        else:
+        if TRANSFORMERS_AVAILABLE:
+            logger.info("🤗 Loading MusicGen from Hugging Face transformers...")
+            # Load model in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            self.model, self.processor = await loop.run_in_executor(
+                None, 
+                self._load_hf_model
+            )
+            self.sample_rate = self.model.config.audio_encoder.sampling_rate
+            logger.info(f"✅ Hugging Face MusicGen model loaded successfully")
+        elif AUDIOCRAFT_AVAILABLE:
+            logger.info("🎵 Loading MusicGen from AudioCraft...")
             # Load model in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             self.model = await loop.run_in_executor(
                 None, 
-                self._load_model
+                self._load_audiocraft_model
             )
             self.sample_rate = self.model.sample_rate
+            logger.info(f"✅ AudioCraft MusicGen model loaded successfully")
+        else:
+            logger.warning("⚠️ No MusicGen implementation available - using mock")
+            self.model = MockMusicGenModel()
+            self.processor = None
+            self.sample_rate = 44100
         
         self.is_initialized = True
-        logger.info(f"✅ MusicGen model loaded successfully (sample rate: {self.sample_rate})")
+        logger.info(f"✅ MusicGen engine ready (sample rate: {self.sample_rate})")
     
-    def _load_model(self):
-        """Load the MusicGen model (runs in thread pool)."""
+    def _load_hf_model(self):
+        """Load MusicGen model from Hugging Face (runs in thread pool)."""
+        try:
+            model_name = f"facebook/musicgen-{self.model_size}"
+            logger.info(f"📥 Downloading {model_name} from Hugging Face...")
+            
+            # Load model and processor
+            model = MusicgenForConditionalGeneration.from_pretrained(model_name)
+            processor = AutoProcessor.from_pretrained(model_name)
+            
+            # Move to appropriate device
+            model = model.to(self.device)
+            
+            logger.info(f"✅ Successfully loaded {model_name}")
+            return model, processor
+            
+        except Exception as e:
+            logger.error(f"Failed to load Hugging Face MusicGen model: {e}")
+            # Return mock model as fallback
+            return MockMusicGenModel(), None
+    
+    def _load_audiocraft_model(self):
+        """Load MusicGen model from AudioCraft (runs in thread pool)."""
         try:
             model = MusicGen.get_pretrained(f"facebook/musicgen-{self.model_size}")
             model.set_generation_params(duration=30)  # Default 30 seconds
             return model
         except Exception as e:
-            logger.error(f"Failed to load MusicGen model: {e}")
+            logger.error(f"Failed to load AudioCraft MusicGen model: {e}")
             # Return mock model as fallback
             return MockMusicGenModel()
     
@@ -106,42 +150,96 @@ class MusicGenEngine:
         
         logger.info(f"🎵 Generating music: '{prompt}' ({duration}s)")
         
-        # Set generation parameters
-        if hasattr(self.model, 'set_generation_params'):
-            self.model.set_generation_params(
-                duration=duration,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                cfg_coef=cfg_coef
-            )
-        
         # Generate in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
         audio_tensor = await loop.run_in_executor(
             None,
             self._generate_audio,
-            prompt
+            prompt,
+            duration,
+            temperature,
+            top_k,
+            top_p,
+            cfg_coef
         )
         
         logger.info("✅ Music generation complete")
         return audio_tensor, self.sample_rate
     
-    def _generate_audio(self, prompt: str) -> torch.Tensor:
+    def _generate_audio(self, prompt: str, duration: float, temperature: float, 
+                       top_k: int, top_p: float, cfg_coef: float) -> torch.Tensor:
         """Generate audio (runs in thread pool)."""
+        logger.info(f"🎵 _generate_audio called with prompt='{prompt}', duration={duration}")
+        
         try:
             with torch.no_grad():
-                if hasattr(self.model, 'generate'):
-                    # Real MusicGen model
+                if TRANSFORMERS_AVAILABLE and hasattr(self.model, 'generate') and self.processor is not None:
+                    # Hugging Face transformers model
+                    logger.info("🤗 Using Hugging Face MusicGen model")
+                    logger.info(f"📊 Model device: {self.device}, Sample rate: {self.sample_rate}")
+                    
+                    # Process the prompt
+                    logger.info("📝 Processing prompt with tokenizer...")
+                    inputs = self.processor(
+                        text=[prompt],
+                        padding=True,
+                        return_tensors="pt",
+                    ).to(self.device)
+                    logger.info(f"✅ Prompt processed, input shape: {inputs.input_ids.shape}")
+                    
+                    # Calculate max_new_tokens based on duration and sample rate
+                    # Note: MusicGen uses compressed tokens, not raw audio samples
+                    # Use a much smaller token count for reasonable generation time
+                    max_new_tokens = min(int(duration * 50), 1024)  # ~50 tokens per second, max 1024
+                    logger.info(f"🔢 Calculated max_new_tokens: {max_new_tokens} (duration={duration}s, capped for performance)")
+                    
+                    # Generate audio
+                    logger.info("🚀 Starting model.generate() - this may take a while...")
+                    logger.info(f"⚙️ Generation params: guidance_scale={cfg_coef}, temperature={temperature}, top_k={top_k}, top_p={top_p}")
+                    
+                    audio_values = self.model.generate(
+                        **inputs,
+                        do_sample=True,
+                        guidance_scale=cfg_coef,
+                        max_new_tokens=max_new_tokens,
+                        temperature=temperature,
+                        top_k=top_k,
+                        top_p=top_p if top_p > 0 else None,
+                    )
+                    
+                    logger.info(f"✅ Model generation complete! Audio shape: {audio_values.shape}")
+                    
+                    # Return audio tensor
+                    result = audio_values[0].cpu()
+                    logger.info(f"🎵 Returning audio tensor with shape: {result.shape}")
+                    return result
+                    
+                elif AUDIOCRAFT_AVAILABLE and hasattr(self.model, 'generate'):
+                    # AudioCraft model
+                    logger.info("🎵 Using AudioCraft MusicGen model")
+                    
+                    # Set generation parameters
+                    self.model.set_generation_params(
+                        duration=duration,
+                        temperature=temperature,
+                        top_k=top_k,
+                        top_p=top_p,
+                        cfg_coef=cfg_coef
+                    )
+                    
                     wav = self.model.generate([prompt])
                     return wav[0].cpu()  # Return first (and only) generated sample
+                    
                 else:
                     # Mock model
+                    logger.info("🔧 Using mock MusicGen model")
+                    self.model.set_generation_params(duration=duration)
                     return self.model.generate(prompt)
+                    
         except Exception as e:
             logger.error(f"Audio generation failed: {e}")
             # Return silence as fallback
-            duration_samples = int(30 * self.sample_rate)
+            duration_samples = int(duration * self.sample_rate)
             return torch.zeros(1, duration_samples)
     
     async def save_audio(
@@ -193,6 +291,13 @@ class MusicGenEngine:
                 )
             else:
                 # Fallback using torchaudio
+                # Ensure tensor is 2D with shape [channels, samples]
+                if audio_tensor.dim() == 1:
+                    audio_tensor = audio_tensor.unsqueeze(0)  # Add channel dimension
+                elif audio_tensor.dim() == 2 and audio_tensor.shape[0] > audio_tensor.shape[1]:
+                    # If shape is [samples, channels], transpose to [channels, samples]
+                    audio_tensor = audio_tensor.transpose(0, 1)
+                
                 torchaudio.save(str(output_path), audio_tensor, sample_rate)
         except Exception as e:
             logger.error(f"Failed to save audio: {e}")
@@ -227,14 +332,16 @@ class MockMusicGenModel:
     
     def __init__(self):
         self.sample_rate = 44100
+        self.duration = 30.0  # Default duration
     
-    def set_generation_params(self, **kwargs):
+    def set_generation_params(self, duration=None, **kwargs):
         """Mock parameter setting."""
-        pass
+        if duration is not None:
+            self.duration = duration
     
     def generate(self, prompt: str) -> torch.Tensor:
         """Generate mock audio (sine wave)."""
-        duration = 30  # seconds
+        duration = self.duration
         sample_rate = self.sample_rate
         
         # Generate a simple sine wave as placeholder
@@ -242,4 +349,5 @@ class MockMusicGenModel:
         frequency = 440.0  # A4 note
         audio = 0.3 * torch.sin(2 * torch.pi * frequency * t)
         
-        return audio.unsqueeze(0)  # Add batch dimension
+        # Return as 2D tensor: [batch_size, samples] -> [1, samples]
+        return audio.unsqueeze(0)

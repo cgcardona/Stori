@@ -32,7 +32,7 @@ class GenerationResponse(BaseModel):
     )
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "job_id": "gen_123456789",
                 "status": "processing",
@@ -99,7 +99,7 @@ class PromptBuilderResponse(BaseModel):
     )
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "structured_prompt": "electronic music, fast tempo, energetic mood, featuring synthesizer and drums, similar to Daft Punk, with a futuristic vibe",
                 "components": {

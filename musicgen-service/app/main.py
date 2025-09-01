@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     try:
         # Initialize MusicGen engine
         logger.info("Loading MusicGen model...")
-        musicgen_engine = MusicGenEngine(model_size="medium")
+        musicgen_engine = MusicGenEngine(model_size="small")
         await musicgen_engine.initialize()
         
         # Initialize generation service

@@ -269,7 +269,16 @@ async def process_generation_job(
         
         logger.info(f"🎵 Processing generation job {job_id}")
         
+        # Update progress to show we're starting AI generation
+        jobs[job_id].update({
+            "progress": 0.3,
+            "message": "AI model processing prompt..."
+        })
+        
         # Generate music
+        logger.info(f"🎵 Calling generation_service.generate_music for job {job_id}")
+        logger.info(f"📝 Prompt: '{request.prompt}', Duration: {request.duration}s")
+        
         audio_tensor, sample_rate = await generation_service.generate_music(
             prompt=request.prompt,
             duration=request.duration,
@@ -278,6 +287,8 @@ async def process_generation_job(
             top_p=request.top_p,
             cfg_coef=request.cfg_coef
         )
+        
+        logger.info(f"✅ Generation service returned audio tensor: {audio_tensor.shape} @ {sample_rate}Hz")
         
         # Update progress
         jobs[job_id]["progress"] = 0.8
@@ -292,7 +303,13 @@ async def process_generation_job(
         
         # Get file info
         file_size = audio_path.stat().st_size
-        actual_duration = len(audio_tensor[0]) / sample_rate
+        # Handle tensor dimensions safely
+        if audio_tensor.dim() == 1:
+            actual_duration = len(audio_tensor) / sample_rate
+        elif audio_tensor.dim() == 2:
+            actual_duration = audio_tensor.shape[-1] / sample_rate  # Use last dimension (samples)
+        else:
+            actual_duration = request.duration  # Fallback to requested duration
         
         # Update job as completed
         jobs[job_id].update({
