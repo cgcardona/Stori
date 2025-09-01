@@ -80,10 +80,16 @@ struct MainDAWView: View {
             ProjectBrowserView(projectManager: projectManager)
         }
         .onAppear {
-            // Load the current project into the audio engine with a small delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Start the audio engine first
+            print("MainDAWView appeared, initializing audio engine...")
+            
+            // Give the audio engine a moment to initialize
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 if let project = projectManager.currentProject {
+                    print("Loading existing project into audio engine...")
                     audioEngine.loadProject(project)
+                } else {
+                    print("No existing project, audio engine ready for new project creation")
                 }
             }
         }

@@ -57,13 +57,36 @@ class AudioEngine: ObservableObject {
     }
     
     private func startAudioEngine() {
-        guard !engine.isRunning else { return }
+        guard !engine.isRunning else { 
+            print("Audio engine already running")
+            return 
+        }
         
         do {
+            // Ensure we have proper audio format
+            let format = engine.outputNode.outputFormat(forBus: 0)
+            print("Starting audio engine with format: \(format)")
+            
             try engine.start()
             print("Audio engine started successfully")
+            
+            // Verify it's actually running
+            if !engine.isRunning {
+                print("Warning: Engine reports not running after start attempt")
+            }
         } catch {
             print("Failed to start audio engine: \(error)")
+            
+            // Try to reset and start again
+            engine.stop()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                do {
+                    try self.engine.start()
+                    print("Audio engine started on retry")
+                } catch {
+                    print("Failed to start audio engine on retry: \(error)")
+                }
+            }
         }
     }
     
@@ -109,9 +132,18 @@ class AudioEngine: ObservableObject {
         // Ensure engine is running before setting up tracks
         startAudioEngine()
         
-        // Small delay to ensure engine is fully ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.setupTracksForProject(project)
+        // Wait a bit longer to ensure engine is fully ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // Double-check engine is still running
+            if self.engine.isRunning {
+                self.setupTracksForProject(project)
+            } else {
+                print("Engine not running, retrying...")
+                self.startAudioEngine()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.setupTracksForProject(project)
+                }
+            }
         }
     }
     
@@ -135,7 +167,25 @@ class AudioEngine: ObservableObject {
         let panNode = AVAudioMixerNode()
         
         // Ensure engine is running before attaching nodes
-        startAudioEngine()
+        if !engine.isRunning {
+            print("Warning: Engine not running, starting it now...")
+            startAudioEngine()
+            // Give it a moment to start
+            Thread.sleep(forTimeInterval: 0.15)
+            if !engine.isRunning {
+                print("Error: Audio engine failed to start")
+                return TrackAudioNode(
+                    id: track.id,
+                    playerNode: playerNode,
+                    volumeNode: volumeNode,
+                    panNode: panNode,
+                    volume: track.mixerSettings.volume,
+                    pan: track.mixerSettings.pan,
+                    isMuted: track.mixerSettings.isMuted,
+                    isSolo: track.mixerSettings.isSolo
+                )
+            }
+        }
         
         // Attach nodes to engine
         engine.attach(playerNode)
@@ -147,8 +197,20 @@ class AudioEngine: ObservableObject {
             engine.connect(playerNode, to: volumeNode, format: nil)
             engine.connect(volumeNode, to: panNode, format: nil)
             engine.connect(panNode, to: mixer, format: nil)
+            print("Successfully created and connected track node for: \(track.name)")
         } catch {
             print("Failed to connect audio nodes: \(error)")
+            // Return a basic track node without connections if connection fails
+            return TrackAudioNode(
+                id: track.id,
+                playerNode: playerNode,
+                volumeNode: volumeNode,
+                panNode: panNode,
+                volume: track.mixerSettings.volume,
+                pan: track.mixerSettings.pan,
+                isMuted: track.mixerSettings.isMuted,
+                isSolo: track.mixerSettings.isSolo
+            )
         }
         
         let trackNode = TrackAudioNode(
