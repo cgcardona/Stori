@@ -106,7 +106,10 @@ class AudioEngine: ObservableObject {
     }
     
     private func updatePosition() {
-        guard transportState.isPlaying else { return }
+        guard transportState.isPlaying else { 
+            // print("⏸️ Not playing, skipping position update")
+            return 
+        }
         
         let currentTime = CACurrentMediaTime()
         let elapsed = currentTime - startTime + pausedTime
@@ -117,6 +120,12 @@ class AudioEngine: ObservableObject {
                 tempo: project.tempo,
                 timeSignature: project.timeSignature
             )
+        }
+        
+        // Debug: Log position update every few seconds
+        let currentTimeInterval = currentPosition.timeInterval
+        if Int(currentTimeInterval * 10) % 20 == 0 { // Every 2 seconds
+            print("⏱️ Position update: \(String(format: "%.2f", currentTimeInterval))s, playing=\(transportState.isPlaying)")
         }
         
         // Check for cycle loop
@@ -927,7 +936,12 @@ class AudioEngine: ObservableObject {
         }
         
         let currentTime = currentPosition.timeInterval
-        print("🔄 Cycle check: current=\(String(format: "%.2f", currentTime))s, end=\(String(format: "%.2f", cycleEndTime))s, enabled=\(isCycleEnabled)")
+        
+        // Log cycle check every second when close to end
+        let timeToEnd = cycleEndTime - currentTime
+        if timeToEnd <= 1.0 || Int(currentTime * 4) % 4 == 0 { // Every 0.25s when close, or every 0.25s generally
+            print("🔄 Cycle check: current=\(String(format: "%.2f", currentTime))s, end=\(String(format: "%.2f", cycleEndTime))s, timeToEnd=\(String(format: "%.2f", timeToEnd))s")
+        }
         
         if currentTime >= cycleEndTime {
             print("🔄 LOOPING! Cycling back to start: \(cycleStartTime)s")
