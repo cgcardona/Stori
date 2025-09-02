@@ -52,7 +52,7 @@ struct TellUrStoriDAWApp: App {
                 Button("Delete Track") {
                     NotificationCenter.default.post(name: .deleteTrack, object: nil)
                 }
-                .keyboardShortcut(.delete)
+                .keyboardShortcut(.delete, modifiers: .command)
             }
             
             // Transport commands

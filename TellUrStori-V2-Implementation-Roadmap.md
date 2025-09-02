@@ -2432,14 +2432,20 @@ services:
   - Dynamic level meter visualization with accurate audio data
   - Proper level monitoring lifecycle (start/stop with view appearance)
   - Professional-grade metering matching industry DAW standards
-- [x] **Enhanced Mixer Responsiveness** - Improved user interaction ✅ *January 2025*
+- [x] **Enhanced Mixer Responsiveness** - Improved user interaction ✅ 
   - Enhanced EQ knob responsiveness with configurable sensitivity parameters
   - Fixed level meter calibration with proper dynamic range scaling
   - Implemented post-fader metering for accurate master level representation
   - Master level meters now show silence at 0% volume (professional DAW behavior)
   - Optimized knob sensitivity and drag gesture handling for better user experience
   - Conservative level scaling (8x amplification) for proper meter range utilization
-- [x] **Complete Marketplace UI with Placeholder Data** - Comprehensive marketplace experience ✅ *January 2025*
+- [x] **Timeline-Mixer Control Synchronization** - Unified control state management ✅ *January 2025*
+  - Fixed timeline mute and solo buttons to actually toggle audio state
+  - Synchronized visual state between timeline and mixer controls
+  - Both timeline and mixer buttons now use same AudioEngine methods
+  - Eliminated playback interruption when toggling mixer controls
+  - Professional DAW behavior with seamless control interaction
+- [x] **Complete Marketplace UI with Placeholder Data** - Comprehensive marketplace experience ✅ 
   - **Browse Tab**: 6 beautiful placeholder STEM listings with diverse music genres and professional cards
   - **My STEMs Tab**: User collection interface with 3 placeholder STEMs and management features
   - **Activity Tab**: Transaction history with 5 activity items showing purchases, sales, mints, listings, and offers

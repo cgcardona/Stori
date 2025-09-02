@@ -10,6 +10,7 @@ import SwiftUI
 struct MixerView: View {
     let project: AudioProject?
     @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
     @Binding var selectedTrackId: UUID?
     
     var body: some View {
@@ -41,6 +42,7 @@ struct MixerView: View {
                             MixerChannelView(
                                 track: track,
                                 audioEngine: audioEngine,
+                                projectManager: projectManager,
                                 isSelected: selectedTrackId == track.id,
                                 onSelect: { selectedTrackId = track.id }
                             )
@@ -61,35 +63,19 @@ struct MixerView: View {
 struct MixerChannelView: View {
     let track: AudioTrack
     @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
     let isSelected: Bool
     let onSelect: () -> Void
     
-    @State private var volume: Float
-    @State private var pan: Float
-    @State private var highEQ: Float
-    @State private var midEQ: Float
-    @State private var lowEQ: Float
-    @State private var isMuted: Bool
-    @State private var isSolo: Bool
-    @State private var isRecordEnabled: Bool
     @State private var trackLevel: Float = 0.0
     @State private var levelTimer: Timer?
     
-    init(track: AudioTrack, audioEngine: AudioEngine, isSelected: Bool, onSelect: @escaping () -> Void) {
+    init(track: AudioTrack, audioEngine: AudioEngine, projectManager: ProjectManager, isSelected: Bool, onSelect: @escaping () -> Void) {
         self.track = track
         self.audioEngine = audioEngine
+        self.projectManager = projectManager
         self.isSelected = isSelected
         self.onSelect = onSelect
-        
-        // Initialize state with track's mixer settings
-        self._volume = State(initialValue: track.mixerSettings.volume)
-        self._pan = State(initialValue: track.mixerSettings.pan)
-        self._highEQ = State(initialValue: track.mixerSettings.highEQ)
-        self._midEQ = State(initialValue: track.mixerSettings.midEQ)
-        self._lowEQ = State(initialValue: track.mixerSettings.lowEQ)
-        self._isMuted = State(initialValue: track.mixerSettings.isMuted)
-        self._isSolo = State(initialValue: track.mixerSettings.isSolo)
-        self._isRecordEnabled = State(initialValue: track.isRecordEnabled)
     }
     
     var body: some View {
@@ -122,8 +108,11 @@ struct MixerChannelView: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         
-                        KnobView(value: $highEQ, range: -12...12, sensitivity: 0.03) { value in
-                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: midEQ, lowEQ: lowEQ)
+                        KnobView(value: .constant(track.mixerSettings.highEQ), range: -12...12, sensitivity: 0.03) { value in
+                            var updatedTrack = track
+                            updatedTrack.mixerSettings.highEQ = value
+                            projectManager.updateTrack(updatedTrack)
+                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: track.mixerSettings.midEQ, lowEQ: track.mixerSettings.lowEQ)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -134,8 +123,11 @@ struct MixerChannelView: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         
-                        KnobView(value: $midEQ, range: -12...12, sensitivity: 0.03) { value in
-                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: value, lowEQ: lowEQ)
+                        KnobView(value: .constant(track.mixerSettings.midEQ), range: -12...12, sensitivity: 0.03) { value in
+                            var updatedTrack = track
+                            updatedTrack.mixerSettings.midEQ = value
+                            projectManager.updateTrack(updatedTrack)
+                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: track.mixerSettings.highEQ, midEQ: value, lowEQ: track.mixerSettings.lowEQ)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -146,8 +138,11 @@ struct MixerChannelView: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         
-                        KnobView(value: $lowEQ, range: -12...12, sensitivity: 0.03) { value in
-                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: midEQ, lowEQ: value)
+                        KnobView(value: .constant(track.mixerSettings.lowEQ), range: -12...12, sensitivity: 0.03) { value in
+                            var updatedTrack = track
+                            updatedTrack.mixerSettings.lowEQ = value
+                            projectManager.updateTrack(updatedTrack)
+                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: track.mixerSettings.highEQ, midEQ: track.mixerSettings.midEQ, lowEQ: value)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -158,7 +153,10 @@ struct MixerChannelView: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         
-                        KnobView(value: $pan, range: -1...1, sensitivity: 0.02) { value in
+                        KnobView(value: .constant(track.mixerSettings.pan), range: -1...1, sensitivity: 0.02) { value in
+                            var updatedTrack = track
+                            updatedTrack.mixerSettings.pan = value
+                            projectManager.updateTrack(updatedTrack)
                             audioEngine.updateTrackPan(trackId: track.id, pan: value)
                         }
                         .frame(width: 32, height: 32)
@@ -178,12 +176,15 @@ struct MixerChannelView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 
-                HSliderView(value: $volume, range: 0...1) { value in
+                HSliderView(value: .constant(track.mixerSettings.volume), range: 0...1) { value in
+                    var updatedTrack = track
+                    updatedTrack.mixerSettings.volume = value
+                    projectManager.updateTrack(updatedTrack)
                     audioEngine.updateTrackVolume(trackId: track.id, volume: value)
                 }
                 .frame(height: 20)
                 
-                Text("\(Int(volume * 100))%")
+                Text("\(Int(track.mixerSettings.volume * 100))%")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -192,45 +193,51 @@ struct MixerChannelView: View {
             HStack(spacing: 8) {
                 // Mute
                 Button(action: {
-                    isMuted.toggle()
-                    audioEngine.updateTrackMute(trackId: track.id, isMuted: isMuted)
+                    var updatedTrack = track
+                    updatedTrack.mixerSettings.isMuted.toggle()
+                    projectManager.updateTrack(updatedTrack)
+                    audioEngine.updateTrackMute(trackId: track.id, isMuted: updatedTrack.mixerSettings.isMuted)
                 }) {
                     Text("M")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(isMuted ? Color.orange : Color.gray.opacity(0.3))
-                        .foregroundColor(isMuted ? .white : .primary)
+                        .background(track.mixerSettings.isMuted ? Color.orange : Color.gray.opacity(0.3))
+                        .foregroundColor(track.mixerSettings.isMuted ? .white : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
                 
                 // Solo
                 Button(action: {
-                    isSolo.toggle()
-                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: isSolo)
+                    var updatedTrack = track
+                    updatedTrack.mixerSettings.isSolo.toggle()
+                    projectManager.updateTrack(updatedTrack)
+                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: updatedTrack.mixerSettings.isSolo)
                 }) {
                     Text("S")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(isSolo ? Color.yellow : Color.gray.opacity(0.3))
-                        .foregroundColor(isSolo ? .black : .primary)
+                        .background(track.mixerSettings.isSolo ? Color.yellow : Color.gray.opacity(0.3))
+                        .foregroundColor(track.mixerSettings.isSolo ? .black : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
                 
                 // Record
                 Button(action: {
-                    isRecordEnabled.toggle()
-                    audioEngine.updateTrackRecordEnabled(trackId: track.id, isRecordEnabled: isRecordEnabled)
+                    var updatedTrack = track
+                    updatedTrack.isRecordEnabled.toggle()
+                    projectManager.updateTrack(updatedTrack)
+                    audioEngine.updateTrackRecordEnabled(trackId: track.id, isRecordEnabled: updatedTrack.isRecordEnabled)
                 }) {
                     Text("R")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(isRecordEnabled ? Color.red : Color.gray.opacity(0.3))
-                        .foregroundColor(isRecordEnabled ? .white : .primary)
+                        .background(track.isRecordEnabled ? Color.red : Color.gray.opacity(0.3))
+                        .foregroundColor(track.isRecordEnabled ? .white : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
@@ -261,6 +268,7 @@ struct MixerChannelView: View {
     }
     
     private var panDisplayText: String {
+        let pan = track.mixerSettings.pan
         if abs(pan) < 0.05 {
             return "C"
         } else if pan > 0 {

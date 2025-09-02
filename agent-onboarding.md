@@ -326,6 +326,14 @@ TellUrStoriDAW/
 - Beautiful visual design with gradient charts, animated progress bars, and professional card layouts
 - Complete marketplace ecosystem ready for real blockchain data integration
 
+**Timeline-Mixer Control Synchronization:**
+- Fixed timeline mute and solo buttons to actually toggle audio state instead of just visual changes
+- Synchronized visual state between timeline and mixer controls for seamless user experience
+- Both timeline and mixer buttons now use same AudioEngine methods (updateTrackMute, updateTrackSolo)
+- Eliminated playback interruption when toggling mixer controls during active playback
+- Professional DAW behavior with unified control state management across interface components
+- Fixed Cmd+Delete keyboard shortcut for track deletion with proper selection integration
+
 **Key Technical Fixes:**
 - Replaced iOS-specific toolbar placements with macOS-compatible alternatives
 - Fixed MainDAWView structure with proper toolbar and sheet management

@@ -147,6 +147,12 @@ class AudioEngine: ObservableObject {
         }
     }
     
+    func updateCurrentProject(_ project: AudioProject) {
+        // Update the project reference without stopping playback or rebuilding everything
+        currentProject = project
+        print("📝 Updated current project without stopping playback")
+    }
+    
     private func setupTracksForProject(_ project: AudioProject) {
         // Clear existing track nodes
         clearAllTracks()

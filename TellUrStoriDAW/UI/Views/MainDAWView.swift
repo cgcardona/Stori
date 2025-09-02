@@ -24,6 +24,24 @@ struct MainDAWView: View {
         projectManager.addTrack(name: trackName)
     }
     
+    private func deleteSelectedTrack() {
+        guard let selectedId = selectedTrackId,
+              let project = projectManager.currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == selectedId }) else {
+            print("No track selected or track not found")
+            return
+        }
+        
+        let track = project.tracks[trackIndex]
+        print("Deleting track: \(track.name)")
+        
+        // Remove track from project manager - onChange handler will update audio engine
+        projectManager.removeTrack(selectedId)
+        
+        // Clear selection since the track is deleted
+        selectedTrackId = nil
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
@@ -93,6 +111,11 @@ struct MainDAWView: View {
                 addTrack()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .deleteTrack)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                deleteSelectedTrack()
+            }
+        }
         .onAppear {
             // Start the audio engine first
             print("MainDAWView appeared, initializing audio engine...")
@@ -109,7 +132,14 @@ struct MainDAWView: View {
         }
         .onChange(of: projectManager.currentProject) { oldValue, newValue in
             if let project = newValue {
-                audioEngine.loadProject(project)
+                // Only load project if it's a completely different project (different ID)
+                // Don't reload for simple track updates
+                if oldValue?.id != newValue?.id {
+                    audioEngine.loadProject(project)
+                } else {
+                    // Just update the current project reference without stopping playback
+                    audioEngine.updateCurrentProject(project)
+                }
             }
         }
     }
@@ -160,6 +190,7 @@ struct MainDAWView: View {
                     MixerView(
                         project: projectManager.currentProject,
                         audioEngine: audioEngine,
+                        projectManager: projectManager,
                         selectedTrackId: $selectedTrackId
                     )
                     .frame(width: 300)

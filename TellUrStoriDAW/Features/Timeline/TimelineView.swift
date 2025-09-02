@@ -192,19 +192,25 @@ struct TrackHeaderView: View {
                 
                 // Mute
                 Button(action: {
-                    audioEngine.muteTrack(track.id, muted: !track.isMuted)
+                    var updatedTrack = track
+                    updatedTrack.mixerSettings.isMuted.toggle()
+                    projectManager.updateTrack(updatedTrack)
+                    audioEngine.updateTrackMute(trackId: track.id, isMuted: updatedTrack.mixerSettings.isMuted)
                 }) {
-                    Image(systemName: track.isMuted ? "speaker.slash" : "speaker")
-                        .foregroundColor(track.isMuted ? .orange : .secondary)
+                    Image(systemName: track.mixerSettings.isMuted ? "speaker.slash" : "speaker")
+                        .foregroundColor(track.mixerSettings.isMuted ? .orange : .secondary)
                 }
                 .buttonStyle(.plain)
                 
                 // Solo
                 Button(action: {
-                    audioEngine.soloTrack(track.id, solo: !track.isSolo)
+                    var updatedTrack = track
+                    updatedTrack.mixerSettings.isSolo.toggle()
+                    projectManager.updateTrack(updatedTrack)
+                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: updatedTrack.mixerSettings.isSolo)
                 }) {
                     Image(systemName: "headphones")
-                        .foregroundColor(track.isSolo ? .yellow : .secondary)
+                        .foregroundColor(track.mixerSettings.isSolo ? .yellow : .secondary)
                 }
                 .buttonStyle(.plain)
                 
