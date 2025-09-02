@@ -70,21 +70,26 @@ struct MainDAWView: View {
                     Button("New") {
                         showingNewProjectSheet = true
                     }
-                    .keyboardShortcut("n", modifiers: .command)
                     .help("Create New Project (⌘N)")
                     
                     Button("Open") {
                         showingProjectBrowser = true
                     }
-                    .keyboardShortcut("o", modifiers: .command)
                     .help("Open Project (⌘O)")
                     
                     if let project = projectManager.currentProject {
                         Button("Save") {
                             projectManager.saveCurrentProject()
                         }
-                        .keyboardShortcut("s", modifiers: .command)
                         .help("Save Project (⌘S)")
+                        
+                        // Add Track button (only show when in DAW tab)
+                        if selectedMainTab == .daw {
+                            Button("Add Track") {
+                                addTrack()
+                            }
+                            .help("Add New Track (⇧⌘N)")
+                        }
                     }
                 }
             }
@@ -104,6 +109,22 @@ struct MainDAWView: View {
         }
         .sheet(isPresented: $showingProjectBrowser) {
             ProjectBrowserView(projectManager: projectManager)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
+            showingNewProjectSheet = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
+            showingProjectBrowser = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
+            if projectManager.currentProject != nil {
+                projectManager.saveCurrentProject()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .newTrack)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                addTrack()
+            }
         }
         .onAppear {
             // Start the audio engine first
