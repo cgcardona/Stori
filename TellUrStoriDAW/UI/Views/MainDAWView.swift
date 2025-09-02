@@ -15,6 +15,10 @@ struct MainDAWView: View {
     @State private var selectedTrackId: UUID?
     @State private var selectedMainTab: MainTab = .daw
     
+    // MARK: - Zoom Controls
+    @State private var horizontalZoom: Double = 1.0 // 0.1x to 10x zoom
+    @State private var verticalZoom: Double = 1.0   // 0.5x to 3x zoom
+    
     // MARK: - Track Management
     private func addTrack(name: String? = nil) {
         let trackNumber = (projectManager.currentProject?.tracks.count ?? 0) + 1
@@ -160,6 +164,12 @@ struct MainDAWView: View {
             HStack(spacing: 0) {
                     // Timeline and tracks area
                     VStack(spacing: 0) {
+                        // Zoom controls toolbar
+                        ZoomControlsView(
+                            horizontalZoom: $horizontalZoom,
+                            verticalZoom: $verticalZoom
+                        )
+                        
                         // Timeline ruler (aligned with track content) with Cycle Overlay
                         ZStack(alignment: .topLeading) {
                             HStack(spacing: 0) {
@@ -170,7 +180,8 @@ struct MainDAWView: View {
                                 // Timeline ruler
                                 TimelineRulerView(
                                     audioEngine: audioEngine,
-                                    project: projectManager.currentProject
+                                    project: projectManager.currentProject,
+                                    horizontalZoom: horizontalZoom
                                 )
                             }
                             .frame(height: 40)
@@ -180,6 +191,7 @@ struct MainDAWView: View {
                                 CycleOverlayView(
                                     cycleStartTime: audioEngine.cycleStartTime,
                                     cycleEndTime: audioEngine.cycleEndTime,
+                                    horizontalZoom: horizontalZoom,
                                     onCycleRegionChanged: { start, end in
                                         audioEngine.setCycleRegion(start: start, end: end)
                                     }
@@ -195,6 +207,8 @@ struct MainDAWView: View {
                                 audioEngine: audioEngine,
                                 projectManager: projectManager,
                                 selectedTrackId: $selectedTrackId,
+                                horizontalZoom: horizontalZoom,
+                                verticalZoom: verticalZoom,
                                 onAddTrack: { addTrack() },
                                 onCreateProject: { showingNewProjectSheet = true },
                                 onOpenProject: { showingProjectBrowser = true }
@@ -305,8 +319,9 @@ struct ToolbarView: View {
 struct TimelineRulerView: View {
     @ObservedObject var audioEngine: AudioEngine
     let project: AudioProject?
+    let horizontalZoom: Double
     
-    private let pixelsPerSecond: CGFloat = 100
+    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
     
     var body: some View {
         GeometryReader { geometry in
@@ -820,13 +835,14 @@ enum MainTab: String, CaseIterable {
 struct CycleOverlayView: View {
     let cycleStartTime: TimeInterval
     let cycleEndTime: TimeInterval
+    let horizontalZoom: Double
     let onCycleRegionChanged: (TimeInterval, TimeInterval) -> Void
     
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging = false
     @State private var dragType: DragType = .none
     
-    private let pixelsPerSecond: CGFloat = 100 // Match timeline scaling
+    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
     
     enum DragType {
         case none
@@ -899,5 +915,69 @@ struct CycleOverlayView: View {
         }
         .frame(height: 40)
         .clipped()
+    }
+}
+
+// MARK: - Zoom Controls View
+struct ZoomControlsView: View {
+    @Binding var horizontalZoom: Double
+    @Binding var verticalZoom: Double
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // Spacer to align with track headers
+            Color.clear
+                .frame(width: 280)
+            
+            // Horizontal zoom control
+            HStack(spacing: 8) {
+                Image(systemName: "minus.magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+                
+                Slider(value: $horizontalZoom, in: 0.1...10.0, step: 0.1)
+                    .frame(width: 120)
+                    .accentColor(.blue)
+                
+                Image(systemName: "plus.magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+                
+                Text("\(String(format: "%.1f", horizontalZoom))x")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 30, alignment: .leading)
+            }
+            
+            Divider()
+                .frame(height: 20)
+            
+            // Vertical zoom control
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.and.down.text.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+                
+                Slider(value: $verticalZoom, in: 0.5...3.0, step: 0.1)
+                    .frame(width: 100)
+                    .accentColor(.green)
+                
+                Text("\(String(format: "%.1f", verticalZoom))x")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 30, alignment: .leading)
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(NSColor.separatorColor)),
+            alignment: .bottom
+        )
     }
 }

@@ -12,12 +12,15 @@ struct TimelineView: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     @Binding var selectedTrackId: UUID?
+    let horizontalZoom: Double
+    let verticalZoom: Double
     let onAddTrack: () -> Void
     let onCreateProject: () -> Void
     let onOpenProject: () -> Void
     
-    private let trackHeight: CGFloat = 80
-    private let pixelsPerSecond: CGFloat = 100
+    // Dynamic sizing based on zoom
+    private var trackHeight: CGFloat { 80 * CGFloat(verticalZoom) }
+    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -857,6 +860,8 @@ extension Color {
         audioEngine: AudioEngine(),
         projectManager: ProjectManager(),
         selectedTrackId: .constant(nil),
+        horizontalZoom: 1.0,
+        verticalZoom: 1.0,
         onAddTrack: {},
         onCreateProject: {},
         onOpenProject: {}
