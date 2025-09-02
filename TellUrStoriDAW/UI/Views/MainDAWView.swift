@@ -164,11 +164,13 @@ struct MainDAWView: View {
             HStack(spacing: 0) {
                     // Timeline and tracks area
                     VStack(spacing: 0) {
-                        // Zoom controls toolbar
-                        ZoomControlsView(
-                            horizontalZoom: $horizontalZoom,
-                            verticalZoom: $verticalZoom
-                        )
+                        // Zoom controls toolbar (only show when project exists)
+                        if projectManager.currentProject != nil {
+                            ZoomControlsView(
+                                horizontalZoom: $horizontalZoom,
+                                verticalZoom: $verticalZoom
+                            )
+                        }
                         
                         // Timeline ruler (aligned with track content) with Cycle Overlay
                         ZStack(alignment: .topLeading) {
@@ -924,54 +926,54 @@ struct ZoomControlsView: View {
     @Binding var verticalZoom: Double
     
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             // Spacer to align with track headers
             Color.clear
                 .frame(width: 280)
             
             // Horizontal zoom control
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 Image(systemName: "minus.magnifyingglass")
                     .foregroundColor(.secondary)
-                    .font(.caption)
+                    .font(.caption2)
                 
                 Slider(value: $horizontalZoom, in: 0.1...10.0, step: 0.1)
-                    .frame(width: 120)
+                    .frame(width: 80)
                     .accentColor(.blue)
                 
                 Image(systemName: "plus.magnifyingglass")
                     .foregroundColor(.secondary)
-                    .font(.caption)
+                    .font(.caption2)
                 
                 Text("\(String(format: "%.1f", horizontalZoom))x")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
-                    .frame(width: 30, alignment: .leading)
+                    .frame(width: 25, alignment: .leading)
             }
             
             Divider()
-                .frame(height: 20)
+                .frame(height: 16)
             
             // Vertical zoom control
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 Image(systemName: "arrow.up.and.down.text.horizontal")
                     .foregroundColor(.secondary)
-                    .font(.caption)
+                    .font(.caption2)
                 
                 Slider(value: $verticalZoom, in: 0.5...3.0, step: 0.1)
-                    .frame(width: 100)
+                    .frame(width: 70)
                     .accentColor(.green)
                 
                 Text("\(String(format: "%.1f", verticalZoom))x")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
-                    .frame(width: 30, alignment: .leading)
+                    .frame(width: 25, alignment: .leading)
             }
             
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(
             Rectangle()

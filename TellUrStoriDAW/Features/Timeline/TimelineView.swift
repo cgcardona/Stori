@@ -32,9 +32,9 @@ struct TimelineView: View {
                         projectManager: projectManager,
                         isSelected: selectedTrackId == track.id,
                         pixelsPerSecond: pixelsPerSecond,
+                        trackHeight: trackHeight,
                         onSelect: { selectedTrackId = track.id }
                     )
-                    .frame(height: trackHeight)
                 }
                 
                 // Add track button
@@ -62,6 +62,7 @@ struct TrackLaneView: View {
     @ObservedObject var projectManager: ProjectManager
     let isSelected: Bool
     let pixelsPerSecond: CGFloat
+    let trackHeight: CGFloat
     let onSelect: () -> Void
     
     @State private var dragOffset = CGSize.zero
@@ -104,6 +105,7 @@ struct TrackLaneView: View {
                 return true
             }
         }
+        .frame(height: trackHeight)
     }
     
     private func handleAudioFileDrop(urls: [URL], at location: CGPoint) {
