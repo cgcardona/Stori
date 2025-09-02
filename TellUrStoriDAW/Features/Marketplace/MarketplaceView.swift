@@ -876,40 +876,242 @@ struct WalletConnectionView: View {
     @ObservedObject var blockchainClient: BlockchainClient
     @Environment(\.dismiss) private var dismiss
     @State private var walletAddress: String = ""
+    @State private var isConnecting: Bool = false
+    @State private var showingSuccess: Bool = false
+    @State private var animateGradient: Bool = false
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 20) {
-                Text("Connect Your Wallet")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                Text("Enter your wallet address to connect to the marketplace")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                
-                TextField("Wallet Address (0x...)", text: $walletAddress)
-                    .textFieldStyle(.roundedBorder)
-                    .monospaced()
-                
-                Button("Connect Wallet") {
-                    blockchainClient.connectWallet(address: walletAddress)
-                    dismiss()
+        ZStack {
+            // Animated background gradient
+            LinearGradient(
+                colors: [
+                    Color.blue.opacity(0.1),
+                    Color.purple.opacity(0.1),
+                    Color.pink.opacity(0.1)
+                ],
+                startPoint: animateGradient ? .topLeading : .bottomTrailing,
+                endPoint: animateGradient ? .bottomTrailing : .topLeading
+            )
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 3).repeatForever(autoreverses: true), value: animateGradient)
+            
+            VStack(spacing: 0) {
+                // Header with icon and title
+                VStack(spacing: 16) {
+                    // Wallet icon with glow effect
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue, Color.purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 80, height: 80)
+                            .shadow(color: .blue.opacity(0.3), radius: 20, x: 0, y: 10)
+                        
+                        Image(systemName: "wallet.pass.fill")
+                            .font(.system(size: 32, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    .scaleEffect(showingSuccess ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: showingSuccess)
+                    
+                    VStack(spacing: 8) {
+                        Text("Connect Your Wallet")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.primary, .blue],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                        
+                        Text("Enter your wallet address to access the STEM marketplace and start trading music NFTs")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(walletAddress.isEmpty)
+                .padding(.top, 40)
+                .padding(.bottom, 40)
+                
+                // Connection form
+                VStack(spacing: 24) {
+                    // Wallet address input with enhanced styling
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Wallet Address")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        HStack {
+                            Image(systemName: "link")
+                                .foregroundColor(.secondary)
+                                .frame(width: 20)
+                            
+                            TextField("0x1234567890abcdef...", text: $walletAddress)
+                                .textFieldStyle(.plain)
+                                .monospaced()
+                                .font(.system(size: 14))
+                                .autocorrectionDisabled()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(.controlBackgroundColor))
+                                .stroke(
+                                    walletAddress.isEmpty ? Color.clear : 
+                                    isValidAddress ? Color.green.opacity(0.5) : Color.red.opacity(0.5),
+                                    lineWidth: 1
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    ),
+                                    lineWidth: 2
+                                )
+                                .opacity(walletAddress.isEmpty ? 0 : 1)
+                        )
+                        
+                        // Address validation feedback
+                        if !walletAddress.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: isValidAddress ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                    .foregroundColor(isValidAddress ? .green : .orange)
+                                
+                                Text(isValidAddress ? "Valid wallet address" : "Please enter a valid Ethereum address")
+                                    .font(.caption)
+                                    .foregroundColor(isValidAddress ? .green : .orange)
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    
+                    // Network info card
+                    VStack(spacing: 12) {
+                        HStack {
+                            Image(systemName: "network")
+                                .foregroundColor(.blue)
+                            Text("Network Information")
+                                .font(.headline)
+                            Spacer()
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            InfoRow(label: "Network", value: "TellUrStori L1")
+                            InfoRow(label: "Chain ID", value: "507")
+                            InfoRow(label: "Currency", value: "TUS Token")
+                        }
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.controlBackgroundColor).opacity(0.5))
+                            .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal, 32)
                 
                 Spacer()
-            }
-            .padding()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                
+                // Action buttons
+                VStack(spacing: 16) {
+                    // Connect button with loading state
+                    Button(action: connectWallet) {
+                        HStack(spacing: 12) {
+                            if isConnecting {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: showingSuccess ? "checkmark.circle.fill" : "wallet.pass.fill")
+                                    .font(.system(size: 16, weight: .medium))
+                            }
+                            
+                            Text(isConnecting ? "Connecting..." : showingSuccess ? "Connected!" : "Connect Wallet")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(
+                                    LinearGradient(
+                                        colors: showingSuccess ? [.green, .green.opacity(0.8)] : [.blue, .purple],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                        )
+                        .foregroundColor(.white)
+                        .scaleEffect(isConnecting ? 0.98 : 1.0)
+                        .animation(.easeInOut(duration: 0.1), value: isConnecting)
+                    }
+                    .disabled(walletAddress.isEmpty || !isValidAddress || isConnecting)
+                    .opacity(walletAddress.isEmpty || !isValidAddress ? 0.6 : 1.0)
+                    
+                    // Cancel button
                     Button("Cancel") {
                         dismiss()
                     }
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
                 }
+                .padding(.horizontal, 32)
+                .padding(.bottom, 32)
             }
+        }
+        .onAppear {
+            animateGradient = true
+        }
+    }
+    
+    private var isValidAddress: Bool {
+        walletAddress.hasPrefix("0x") && walletAddress.count == 42
+    }
+    
+    private func connectWallet() {
+        isConnecting = true
+        
+        // Simulate connection process with animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            blockchainClient.connectWallet(address: walletAddress)
+            showingSuccess = true
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                dismiss()
+            }
+        }
+    }
+}
+
+struct InfoRow: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.caption)
+                .fontWeight(.medium)
+                .monospaced()
         }
     }
 }
