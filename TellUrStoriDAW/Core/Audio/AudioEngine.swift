@@ -857,7 +857,9 @@ class AudioEngine: ObservableObject {
         let wasPlaying = transportState == .playing
         let newTime = max(0, timeInterval)
         
-        // Stop playback temporarily
+        print("🎯 Seeking to position: \(String(format: "%.2f", newTime))s, wasPlaying=\(wasPlaying)")
+        
+        // Stop all current playback
         if wasPlaying {
             pause()
         }
@@ -873,12 +875,49 @@ class AudioEngine: ObservableObject {
         pausedTime = newTime
         startTime = CACurrentMediaTime()
         
-        // If we were playing, resume playback from new position
+        // If we were playing, resume playback from the new position
         if wasPlaying {
-            play()
+            playFromPosition(newTime)
         }
         
         print("🎵 Seeked to position: \(currentTimeString)")
+    }
+    
+    private func playFromPosition(_ startTime: TimeInterval) {
+        guard let project = currentProject else { return }
+        
+        print("🎯 Starting playback from position: \(String(format: "%.2f", startTime))s")
+        
+        // Set transport state
+        transportState = .playing
+        
+        // Schedule and start all tracks from the specified position
+        var tracksStarted = 0
+        
+        for track in project.tracks {
+            guard let trackNode = trackNodes[track.id] else { continue }
+            
+            // Only play tracks that have audio regions at or after the start time
+            let relevantRegions = track.regions.filter { region in
+                region.startTime + region.duration > startTime
+            }
+            
+            if !relevantRegions.isEmpty {
+                do {
+                    try trackNode.scheduleFromPosition(startTime, audioRegions: track.regions)
+                    trackNode.play()
+                    tracksStarted += 1
+                } catch {
+                    print("❌ Failed to schedule track \(track.name) from position \(startTime): \(error)")
+                }
+            }
+        }
+        
+        if tracksStarted > 0 {
+            print("🎵 Started \(tracksStarted) tracks from position \(String(format: "%.2f", startTime))s")
+        } else {
+            print("⚠️ No tracks to play from position \(String(format: "%.2f", startTime))s")
+        }
     }
     
     func rewind(_ seconds: TimeInterval = 1.0) {

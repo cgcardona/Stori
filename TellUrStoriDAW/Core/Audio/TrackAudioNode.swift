@@ -192,6 +192,39 @@ class TrackAudioNode {
         playerNode.scheduleFile(audioFileRef, at: nil)
     }
     
+    func scheduleFromPosition(_ startTime: TimeInterval, audioRegions: [AudioRegion]) throws {
+        // Stop any current playback
+        playerNode.stop()
+        
+        // Schedule audio regions that are active at the given start time
+        for region in audioRegions {
+            let regionEndTime = region.startTime + region.duration
+            
+            // Only schedule regions that are playing at or after the start time
+            if regionEndTime > startTime {
+                let audioFile = try AVAudioFile(forReading: region.audioFile.url)
+                let sampleRate = audioFile.processingFormat.sampleRate
+                
+                // Calculate the offset within the region
+                let offsetInRegion = max(0, startTime - region.startTime)
+                let startFrame = AVAudioFramePosition(offsetInRegion * sampleRate)
+                let totalFrames = audioFile.length
+                let framesToPlay = max(0, totalFrames - startFrame)
+                
+                if framesToPlay > 0 {
+                    print("🎵 Scheduling region '\(region.audioFile.name)' from frame \(startFrame)/\(totalFrames)")
+                    
+                    playerNode.scheduleSegment(
+                        audioFile,
+                        startingFrame: startFrame,
+                        frameCount: AVAudioFrameCount(framesToPlay),
+                        at: nil
+                    )
+                }
+            }
+        }
+    }
+    
     // MARK: - Playback Control
     func play() {
         if !playerNode.isPlaying {
