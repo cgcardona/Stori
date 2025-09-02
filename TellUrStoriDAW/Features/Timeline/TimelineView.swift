@@ -361,28 +361,121 @@ struct AudioRegionView: View {
 // MARK: - Waveform View
 struct WaveformView: View {
     let audioFile: AudioFile
+    @StateObject private var audioAnalyzer = AudioAnalyzer()
+    @State private var waveformData: AudioAnalyzer.WaveformData?
+    @State private var isLoading = false
     
     var body: some View {
-        // Simplified waveform visualization
-        // In a real implementation, you'd analyze the audio file and draw actual waveform data
         GeometryReader { geometry in
-            Path { path in
-                let width = geometry.size.width
-                let height = geometry.size.height
-                let midY = height / 2
-                
-                // Generate pseudo-waveform
-                for x in stride(from: 0, to: width, by: 2) {
-                    let amplitude = sin(x * 0.1) * 0.3 + cos(x * 0.05) * 0.2
-                    let y1 = midY - (amplitude * midY)
-                    let y2 = midY + (amplitude * midY)
-                    
-                    path.move(to: CGPoint(x: x, y: y1))
-                    path.addLine(to: CGPoint(x: x, y: y2))
+            ZStack {
+                if let waveformData = waveformData {
+                    // Real waveform visualization
+                    RealWaveformPath(waveformData: waveformData, size: geometry.size)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                } else if isLoading {
+                    // Loading indicator
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(0.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // Fallback placeholder
+                    PlaceholderWaveform(size: geometry.size)
+                        .stroke(Color.white.opacity(0.4), lineWidth: 1)
                 }
             }
-            .stroke(Color.white.opacity(0.6), lineWidth: 1)
         }
+        .task {
+            await loadWaveformData()
+        }
+        .onChange(of: audioFile.url) { _, _ in
+            Task {
+                await loadWaveformData()
+            }
+        }
+    }
+    
+    private func loadWaveformData() async {
+        guard !isLoading else { return }
+        
+        // Check cache first
+        if let cachedData = audioAnalyzer.getCachedWaveform(for: audioFile.url) {
+            await MainActor.run {
+                self.waveformData = cachedData
+            }
+            return
+        }
+        
+        await MainActor.run {
+            isLoading = true
+        }
+        
+        do {
+            let data = try await audioAnalyzer.analyzeAudioFile(at: audioFile.url, targetSamples: 500)
+            await MainActor.run {
+                self.waveformData = data
+                self.isLoading = false
+            }
+        } catch {
+            print("Failed to analyze audio file: \(error)")
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
+    }
+}
+
+// MARK: - Real Waveform Path
+struct RealWaveformPath: Shape {
+    let waveformData: AudioAnalyzer.WaveformData
+    let size: CGSize
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        
+        let points = waveformData.pathPoints(for: size)
+        guard !points.isEmpty else { return path }
+        
+        // Draw waveform as vertical lines from center
+        let midY = rect.height / 2
+        
+        for i in stride(from: 0, to: points.count, by: 2) {
+            guard i + 1 < points.count else { break }
+            
+            let topPoint = points[i]
+            let bottomPoint = points[i + 1]
+            
+            path.move(to: CGPoint(x: topPoint.x, y: midY - abs(topPoint.y - midY)))
+            path.addLine(to: CGPoint(x: bottomPoint.x, y: midY + abs(bottomPoint.y - midY)))
+        }
+        
+        return path
+    }
+}
+
+// MARK: - Placeholder Waveform
+struct PlaceholderWaveform: Shape {
+    let size: CGSize
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        
+        let width = rect.width
+        let height = rect.height
+        let midY = height / 2
+        
+        // Generate simple placeholder waveform
+        for x in stride(from: 0, to: width, by: 3) {
+            let normalizedX = x / width
+            let amplitude = sin(normalizedX * .pi * 8) * 0.3 + cos(normalizedX * .pi * 12) * 0.2
+            let y1 = midY - (amplitude * midY * 0.5)
+            let y2 = midY + (amplitude * midY * 0.5)
+            
+            path.move(to: CGPoint(x: x, y: y1))
+            path.addLine(to: CGPoint(x: x, y: y2))
+        }
+        
+        return path
     }
 }
 
