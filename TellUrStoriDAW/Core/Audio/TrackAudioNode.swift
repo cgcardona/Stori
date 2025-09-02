@@ -16,6 +16,7 @@ class TrackAudioNode {
     let playerNode: AVAudioPlayerNode
     let volumeNode: AVAudioMixerNode
     let panNode: AVAudioMixerNode
+    let eqNode: AVAudioUnitEQ
     let effectsChain: [AVAudioNode] = []
     
     // MARK: - Audio State
@@ -35,6 +36,7 @@ class TrackAudioNode {
         playerNode: AVAudioPlayerNode,
         volumeNode: AVAudioMixerNode,
         panNode: AVAudioMixerNode,
+        eqNode: AVAudioUnitEQ,
         volume: Float = 0.8,
         pan: Float = 0.0,
         isMuted: Bool = false,
@@ -44,11 +46,13 @@ class TrackAudioNode {
         self.playerNode = playerNode
         self.volumeNode = volumeNode
         self.panNode = panNode
+        self.eqNode = eqNode
         self.volume = volume
         self.pan = pan
         self.isMuted = isMuted
         self.isSolo = isSolo
         
+        setupEQ()
         setupLevelMonitoring()
     }
     
@@ -80,6 +84,41 @@ class TrackAudioNode {
     func setSolo(_ solo: Bool) {
         isSolo = solo
         // Solo logic will be handled at the engine level
+    }
+    
+    // MARK: - EQ Control
+    private func setupEQ() {
+        // Configure 3-band EQ with standard frequencies
+        eqNode.bands[0].filterType = .highShelf
+        eqNode.bands[0].frequency = 10000 // High: 10kHz
+        eqNode.bands[0].gain = 0
+        eqNode.bands[0].bypass = false
+        
+        eqNode.bands[1].filterType = .parametric
+        eqNode.bands[1].frequency = 1000 // Mid: 1kHz
+        eqNode.bands[1].bandwidth = 1.0
+        eqNode.bands[1].gain = 0
+        eqNode.bands[1].bypass = false
+        
+        eqNode.bands[2].filterType = .lowShelf
+        eqNode.bands[2].frequency = 100 // Low: 100Hz
+        eqNode.bands[2].gain = 0
+        eqNode.bands[2].bypass = false
+        
+        print("🎛️ EQ setup complete for track \(id)")
+    }
+    
+    func setEQ(highGain: Float, midGain: Float, lowGain: Float) {
+        // Clamp values to reasonable EQ range
+        let clampedHigh = max(-12.0, min(12.0, highGain))
+        let clampedMid = max(-12.0, min(12.0, midGain))
+        let clampedLow = max(-12.0, min(12.0, lowGain))
+        
+        eqNode.bands[0].gain = clampedHigh // High
+        eqNode.bands[1].gain = clampedMid  // Mid
+        eqNode.bands[2].gain = clampedLow  // Low
+        
+        print("🎛️ EQ updated for track \(id): High=\(clampedHigh)dB, Mid=\(clampedMid)dB, Low=\(clampedLow)dB")
     }
     
     // MARK: - Level Monitoring

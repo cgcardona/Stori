@@ -163,6 +163,7 @@ class AudioEngine: ObservableObject {
     
     private func createTrackNode(for track: AudioTrack) -> TrackAudioNode {
         let playerNode = AVAudioPlayerNode()
+        let eqNode = AVAudioUnitEQ(numberOfBands: 3)
         let volumeNode = AVAudioMixerNode()
         let panNode = AVAudioMixerNode()
         
@@ -179,6 +180,7 @@ class AudioEngine: ObservableObject {
                     playerNode: playerNode,
                     volumeNode: volumeNode,
                     panNode: panNode,
+                    eqNode: eqNode,
                     volume: track.mixerSettings.volume,
                     pan: track.mixerSettings.pan,
                     isMuted: track.mixerSettings.isMuted,
@@ -189,15 +191,17 @@ class AudioEngine: ObservableObject {
         
         // Attach nodes to engine
         engine.attach(playerNode)
+        engine.attach(eqNode)
         engine.attach(volumeNode)
         engine.attach(panNode)
         
-        // Connect the audio chain: player -> volume -> pan -> main mixer
+        // Connect the audio chain: player -> EQ -> volume -> pan -> main mixer
         do {
-            engine.connect(playerNode, to: volumeNode, format: nil)
+            engine.connect(playerNode, to: eqNode, format: nil)
+            engine.connect(eqNode, to: volumeNode, format: nil)
             engine.connect(volumeNode, to: panNode, format: nil)
             engine.connect(panNode, to: mixer, format: nil)
-            print("Successfully created and connected track node for: \(track.name)")
+            print("Successfully created and connected track node with EQ for: \(track.name)")
         } catch {
             print("Failed to connect audio nodes: \(error)")
             // Return a basic track node without connections if connection fails
@@ -206,6 +210,7 @@ class AudioEngine: ObservableObject {
                 playerNode: playerNode,
                 volumeNode: volumeNode,
                 panNode: panNode,
+                eqNode: eqNode,
                 volume: track.mixerSettings.volume,
                 pan: track.mixerSettings.pan,
                 isMuted: track.mixerSettings.isMuted,
@@ -218,6 +223,7 @@ class AudioEngine: ObservableObject {
             playerNode: playerNode,
             volumeNode: volumeNode,
             panNode: panNode,
+            eqNode: eqNode,
             volume: track.mixerSettings.volume,
             pan: track.mixerSettings.pan,
             isMuted: track.mixerSettings.isMuted,
@@ -673,15 +679,17 @@ class AudioEngine: ObservableObject {
     }
     
     func updateTrackEQ(trackId: UUID, highEQ: Float, midEQ: Float, lowEQ: Float) {
+        guard let trackNode = trackNodes[trackId] else { return }
+        
+        // Apply EQ to the audio node
+        trackNode.setEQ(highGain: highEQ, midGain: midEQ, lowGain: lowEQ)
+        
         // Update the project model
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
             settings.highEQ = highEQ
             settings.midEQ = midEQ
             settings.lowEQ = lowEQ
         }
-        
-        // TODO: Implement actual EQ processing with AVAudioUnitEQ
-        print("🎛️ Updated EQ for track \(trackId): High=\(highEQ)dB, Mid=\(midEQ)dB, Low=\(lowEQ)dB")
     }
     
     func updateTrackRecordEnabled(trackId: UUID, isRecordEnabled: Bool) {
@@ -692,6 +700,17 @@ class AudioEngine: ObservableObject {
         }
         
         print("🔴 Record \(isRecordEnabled ? "enabled" : "disabled") for track \(trackId)")
+    }
+    
+    // MARK: - Master Volume Control
+    func updateMasterVolume(_ volume: Float) {
+        let clampedVolume = max(0.0, min(1.0, volume))
+        mixer.outputVolume = clampedVolume
+        print("🔊 Master volume updated to \(Int(clampedVolume * 100))%")
+    }
+    
+    func getMasterVolume() -> Float {
+        return mixer.outputVolume
     }
     
     private func updateProjectTrackMixerSettings(trackId: UUID, update: (inout MixerSettings) -> Void) {

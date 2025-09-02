@@ -282,7 +282,7 @@ struct MasterChannelView: View {
                     .foregroundColor(.secondary)
                 
                 VSliderView(value: $masterVolume, range: 0...1) { value in
-                    // Handle master volume change
+                    audioEngine.updateMasterVolume(value)
                 }
                 .frame(width: 40, height: 120)
                 
@@ -306,6 +306,10 @@ struct MasterChannelView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.accentColor, lineWidth: 1)
         )
+        .onAppear {
+            // Initialize master volume from audio engine
+            masterVolume = audioEngine.getMasterVolume()
+        }
     }
 }
 
