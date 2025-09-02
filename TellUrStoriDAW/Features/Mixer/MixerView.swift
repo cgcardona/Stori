@@ -72,6 +72,8 @@ struct MixerChannelView: View {
     @State private var isMuted: Bool
     @State private var isSolo: Bool
     @State private var isRecordEnabled: Bool
+    @State private var trackLevel: Float = 0.0
+    @State private var levelTimer: Timer?
     
     init(track: AudioTrack, audioEngine: AudioEngine, isSelected: Bool, onSelect: @escaping () -> Void) {
         self.track = track
@@ -119,6 +121,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $highEQ, range: -12...12) { value in
+                        print("🎛️ High EQ changed to: \(value)")
                         audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: midEQ, lowEQ: lowEQ)
                     }
                     .frame(width: 40, height: 40)
@@ -131,6 +134,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $midEQ, range: -12...12) { value in
+                        print("🎛️ Mid EQ changed to: \(value)")
                         audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: value, lowEQ: lowEQ)
                     }
                     .frame(width: 40, height: 40)
@@ -143,6 +147,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $lowEQ, range: -12...12) { value in
+                        print("🎛️ Low EQ changed to: \(value)")
                         audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: midEQ, lowEQ: value)
                     }
                     .frame(width: 40, height: 40)
@@ -234,7 +239,7 @@ struct MixerChannelView: View {
             }
             
             // Level Meter
-            LevelMeterView(level: 0.5) // Simplified
+            LevelMeterView(level: trackLevel)
                 .frame(width: 8, height: 60)
         }
         .padding(12)
@@ -247,6 +252,14 @@ struct MixerChannelView: View {
         .onTapGesture {
             onSelect()
         }
+        .onAppear {
+            // Start level monitoring
+            startLevelMonitoring()
+        }
+        .onDisappear {
+            // Stop level monitoring
+            stopLevelMonitoring()
+        }
     }
     
     private var panDisplayText: String {
@@ -258,12 +271,28 @@ struct MixerChannelView: View {
             return "L\(Int(abs(pan) * 100))"
         }
     }
+    
+    private func startLevelMonitoring() {
+        levelTimer = Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
+            let levels = audioEngine.getTrackLevels()
+            if let level = levels[track.id] {
+                trackLevel = level.current
+            }
+        }
+    }
+    
+    private func stopLevelMonitoring() {
+        levelTimer?.invalidate()
+        levelTimer = nil
+    }
 }
 
 // MARK: - Master Channel View
 struct MasterChannelView: View {
     @ObservedObject var audioEngine: AudioEngine
     @State private var masterVolume: Float = 0.8
+    @State private var masterLevel: Float = 0.0
+    @State private var levelTimer: Timer?
     
     var body: some View {
         VStack(spacing: 12) {
@@ -293,9 +322,9 @@ struct MasterChannelView: View {
             
             // Master Level Meters (Stereo)
             HStack(spacing: 4) {
-                LevelMeterView(level: 0.6)
+                LevelMeterView(level: masterLevel)
                     .frame(width: 8, height: 80)
-                LevelMeterView(level: 0.5)
+                LevelMeterView(level: masterLevel * 0.9) // Slightly different for stereo effect
                     .frame(width: 8, height: 80)
             }
         }
@@ -309,7 +338,25 @@ struct MasterChannelView: View {
         .onAppear {
             // Initialize master volume from audio engine
             masterVolume = audioEngine.getMasterVolume()
+            startMasterLevelMonitoring()
         }
+        .onDisappear {
+            stopMasterLevelMonitoring()
+        }
+    }
+    
+    private func startMasterLevelMonitoring() {
+        levelTimer = Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
+            // Calculate average level from all tracks for master level
+            let levels = audioEngine.getTrackLevels()
+            let averageLevel = levels.values.map { $0.current }.reduce(0, +) / Float(max(levels.count, 1))
+            masterLevel = averageLevel
+        }
+    }
+    
+    private func stopMasterLevelMonitoring() {
+        levelTimer?.invalidate()
+        levelTimer = nil
     }
 }
 
