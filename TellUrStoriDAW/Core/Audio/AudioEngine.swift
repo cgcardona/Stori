@@ -149,8 +149,42 @@ class AudioEngine: ObservableObject {
     
     func updateCurrentProject(_ project: AudioProject) {
         // Update the project reference without stopping playback or rebuilding everything
+        let oldProject = currentProject
         currentProject = project
-        print("📝 Updated current project without stopping playback")
+        
+        // Check for new tracks that need audio node setup
+        if let oldProject = oldProject {
+            let oldTrackIds = Set(oldProject.tracks.map { $0.id })
+            let newTrackIds = Set(project.tracks.map { $0.id })
+            let addedTrackIds = newTrackIds.subtracting(oldTrackIds)
+            
+            // Set up audio nodes for new tracks
+            for trackId in addedTrackIds {
+                if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
+                    print("🎵 Setting up audio node for new track: \(newTrack.name)")
+                    let trackNode = createTrackNode(for: newTrack)
+                    trackNodes[trackId] = trackNode
+                }
+            }
+            
+            // Clean up removed tracks
+            let removedTrackIds = oldTrackIds.subtracting(newTrackIds)
+            for trackId in removedTrackIds {
+                if let trackNode = trackNodes[trackId] {
+                    print("🗑️ Removing audio node for deleted track: \(trackId)")
+                    engine.disconnectNodeInput(trackNode.panNode)
+                    engine.disconnectNodeInput(trackNode.volumeNode)
+                    engine.disconnectNodeInput(trackNode.eqNode)
+                    engine.disconnectNodeInput(trackNode.playerNode)
+                    trackNodes.removeValue(forKey: trackId)
+                }
+            }
+            
+            // Update solo state in case new tracks affect it
+            updateSoloState()
+        }
+        
+        print("📝 Updated current project without stopping playback - handled \(project.tracks.count) tracks")
     }
     
     private func setupTracksForProject(_ project: AudioProject) {
