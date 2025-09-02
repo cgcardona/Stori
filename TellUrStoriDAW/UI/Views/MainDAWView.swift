@@ -188,17 +188,17 @@ struct MainDAWView: View {
                                 )
                             }
                             
-                            // Cycle overlay
-                            if audioEngine.isCycleEnabled {
-                                CycleOverlayView(
-                                    cycleStartTime: audioEngine.cycleStartTime,
-                                    cycleEndTime: audioEngine.cycleEndTime,
-                                    onCycleRegionChanged: { start, end in
-                                        audioEngine.setCycleRegion(start: start, end: end)
-                                    }
-                                )
-                                .offset(x: 280) // Align with timeline content
-                            }
+                                        // Cycle overlay
+            if audioEngine.isCycleEnabled {
+                CycleOverlayView(
+                    cycleStartTime: audioEngine.cycleStartTime,
+                    cycleEndTime: audioEngine.cycleEndTime,
+                    onCycleRegionChanged: { start, end in
+                        audioEngine.setCycleRegion(start: start, end: end)
+                    }
+                )
+                .offset(x: 280, y: 40) // Align with timeline content, below ruler
+            }
                         }
                         
                         // COMMENTED OUT - will add back step by step
@@ -840,54 +840,50 @@ struct CycleOverlayView: View {
         let endX = CGFloat(cycleEndTime) * pixelsPerSecond
         let width = endX - startX
         
-        ZStack(alignment: .leading) {
-            // Cycle region background
+        HStack(spacing: 0) {
+            // Cycle region background and handles
             Rectangle()
                 .fill(Color.yellow.opacity(0.2))
-                .frame(width: width, height: 300) // Cover all tracks
-                .position(x: startX + width/2, y: 150)
+                .frame(width: width, height: 120) // Reasonable height for tracks
                 .overlay(
                     // Cycle region border
                     Rectangle()
                         .stroke(Color.yellow, lineWidth: 2)
-                        .frame(width: width, height: 300)
-                        .position(x: startX + width/2, y: 150)
+                        .frame(width: width, height: 120)
                 )
-            
-            // Start handle
-            Rectangle()
-                .fill(Color.yellow)
-                .frame(width: 8, height: 300)
-                .position(x: startX, y: 150)
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            let newStartTime = max(0, cycleStartTime + Double(value.translation.width / pixelsPerSecond))
-                            if newStartTime < cycleEndTime - 0.1 {
-                                onCycleRegionChanged(newStartTime, cycleEndTime)
-                            }
-                        }
+                .overlay(
+                    // Start handle
+                    HStack {
+                        Rectangle()
+                            .fill(Color.yellow)
+                            .frame(width: 8, height: 120)
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        let newStartTime = max(0, cycleStartTime + Double(value.translation.width / pixelsPerSecond))
+                                        if newStartTime < cycleEndTime - 0.1 {
+                                            onCycleRegionChanged(newStartTime, cycleEndTime)
+                                        }
+                                    }
+                            )
+                        
+                        Spacer()
+                        
+                        // End handle
+                        Rectangle()
+                            .fill(Color.yellow)
+                            .frame(width: 8, height: 120)
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        let newEndTime = max(cycleStartTime + 0.1, cycleEndTime + Double(value.translation.width / pixelsPerSecond))
+                                        onCycleRegionChanged(cycleStartTime, newEndTime)
+                                    }
+                            )
+                    }
                 )
-            
-            // End handle
-            Rectangle()
-                .fill(Color.yellow)
-                .frame(width: 8, height: 300)
-                .position(x: endX, y: 150)
                 .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            let newEndTime = max(cycleStartTime + 0.1, cycleEndTime + Double(value.translation.width / pixelsPerSecond))
-                            onCycleRegionChanged(cycleStartTime, newEndTime)
-                        }
-                )
-            
-            // Region drag area (middle)
-            Rectangle()
-                .fill(Color.clear)
-                .frame(width: max(20, width - 16), height: 300)
-                .position(x: startX + width/2, y: 150)
-                .gesture(
+                    // Region drag area (middle)
                     DragGesture()
                         .onChanged { value in
                             let deltaTime = Double(value.translation.width / pixelsPerSecond)
@@ -897,7 +893,11 @@ struct CycleOverlayView: View {
                             onCycleRegionChanged(newStartTime, newEndTime)
                         }
                 )
+                .offset(x: startX)
+            
+            Spacer()
         }
+        .frame(height: 120)
         .clipped()
     }
 }

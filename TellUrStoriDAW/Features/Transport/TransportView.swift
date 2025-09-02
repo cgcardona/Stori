@@ -108,34 +108,6 @@ struct TransportView: View {
             }
             
             Spacer()
-            
-            // Additional controls
-            HStack(spacing: 12) {
-                // Loop toggle
-                Button(action: {}) {
-                    Image(systemName: "repeat")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                
-                // Metronome toggle
-                Button(action: {}) {
-                    Image(systemName: "metronome")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                
-                // Count-in toggle
-                Button(action: {}) {
-                    Image(systemName: "timer")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.trailing, 20)
         }
         .frame(height: 80)
         .background(Color(.controlBackgroundColor))
