@@ -217,6 +217,20 @@ dmypy.json
 cython_debug/
 
 # ===================================
+# Blockchain / Hardhat Specific
+# ===================================
+
+# Hardhat artifacts and cache
+blockchain/artifacts/
+blockchain/cache/
+**/artifacts/
+**/cache/
+
+# Hardhat network files
+.openzeppelin/
+deployments/
+
+# ===================================
 # Node.js / JavaScript / TypeScript
 # ===================================
 
@@ -364,6 +378,10 @@ public
 !assets/**/*.aiff
 !assets/**/*.mp3
 !assets/**/*.m4a
+
+# Generated audio files
+musicgen-service/generated_audio/
+**/generated_audio/
 
 # Audio Unit cache
 ~/Library/Audio/Plug-Ins/Components/

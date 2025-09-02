@@ -5,6 +5,7 @@ struct AIGenerationView: View {
     let targetTrack: AudioTrack
     @ObservedObject var projectManager: ProjectManager
     @StateObject private var musicGenClient = MusicGenClient()
+    @StateObject private var blockchainClient = BlockchainClient()
     @Environment(\.dismiss) private var dismiss
     
     // Generation parameters
@@ -26,6 +27,17 @@ struct AIGenerationView: View {
     @State private var generationStatus = "Ready to generate"
     @State private var showingError = false
     @State private var errorMessage = ""
+    
+    // STEM minting state
+    @State private var showingSTEMMintingSheet = false
+    @State private var generatedAudioURL: URL?
+    @State private var generatedAudioFile: AudioFile?
+    @State private var mintAsSTEM = false
+    @State private var stemName = ""
+    @State private var stemDescription = ""
+    @State private var selectedSTEMType: STEMType = .other
+    @State private var stemSupply = "1000"
+    @State private var isMintingSTEM = false
     
     // Polling timer
     @State private var statusTimer: Timer?
@@ -70,11 +82,30 @@ struct AIGenerationView: View {
             
             ScrollView {
                 VStack(spacing: 24) {
-                    // Track info
-                    VStack(alignment: .leading, spacing: 8) {
+                    // Track info and blockchain status
+                    VStack(alignment: .leading, spacing: 12) {
                         Text("Creating music for track: \(targetTrack.name)")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                        
+                        // Blockchain connection status
+                        HStack {
+                            Circle()
+                                .fill(blockchainClient.isConnected ? Color.green : Color.red)
+                                .frame(width: 8, height: 8)
+                            
+                            Text("Blockchain: \(blockchainClient.connectionStatus.description)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            if blockchainClient.isConnected {
+                                Text("✨ STEM minting available")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     
@@ -125,6 +156,11 @@ struct AIGenerationView: View {
                         manualPromptSection
                     }
                     
+                    // STEM minting option (only if blockchain is connected)
+                    if blockchainClient.isConnected {
+                        stemMintingSection
+                    }
+                    
                     // Generation progress (when generating)
                     if isGenerating {
                         generationProgressSection
@@ -160,6 +196,17 @@ struct AIGenerationView: View {
             Button("OK") { }
         } message: {
             Text(errorMessage)
+        }
+        .sheet(isPresented: $showingSTEMMintingSheet) {
+            STEMMintingView(
+                audioFile: generatedAudioFile,
+                audioURL: generatedAudioURL,
+                blockchainClient: blockchainClient,
+                onMintComplete: { transaction in
+                    showingSTEMMintingSheet = false
+                    // Show success message or navigate to transaction view
+                }
+            )
         }
     }
     
@@ -313,6 +360,97 @@ struct AIGenerationView: View {
         .cornerRadius(12)
     }
     
+    private var stemMintingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            stemMintingHeader
+            
+            if mintAsSTEM {
+                stemMintingContent
+            }
+        }
+        .padding()
+        .background(Color.purple.opacity(0.1))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.purple.opacity(0.3), lineWidth: 1)
+        )
+    }
+    
+    private var stemMintingHeader: some View {
+        HStack {
+            Text("🎵 STEM Tokenization")
+                .font(.headline)
+            
+            Spacer()
+            
+            Toggle("Mint as STEM NFT", isOn: $mintAsSTEM)
+                .toggleStyle(SwitchToggleStyle())
+        }
+    }
+    
+    private var stemMintingContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your generated music will be minted as a STEM NFT on the blockchain after generation completes.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            stemTypeSelector
+            stemDetailsSection
+        }
+        .padding()
+        .background(Color.blue.opacity(0.05))
+        .cornerRadius(8)
+    }
+    
+    private var stemTypeSelector: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("STEM Type")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 100))
+            ], spacing: 8) {
+                ForEach(STEMType.allCases, id: \.self) { stemType in
+                    Button(action: {
+                        selectedSTEMType = stemType
+                    }) {
+                        HStack {
+                            Text(stemType.emoji)
+                            Text(stemType.displayName)
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(TemplateButtonStyle(isSelected: selectedSTEMType == stemType))
+                }
+            }
+        }
+    }
+    
+    private var stemDetailsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("STEM Details")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            
+            Text("Name and description will be auto-generated based on your prompt.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            HStack {
+                Text("Supply:")
+                    .font(.caption)
+                TextField("1000", text: $stemSupply)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(width: 80)
+                Text("tokens")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
     private func buildPromptFromTemplate() -> String {
         var parts: [String] = []
         
@@ -419,17 +557,35 @@ struct AIGenerationView: View {
                 
                 await MainActor.run {
                     // Create AudioFile from downloaded audio
-                    self.createAudioRegionFromFile(tempURL)
+                    let audioFile = self.createAudioRegionFromFile(tempURL)
                     
-                    generationStatus = "Success! Audio added to track."
-                    isGenerating = false
-                    generationProgress = 1.0
-                    
-                    print("🎵 Generated audio saved to: \(tempURL)")
-                    
-                    // Auto-dismiss after showing success
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        dismiss()
+                    if mintAsSTEM && blockchainClient.isConnected {
+                        // Store for STEM minting
+                        generatedAudioURL = tempURL
+                        generatedAudioFile = audioFile
+                        
+                        // Auto-populate STEM metadata
+                        let finalPrompt = useTemplateBuilder ? buildPromptFromTemplate() : prompt
+                        stemName = "AI Generated - \(selectedGenre) \(selectedMood)"
+                        stemDescription = "Generated with prompt: \(finalPrompt)"
+                        
+                        generationStatus = "Generation complete! Ready to mint STEM NFT."
+                        isGenerating = false
+                        generationProgress = 1.0
+                        
+                        // Show STEM minting sheet
+                        showingSTEMMintingSheet = true
+                    } else {
+                        generationStatus = "Success! Audio added to track."
+                        isGenerating = false
+                        generationProgress = 1.0
+                        
+                        print("🎵 Generated audio saved to: \(tempURL)")
+                        
+                        // Auto-dismiss after showing success
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            dismiss()
+                        }
                     }
                 }
                 
@@ -469,7 +625,7 @@ struct AIGenerationView: View {
         currentJobId = nil
     }
     
-    private func createAudioRegionFromFile(_ fileURL: URL) {
+    private func createAudioRegionFromFile(_ fileURL: URL) -> AudioFile? {
         do {
             // Get audio file information using AVAudioFile
             let audioFile = try AVAudioFile(forReading: fileURL)
@@ -506,11 +662,13 @@ struct AIGenerationView: View {
             projectManager.updateTrack(updatedTrack)
             
             print("✅ Added audio region to track: \(audioFileModel.name)")
+            return audioFileModel
             
         } catch {
             print("❌ Failed to create audio region: \(error)")
             errorMessage = "Failed to add audio to track: \(error.localizedDescription)"
             showingError = true
+            return nil
         }
     }
 }
@@ -530,4 +688,3 @@ struct TemplateButtonStyle: ButtonStyle {
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
-

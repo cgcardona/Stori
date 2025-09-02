@@ -13,6 +13,7 @@ struct MainDAWView: View {
     @State private var showingNewProjectSheet = false
     @State private var showingProjectBrowser = false
     @State private var selectedTrackId: UUID?
+    @State private var selectedMainTab: MainTab = .daw
     
     // MARK: - Track Management
     private func addTrack(name: String? = nil) {
@@ -26,9 +27,106 @@ struct MainDAWView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                
-                // Main content area
+                // Tab bar
                 HStack(spacing: 0) {
+                    ForEach(MainTab.allCases, id: \.self) { tab in
+                        Button(action: {
+                            selectedMainTab = tab
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: tab.iconName)
+                                Text(tab.title)
+                            }
+                            .font(.system(size: 14, weight: selectedMainTab == tab ? .semibold : .regular))
+                            .foregroundColor(selectedMainTab == tab ? .blue : .secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .background(Color(.controlBackgroundColor))
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(Color(.separatorColor)),
+                    alignment: .bottom
+                )
+                
+                // Tab content
+                Group {
+                    switch selectedMainTab {
+                    case .daw:
+                        dawContentView(geometry: geometry)
+                    case .marketplace:
+                        MarketplaceView()
+                    }
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                HStack {
+                    Button("New") {
+                        showingNewProjectSheet = true
+                    }
+                    .help("Create New Project")
+                    
+                    Button("Open") {
+                        showingProjectBrowser = true
+                    }
+                    .help("Open Project")
+                    
+                    if let project = projectManager.currentProject {
+                        Button("Save") {
+                            projectManager.saveCurrentProject()
+                        }
+                        .help("Save Project")
+                    }
+                }
+            }
+            
+            ToolbarItem(placement: .principal) {
+                HStack {
+                    if let project = projectManager.currentProject {
+                        Text(project.name)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingNewProjectSheet) {
+            NewProjectView(projectManager: projectManager)
+        }
+        .sheet(isPresented: $showingProjectBrowser) {
+            ProjectBrowserView(projectManager: projectManager)
+        }
+        .onAppear {
+            // Start the audio engine first
+            print("MainDAWView appeared, initializing audio engine...")
+            
+            // Give the audio engine a moment to initialize
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if let project = projectManager.currentProject {
+                    print("Loading existing project into audio engine...")
+                    audioEngine.loadProject(project)
+                } else {
+                    print("No existing project, audio engine ready for new project creation")
+                }
+            }
+        }
+        .onChange(of: projectManager.currentProject) { oldValue, newValue in
+            if let project = newValue {
+                audioEngine.loadProject(project)
+            }
+        }
+    }
+    
+    private func dawContentView(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            // Main content area
+            HStack(spacing: 0) {
                     // Timeline and tracks area
                     VStack(spacing: 0) {
                         // Timeline ruler
@@ -79,69 +177,7 @@ struct MainDAWView: View {
                     .frame(height: 80)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                HStack {
-                    Button("New") {
-                        showingNewProjectSheet = true
-                    }
-                    .help("Create New Project")
-                    
-                    Button("Open") {
-                        showingProjectBrowser = true
-                    }
-                    .help("Open Project")
-                    
-                    if let project = projectManager.currentProject {
-                        Button("Save") {
-                            projectManager.saveCurrentProject()
-                        }
-                        .help("Save Project")
-                    }
-                }
-            }
-            
-            ToolbarItem(placement: .principal) {
-                HStack {
-                    if let project = projectManager.currentProject {
-                        Text(project.name)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                    }
-                    // Remove the "TellUrStori DAW" fallback text to avoid duplication
-                }
-            }
-        }
-        .sheet(isPresented: $showingNewProjectSheet) {
-            NewProjectView(projectManager: projectManager)
-        }
-        .sheet(isPresented: $showingProjectBrowser) {
-            ProjectBrowserView(projectManager: projectManager)
-        }
-        .onAppear {
-            // Start the audio engine first
-            print("MainDAWView appeared, initializing audio engine...")
-            
-            // Give the audio engine a moment to initialize
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if let project = projectManager.currentProject {
-                    print("Loading existing project into audio engine...")
-                    audioEngine.loadProject(project)
-                } else {
-                    print("No existing project, audio engine ready for new project creation")
-                }
-            }
-        }
-        .onChange(of: projectManager.currentProject) { _, newProject in
-            if let project = newProject {
-                // Small delay to ensure UI is ready
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    audioEngine.loadProject(project)
-                }
-            }
-        }
     }
-}
 
 // MARK: - Toolbar View
 struct ToolbarView: View {
@@ -591,6 +627,27 @@ struct ProjectRowView: View {
             return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
         } else {
             return "Just now"
+        }
+    }
+}
+
+// MARK: - Main Tab Enum
+
+enum MainTab: String, CaseIterable {
+    case daw = "daw"
+    case marketplace = "marketplace"
+    
+    var title: String {
+        switch self {
+        case .daw: return "DAW"
+        case .marketplace: return "Marketplace"
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .daw: return "waveform"
+        case .marketplace: return "music.note.list"
         }
     }
 }
