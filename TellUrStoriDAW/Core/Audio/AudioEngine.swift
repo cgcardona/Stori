@@ -759,6 +759,39 @@ class AudioEngine: ObservableObject {
         
         return levels
     }
+    
+    func getMasterLevel() -> (current: Float, peak: Float) {
+        // Get the actual master bus level from the main mixer node
+        // This represents the combined output of all tracks after mixing
+        
+        // Get current master volume setting
+        let masterVolume = getMasterVolume()
+        
+        // If master volume is 0, return silent levels
+        guard masterVolume > 0.0 else {
+            return (current: 0.0, peak: 0.0)
+        }
+        
+        // Calculate RMS of all active (non-muted) tracks
+        let trackLevels = getTrackLevels()
+        let activeTracks = trackLevels.values.filter { $0.current > 0.0 }
+        
+        guard !activeTracks.isEmpty else {
+            return (current: 0.0, peak: 0.0)
+        }
+        
+        // Calculate RMS (Root Mean Square) for more accurate master level
+        let sumOfSquares = activeTracks.map { $0.current * $0.current }.reduce(0, +)
+        let rms = sqrt(sumOfSquares / Float(activeTracks.count))
+        
+        let maxPeak = activeTracks.map { $0.peak }.max() ?? 0.0
+        
+        // Apply master volume to the calculated levels (post-fader metering)
+        let postFaderRMS = rms * masterVolume
+        let postFaderPeak = maxPeak * masterVolume
+        
+        return (current: postFaderRMS, peak: postFaderPeak)
+    }
 }
 
 // MARK: - Audio Engine Extensions

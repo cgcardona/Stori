@@ -108,82 +108,80 @@ struct MixerChannelView: View {
                 Spacer()
             }
             
-            // EQ Section
+            // EQ and Pan Controls (Compact Layout)
             VStack(spacing: 8) {
-                Text("EQ")
+                Text("EQ & PAN")
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 
-                // High EQ
-                VStack(spacing: 2) {
-                    Text("HI")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    
-                    KnobView(value: $highEQ, range: -12...12) { value in
-                        print("🎛️ High EQ changed to: \(value)")
-                        audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: midEQ, lowEQ: lowEQ)
+                // EQ + Pan knobs in one row
+                HStack(spacing: 12) {
+                    // High EQ
+                    VStack(spacing: 2) {
+                        Text("HI")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        
+                        KnobView(value: $highEQ, range: -12...12, sensitivity: 0.03) { value in
+                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: midEQ, lowEQ: lowEQ)
+                        }
+                        .frame(width: 32, height: 32)
                     }
-                    .frame(width: 40, height: 40)
-                }
-                
-                // Mid EQ
-                VStack(spacing: 2) {
-                    Text("MID")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
                     
-                    KnobView(value: $midEQ, range: -12...12) { value in
-                        print("🎛️ Mid EQ changed to: \(value)")
-                        audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: value, lowEQ: lowEQ)
+                    // Mid EQ
+                    VStack(spacing: 2) {
+                        Text("MID")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        
+                        KnobView(value: $midEQ, range: -12...12, sensitivity: 0.03) { value in
+                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: value, lowEQ: lowEQ)
+                        }
+                        .frame(width: 32, height: 32)
                     }
-                    .frame(width: 40, height: 40)
-                }
-                
-                // Low EQ
-                VStack(spacing: 2) {
-                    Text("LO")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
                     
-                    KnobView(value: $lowEQ, range: -12...12) { value in
-                        print("🎛️ Low EQ changed to: \(value)")
-                        audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: midEQ, lowEQ: value)
+                    // Low EQ
+                    VStack(spacing: 2) {
+                        Text("LO")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        
+                        KnobView(value: $lowEQ, range: -12...12, sensitivity: 0.03) { value in
+                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: midEQ, lowEQ: value)
+                        }
+                        .frame(width: 32, height: 32)
                     }
-                    .frame(width: 40, height: 40)
+                    
+                    // Pan Control
+                    VStack(spacing: 2) {
+                        Text("PAN")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        
+                        KnobView(value: $pan, range: -1...1, sensitivity: 0.02) { value in
+                            audioEngine.updateTrackPan(trackId: track.id, pan: value)
+                        }
+                        .frame(width: 32, height: 32)
+                        
+                        Text(panDisplayText)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             
             Divider()
             
-            // Pan Control
-            VStack(spacing: 4) {
-                Text("PAN")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                KnobView(value: $pan, range: -1...1) { value in
-                    audioEngine.updateTrackPan(trackId: track.id, pan: value)
-                }
-                .frame(width: 40, height: 40)
-                
-                Text(panDisplayText)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            
-            Divider()
-            
-            // Volume Fader
-            VStack(spacing: 8) {
+            // Horizontal Volume Slider
+            VStack(spacing: 6) {
                 Text("VOLUME")
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 
-                VSliderView(value: $volume, range: 0...1) { value in
+                HSliderView(value: $volume, range: 0...1) { value in
                     audioEngine.updateTrackVolume(trackId: track.id, volume: value)
                 }
-                .frame(width: 30, height: 120)
+                .frame(height: 20)
                 
                 Text("\(Int(volume * 100))%")
                     .font(.caption2)
@@ -238,9 +236,9 @@ struct MixerChannelView: View {
                 .buttonStyle(.plain)
             }
             
-            // Level Meter
-            LevelMeterView(level: trackLevel)
-                .frame(width: 8, height: 60)
+            // Level Meter (Horizontal)
+            HorizontalLevelMeterView(level: trackLevel)
+                .frame(height: 8)
         }
         .padding(12)
         .background(isSelected ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
@@ -304,28 +302,34 @@ struct MasterChannelView: View {
             
             Divider()
             
-            // Master Volume Fader
-            VStack(spacing: 8) {
+            // Master Volume Slider (Horizontal)
+            VStack(spacing: 6) {
                 Text("VOLUME")
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 
-                VSliderView(value: $masterVolume, range: 0...1) { value in
+                HSliderView(value: $masterVolume, range: 0...1) { value in
                     audioEngine.updateMasterVolume(value)
                 }
-                .frame(width: 40, height: 120)
+                .frame(height: 20)
                 
                 Text("\(Int(masterVolume * 100))%")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
             
-            // Master Level Meters (Stereo)
-            HStack(spacing: 4) {
-                LevelMeterView(level: masterLevel)
-                    .frame(width: 8, height: 80)
-                LevelMeterView(level: masterLevel * 0.9) // Slightly different for stereo effect
-                    .frame(width: 8, height: 80)
+            // Master Level Meters (Stereo - Horizontal)
+            VStack(spacing: 4) {
+                Text("LEVELS")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                VStack(spacing: 2) {
+                    HorizontalLevelMeterView(level: masterLevel)
+                        .frame(height: 6)
+                    HorizontalLevelMeterView(level: masterLevel * 0.9) // Slightly different for stereo effect
+                        .frame(height: 6)
+                }
             }
         }
         .padding(12)
@@ -347,10 +351,9 @@ struct MasterChannelView: View {
     
     private func startMasterLevelMonitoring() {
         levelTimer = Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
-            // Calculate average level from all tracks for master level
-            let levels = audioEngine.getTrackLevels()
-            let averageLevel = levels.values.map { $0.current }.reduce(0, +) / Float(max(levels.count, 1))
-            masterLevel = averageLevel
+            // Get actual master bus level (RMS of active tracks)
+            let masterLevelData = audioEngine.getMasterLevel()
+            masterLevel = masterLevelData.current
         }
     }
     
@@ -364,10 +367,18 @@ struct MasterChannelView: View {
 struct KnobView: View {
     @Binding var value: Float
     let range: ClosedRange<Float>
+    let sensitivity: Float
     let onChange: (Float) -> Void
     
     @State private var isDragging = false
     @State private var lastDragValue: CGFloat = 0
+    
+    init(value: Binding<Float>, range: ClosedRange<Float>, sensitivity: Float = 0.01, onChange: @escaping (Float) -> Void) {
+        self._value = value
+        self.range = range
+        self.sensitivity = sensitivity
+        self.onChange = onChange
+    }
     
     private var normalizedValue: Float {
         (value - range.lowerBound) / (range.upperBound - range.lowerBound)
@@ -407,7 +418,7 @@ struct KnobView: View {
                         lastDragValue = gesture.translation.height
                     }
                     
-                    let delta = Float(lastDragValue - gesture.translation.height) * 0.01
+                    let delta = Float(lastDragValue - gesture.translation.height) * sensitivity
                     let newValue = max(range.lowerBound, min(range.upperBound, value + delta))
                     
                     if newValue != value {
@@ -472,7 +483,96 @@ struct VSliderView: View {
     }
 }
 
-// MARK: - Level Meter View
+// MARK: - Horizontal Slider View
+struct HSliderView: View {
+    @Binding var value: Float
+    let range: ClosedRange<Float>
+    let onChange: (Float) -> Void
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Track
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(height: 4)
+                    .cornerRadius(2)
+                
+                // Fill
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: geometry.size.width * CGFloat(normalizedValue), height: 4)
+                    .cornerRadius(2)
+                
+                // Thumb
+                Circle()
+                    .fill(Color.white)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .frame(width: 16, height: 16)
+                    .offset(x: geometry.size.width * CGFloat(normalizedValue) - 8)
+            }
+            .frame(maxHeight: .infinity)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let newValue = Float(gesture.location.x / geometry.size.width)
+                        let clampedValue = max(range.lowerBound, min(range.upperBound, 
+                            range.lowerBound + newValue * (range.upperBound - range.lowerBound)))
+                        
+                        if clampedValue != value {
+                            value = clampedValue
+                            onChange(clampedValue)
+                        }
+                    }
+            )
+        }
+    }
+    
+    private var normalizedValue: Float {
+        (value - range.lowerBound) / (range.upperBound - range.lowerBound)
+    }
+}
+
+// MARK: - Horizontal Level Meter View
+struct HorizontalLevelMeterView: View {
+    let level: Float
+    
+    private let segments = 20
+    
+    var body: some View {
+        HStack(spacing: 1) {
+            ForEach(0..<segments, id: \.self) { index in
+                let segmentLevel = Float(index + 1) / Float(segments)
+                // Conservative level scaling for proper dynamic range
+                // RMS values are typically very small (0.001-0.1), so we need gentle amplification
+                let scaledLevel = level * 8.0 // Conservative 8x amplification
+                let normalizedLevel = min(1.0, scaledLevel)
+                let isActive = normalizedLevel >= segmentLevel
+                
+                Rectangle()
+                    .fill(segmentColor(for: segmentLevel, isActive: isActive))
+                    .frame(width: 2)
+            }
+        }
+    }
+    
+    private func segmentColor(for segmentLevel: Float, isActive: Bool) -> Color {
+        if !isActive {
+            return Color.gray.opacity(0.3)
+        }
+        
+        // More realistic level meter colors
+        if segmentLevel > 0.9 {
+            return .red      // Only the top 2 segments are red (clipping zone)
+        } else if segmentLevel > 0.75 {
+            return .yellow   // Yellow for loud but safe levels
+        } else {
+            return .green    // Green for normal operating levels
+        }
+    }
+}
+
+// MARK: - Level Meter View (Vertical - for Master)
 struct LevelMeterView: View {
     let level: Float
     
@@ -482,7 +582,11 @@ struct LevelMeterView: View {
         VStack(spacing: 1) {
             ForEach(0..<segments, id: \.self) { index in
                 let segmentLevel = Float(segments - index) / Float(segments)
-                let isActive = level >= segmentLevel
+                // Conservative level scaling for proper dynamic range
+                // RMS values are typically very small (0.001-0.1), so we need gentle amplification
+                let scaledLevel = level * 8.0 // Conservative 8x amplification
+                let normalizedLevel = min(1.0, scaledLevel)
+                let isActive = normalizedLevel >= segmentLevel
                 
                 Rectangle()
                     .fill(segmentColor(for: segmentLevel, isActive: isActive))
@@ -496,12 +600,13 @@ struct LevelMeterView: View {
             return Color.gray.opacity(0.3)
         }
         
-        if segmentLevel > 0.8 {
-            return .red
-        } else if segmentLevel > 0.6 {
-            return .yellow
+        // More realistic level meter colors
+        if segmentLevel > 0.9 {
+            return .red      // Only the top 2 segments are red (clipping zone)
+        } else if segmentLevel > 0.75 {
+            return .yellow   // Yellow for loud but safe levels
         } else {
-            return .green
+            return .green    // Green for normal operating levels
         }
     }
 }
