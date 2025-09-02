@@ -2395,7 +2395,7 @@ services:
   - Left sidebar with project categories (New Project, Recent, Tutorials, Demo Projects, Templates)
   - Main content area with project selection and preview
   - Bottom action bar with "Choose" and "Open existing project" buttons
-  - Professional styling matching Logic Pro's design language
+  - Professional styling
   - Proper modal routing for project creation vs. project browser
 - [x] **Enhanced Visual Design System** - Comprehensive UI polish and consistency ✅
   - **Wallet Connection Modal**: Animated gradients, glowing icons, real-time validation
@@ -2464,7 +2464,7 @@ services:
   - Integrated with menu bar commands and notification system for complete transport control
 - [x] **Track Controls** - Professional track-level mixing interface ✅ 
   - Changed master volume default from 100% to 60% for more reasonable startup levels
-  - Added compact volume slider and pan knob to each track header (Logic Pro style)
+  - Added compact volume slider and pan knob to each track header
   - Volume slider shows percentage display with real-time updates
   - Pan knob displays L/R positioning (L50, C, R50) with center detent
   - Perfect synchronization between track controls and mixer - changes in either location update both
