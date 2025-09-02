@@ -69,6 +69,9 @@ struct MixerChannelView: View {
     @State private var highEQ: Float
     @State private var midEQ: Float
     @State private var lowEQ: Float
+    @State private var isMuted: Bool
+    @State private var isSolo: Bool
+    @State private var isRecordEnabled: Bool
     
     init(track: AudioTrack, audioEngine: AudioEngine, isSelected: Bool, onSelect: @escaping () -> Void) {
         self.track = track
@@ -82,6 +85,9 @@ struct MixerChannelView: View {
         self._highEQ = State(initialValue: track.mixerSettings.highEQ)
         self._midEQ = State(initialValue: track.mixerSettings.midEQ)
         self._lowEQ = State(initialValue: track.mixerSettings.lowEQ)
+        self._isMuted = State(initialValue: track.mixerSettings.isMuted)
+        self._isSolo = State(initialValue: track.mixerSettings.isSolo)
+        self._isRecordEnabled = State(initialValue: track.isRecordEnabled)
     }
     
     var body: some View {
@@ -113,7 +119,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $highEQ, range: -12...12) { value in
-                        // TODO: Implement EQ control
+                        audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: midEQ, lowEQ: lowEQ)
                     }
                     .frame(width: 40, height: 40)
                 }
@@ -125,7 +131,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $midEQ, range: -12...12) { value in
-                        // Handle mid EQ change
+                        audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: value, lowEQ: lowEQ)
                     }
                     .frame(width: 40, height: 40)
                 }
@@ -137,7 +143,7 @@ struct MixerChannelView: View {
                         .foregroundColor(.secondary)
                     
                     KnobView(value: $lowEQ, range: -12...12) { value in
-                        // Handle low EQ change
+                        audioEngine.updateTrackEQ(trackId: track.id, highEQ: highEQ, midEQ: midEQ, lowEQ: value)
                     }
                     .frame(width: 40, height: 40)
                 }
@@ -183,40 +189,45 @@ struct MixerChannelView: View {
             HStack(spacing: 8) {
                 // Mute
                 Button(action: {
-                    audioEngine.updateTrackMute(trackId: track.id, isMuted: !track.mixerSettings.isMuted)
+                    isMuted.toggle()
+                    audioEngine.updateTrackMute(trackId: track.id, isMuted: isMuted)
                 }) {
                     Text("M")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(track.mixerSettings.isMuted ? Color.orange : Color.gray.opacity(0.3))
-                        .foregroundColor(track.mixerSettings.isMuted ? .white : .primary)
+                        .background(isMuted ? Color.orange : Color.gray.opacity(0.3))
+                        .foregroundColor(isMuted ? .white : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
                 
                 // Solo
                 Button(action: {
-                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: !track.mixerSettings.isSolo)
+                    isSolo.toggle()
+                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: isSolo)
                 }) {
                     Text("S")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(track.mixerSettings.isSolo ? Color.yellow : Color.gray.opacity(0.3))
-                        .foregroundColor(track.mixerSettings.isSolo ? .black : .primary)
+                        .background(isSolo ? Color.yellow : Color.gray.opacity(0.3))
+                        .foregroundColor(isSolo ? .black : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
                 
                 // Record
-                Button(action: {}) {
+                Button(action: {
+                    isRecordEnabled.toggle()
+                    audioEngine.updateTrackRecordEnabled(trackId: track.id, isRecordEnabled: isRecordEnabled)
+                }) {
                     Text("R")
                         .font(.caption)
                         .fontWeight(.bold)
                         .frame(width: 24, height: 24)
-                        .background(track.isRecordEnabled ? Color.red : Color.gray.opacity(0.3))
-                        .foregroundColor(track.isRecordEnabled ? .white : .primary)
+                        .background(isRecordEnabled ? Color.red : Color.gray.opacity(0.3))
+                        .foregroundColor(isRecordEnabled ? .white : .primary)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)

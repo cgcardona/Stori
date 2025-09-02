@@ -332,10 +332,30 @@ class AudioEngine: ObservableObject {
     private func startPlayback() {
         guard let project = currentProject else { return }
         
-        // Start all player nodes
+        let startTime = currentPosition.timeInterval
+        var scheduledNodes: [AVAudioPlayerNode] = []
+        
+        // First, schedule all tracks without starting playback
         for track in project.tracks {
-            playTrack(track, from: currentPosition.timeInterval)
+            if let trackNode = trackNodes[track.id] {
+                let activeRegions = track.regions.filter { region in
+                    region.startTime <= startTime && region.endTime > startTime
+                }
+                
+                for region in activeRegions {
+                    if scheduleRegionForSynchronizedPlayback(region, on: trackNode, at: startTime) {
+                        scheduledNodes.append(trackNode.playerNode)
+                    }
+                }
+            }
         }
+        
+        // Now start all scheduled nodes simultaneously for perfect sync
+        for playerNode in scheduledNodes {
+            playerNode.play() // Start immediately
+        }
+        
+        print("🎵 Started \(scheduledNodes.count) tracks simultaneously")
     }
     
     private func stopPlayback() {
@@ -348,31 +368,41 @@ class AudioEngine: ObservableObject {
     }
     
     private func playTrack(_ track: AudioTrack, from startTime: TimeInterval) {
+        // Get the track's dedicated player node
+        guard let trackNode = trackNodes[track.id] else {
+            print("No track node found for track: \(track.name)")
+            return
+        }
+        
         // Find regions that should be playing at the current time
         let activeRegions = track.regions.filter { region in
             region.startTime <= startTime && region.endTime > startTime
         }
         
-        // Schedule audio for each active region
+        // Schedule audio for each active region on this track's player node
         for region in activeRegions {
-            scheduleRegion(region, at: startTime)
+            scheduleRegion(region, on: trackNode, at: startTime)
         }
     }
     
-    private func scheduleRegion(_ region: AudioRegion, at currentTime: TimeInterval) {
-        // This is a simplified implementation
-        // In a real DAW, you'd need more sophisticated scheduling
-        
-        guard let playerNode = findPlayerNodeForRegion(region) else { return }
+    private func scheduleRegion(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) {
+        let playerNode = trackNode.playerNode
         
         do {
             let audioFile = try AVAudioFile(forReading: region.audioFile.url)
             let offsetInFile = currentTime - region.startTime + region.offset
-            let framesToPlay = AVAudioFrameCount((region.endTime - currentTime) * audioFile.processingFormat.sampleRate)
+            let remainingDuration = region.endTime - currentTime
+            let framesToPlay = AVAudioFrameCount(remainingDuration * audioFile.processingFormat.sampleRate)
             
             if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
                 let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
                 
+                // Stop any existing playback on this node first
+                if playerNode.isPlaying {
+                    playerNode.stop()
+                }
+                
+                // Schedule the audio segment
                 playerNode.scheduleSegment(
                     audioFile,
                     startingFrame: startFrame,
@@ -380,18 +410,49 @@ class AudioEngine: ObservableObject {
                     at: nil
                 )
                 
-                if !playerNode.isPlaying {
-                    playerNode.play()
-                }
+                // Start playback on this specific track's player node
+                playerNode.play()
+                
+                print("🎵 Scheduled region '\(region.displayName)' on track '\(trackNode.id)' from \(offsetInFile)s")
             }
         } catch {
-            print("Failed to schedule region: \(error)")
+            print("❌ Failed to schedule region '\(region.displayName)': \(error)")
         }
     }
     
-    private func findPlayerNodeForRegion(_ region: AudioRegion) -> AVAudioPlayerNode? {
-        // In a real implementation, you'd maintain a mapping between regions and player nodes
-        return engine.attachedNodes.compactMap { $0 as? AVAudioPlayerNode }.first
+    private func scheduleRegionForSynchronizedPlayback(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) -> Bool {
+        let playerNode = trackNode.playerNode
+        
+        do {
+            let audioFile = try AVAudioFile(forReading: region.audioFile.url)
+            let offsetInFile = currentTime - region.startTime + region.offset
+            let remainingDuration = region.endTime - currentTime
+            let framesToPlay = AVAudioFrameCount(remainingDuration * audioFile.processingFormat.sampleRate)
+            
+            if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
+                let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
+                
+                // Stop any existing playback on this node first
+                if playerNode.isPlaying {
+                    playerNode.stop()
+                }
+                
+                // Schedule the audio segment (but don't start playing yet)
+                playerNode.scheduleSegment(
+                    audioFile,
+                    startingFrame: startFrame,
+                    frameCount: framesToPlay,
+                    at: nil
+                )
+                
+                print("🎵 Scheduled region '\(region.displayName)' for synchronized playback")
+                return true
+            }
+        } catch {
+            print("❌ Failed to schedule region '\(region.displayName)' for sync: \(error)")
+        }
+        
+        return false
     }
     
     // MARK: - Recording Implementation
@@ -609,6 +670,28 @@ class AudioEngine: ObservableObject {
                 }
             }
         }
+    }
+    
+    func updateTrackEQ(trackId: UUID, highEQ: Float, midEQ: Float, lowEQ: Float) {
+        // Update the project model
+        updateProjectTrackMixerSettings(trackId: trackId) { settings in
+            settings.highEQ = highEQ
+            settings.midEQ = midEQ
+            settings.lowEQ = lowEQ
+        }
+        
+        // TODO: Implement actual EQ processing with AVAudioUnitEQ
+        print("🎛️ Updated EQ for track \(trackId): High=\(highEQ)dB, Mid=\(midEQ)dB, Low=\(lowEQ)dB")
+    }
+    
+    func updateTrackRecordEnabled(trackId: UUID, isRecordEnabled: Bool) {
+        // Update the project model
+        if let project = currentProject,
+           let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
+            currentProject?.tracks[trackIndex].isRecordEnabled = isRecordEnabled
+        }
+        
+        print("🔴 Record \(isRecordEnabled ? "enabled" : "disabled") for track \(trackId)")
     }
     
     private func updateProjectTrackMixerSettings(trackId: UUID, update: (inout MixerSettings) -> Void) {
