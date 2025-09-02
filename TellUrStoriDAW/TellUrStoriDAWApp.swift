@@ -71,6 +71,18 @@ struct TellUrStoriDAWApp: App {
                     NotificationCenter.default.post(name: .record, object: nil)
                 }
                 .keyboardShortcut("r")
+                
+                Divider()
+                
+                Button("Skip to Beginning") {
+                    NotificationCenter.default.post(name: .skipToBeginning, object: nil)
+                }
+                .keyboardShortcut(.home)
+                
+                Button("Skip to End") {
+                    NotificationCenter.default.post(name: .skipToEnd, object: nil)
+                }
+                .keyboardShortcut(.end)
             }
         }
     }
@@ -91,4 +103,6 @@ extension Notification.Name {
     static let playPause = Notification.Name("playPause")
     static let stop = Notification.Name("stop")
     static let record = Notification.Name("record")
+    static let skipToBeginning = Notification.Name("skipToBeginning")
+    static let skipToEnd = Notification.Name("skipToEnd")
 }

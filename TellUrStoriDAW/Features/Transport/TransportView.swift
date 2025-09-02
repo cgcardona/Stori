@@ -14,6 +14,15 @@ struct TransportView: View {
         HStack(spacing: 0) {
             // Transport controls
             HStack(spacing: 16) {
+                // Rewind
+                TransportButton(
+                    icon: "backward.fill",
+                    isActive: false,
+                    color: .secondary,
+                    action: { audioEngine.rewind() }
+                )
+                .keyboardShortcut(.leftArrow, modifiers: [])
+                
                 // Stop
                 TransportButton(
                     icon: "stop.fill",
@@ -50,6 +59,15 @@ struct TransportView: View {
                     }
                 )
                 .keyboardShortcut("r", modifiers: [])
+                
+                // Forward
+                TransportButton(
+                    icon: "forward.fill",
+                    isActive: false,
+                    color: .secondary,
+                    action: { audioEngine.fastForward() }
+                )
+                .keyboardShortcut(.rightArrow, modifiers: [])
             }
             .padding(.leading, 20)
             

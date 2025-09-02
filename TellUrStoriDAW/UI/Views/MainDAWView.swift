@@ -116,6 +116,16 @@ struct MainDAWView: View {
                 deleteSelectedTrack()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .skipToBeginning)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                audioEngine.skipToBeginning()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .skipToEnd)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                audioEngine.skipToEnd()
+            }
+        }
         .onAppear {
             // Start the audio engine first
             print("MainDAWView appeared, initializing audio engine...")

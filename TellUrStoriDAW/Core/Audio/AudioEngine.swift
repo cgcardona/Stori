@@ -832,6 +832,66 @@ class AudioEngine: ObservableObject {
         
         return (current: postFaderRMS, peak: postFaderPeak)
     }
+    
+    // MARK: - Timeline Navigation
+    
+    func seekToPosition(_ timeInterval: TimeInterval) {
+        let wasPlaying = transportState == .playing
+        let newTime = max(0, timeInterval)
+        
+        // Stop playback temporarily
+        if wasPlaying {
+            pause()
+        }
+        
+        // Update position
+        currentPosition = PlaybackPosition(
+            timeInterval: newTime,
+            tempo: currentProject?.tempo ?? 120,
+            timeSignature: currentProject?.timeSignature ?? .fourFour
+        )
+        
+        // Update timer tracking variables to keep position calculation in sync
+        pausedTime = newTime
+        startTime = CACurrentMediaTime()
+        
+        // If we were playing, resume playback from new position
+        if wasPlaying {
+            play()
+        }
+        
+        print("🎵 Seeked to position: \(currentTimeString)")
+    }
+    
+    func rewind(_ seconds: TimeInterval = 1.0) {
+        let newTime = max(0, currentPosition.timeInterval - seconds)
+        seekToPosition(newTime)
+    }
+    
+    func fastForward(_ seconds: TimeInterval = 1.0) {
+        let newTime = currentPosition.timeInterval + seconds
+        seekToPosition(newTime)
+    }
+    
+    func skipToBeginning() {
+        seekToPosition(0)
+    }
+    
+    func skipToEnd() {
+        // Skip to end of longest track or 10 seconds forward if no tracks
+        guard let project = currentProject else {
+            seekToPosition(currentPosition.timeInterval + 10)
+            return
+        }
+        
+        let maxDuration = project.tracks.compactMap { track in
+            track.regions.map { region in
+                region.startTime + region.duration
+            }.max()
+        }.max() ?? currentPosition.timeInterval + 10
+        
+        seekToPosition(maxDuration)
+    }
 }
 
 // MARK: - Audio Engine Extensions
