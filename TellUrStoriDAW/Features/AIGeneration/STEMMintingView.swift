@@ -110,7 +110,7 @@ struct STEMMintingView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                     }
-                    .disabled(isMinting || stemName.isEmpty || stemDescription.isEmpty)
+                    .disabled(isMinting || stemName.isEmpty || stemDescription.isEmpty || blockchainClient.currentWallet == nil)
                 }
                 .padding()
             }
@@ -296,7 +296,7 @@ struct STEMMintingView: View {
                         .font(.subheadline)
                         .fontWeight(.medium)
                     Spacer()
-                    Text(blockchainClient.networkInfo?.networkName ?? "Unknown")
+                    Text(blockchainClient.networkInfo?.networkName ?? "TellUrStori L1")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -312,6 +312,23 @@ struct STEMMintingView: View {
                             .foregroundColor(.secondary)
                             .monospaced()
                     }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Wallet:")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            Spacer()
+                            Text("Not Connected")
+                                .font(.subheadline)
+                                .foregroundColor(.red)
+                        }
+                        
+                        Text("⚠️ You need to connect a wallet to mint STEMs. Please go to the Marketplace tab and connect your wallet first.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .padding(.top, 4)
+                    }
                 }
                 
                 HStack {
@@ -326,7 +343,7 @@ struct STEMMintingView: View {
             }
         }
         .padding()
-        .background(Color.green.opacity(0.1))
+        .background(blockchainClient.currentWallet != nil ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
         .cornerRadius(12)
     }
     
@@ -412,6 +429,13 @@ struct STEMMintingView: View {
         guard let audioURL = audioURL,
               let audioFile = audioFile else {
             errorMessage = "Audio file not available"
+            showingError = true
+            return
+        }
+        
+        // Check if wallet is connected
+        guard blockchainClient.currentWallet != nil else {
+            errorMessage = "No wallet connected"
             showingError = true
             return
         }

@@ -2366,6 +2366,12 @@ services:
   - Loading states with progress animations and success confirmations
   - Network information display with TellUrStori L1 details
   - Professional styling matching app's blue-purple-pink theme
+- [x] **STEM Minting Wallet Integration** - Improved user experience for NFT creation ✅ *January 2025*
+  - Enhanced wallet connection validation in STEM minting interface
+  - Clear visual feedback when wallet is not connected
+  - Informative error messages guiding users to connect wallet first
+  - Disabled minting button when wallet connection is missing
+  - Orange warning styling for disconnected wallet state
 - [x] **Custom Avalanche L1 Subnet** - TellUrStori L1 blockchain created and configured ✅
   - Chain ID: 507, RPC: http://127.0.0.1:64815/ext/bc/48tTofoS1HoWcr5ggv2ci8pzuqoZGCoFMetYWcxUEbEHE3x8X/rpc
   - Native token: TUS (TUS Token), Deployer account with 1M TUS balance
