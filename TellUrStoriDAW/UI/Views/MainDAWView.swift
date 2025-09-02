@@ -314,105 +314,214 @@ struct NewProjectView: View {
     @State private var tempo: Double = 120
     @State private var timeSignature = TimeSignature.fourFour
     @State private var sampleRate: Double = 44100
+    @State private var animateGradient = false
+    @State private var isCreating = false
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            VStack(spacing: 8) {
-                Text("Project")
-                    .font(.title2)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-            }
-            .padding(.top, 32)
-            .padding(.bottom, 24)
-            
-            // Form Content
-            VStack(spacing: 20) {
-                // Project Name
-                HStack {
-                    Text("Project Name")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.primary)
-                        .frame(width: 120, alignment: .trailing)
-                    
-                    TextField("Untitled", text: $projectName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 200)
-                }
-                
-                // BPM
-                HStack {
-                    Text("BPM")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.primary)
-                        .frame(width: 120, alignment: .trailing)
-                    
-                    TextField("120", value: $tempo, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 200)
-                }
-                
-                // Sample Rate
-                HStack {
-                    Text("Sample Rate")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.primary)
-                        .frame(width: 120, alignment: .trailing)
-                    
-                    Menu {
-                        Button("44.1 kHz") { sampleRate = 44100.0 }
-                        Button("48 kHz") { sampleRate = 48000.0 }
-                        Button("96 kHz") { sampleRate = 96000.0 }
-                    } label: {
-                        HStack {
-                            Text(sampleRateText)
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(6)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(NSColor.separatorColor), lineWidth: 1)
-                        )
+            // Animated gradient header
+            LinearGradient(
+                colors: [
+                    Color.blue.opacity(0.8),
+                    Color.purple.opacity(0.6),
+                    Color.pink.opacity(0.4)
+                ],
+                startPoint: animateGradient ? .topLeading : .bottomTrailing,
+                endPoint: animateGradient ? .bottomTrailing : .topLeading
+            )
+            .frame(height: 120)
+            .overlay(
+                VStack(spacing: 12) {
+                    // Project icon with glow effect
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 60, height: 60)
+                        
+                        Circle()
+                            .fill(Color.white.opacity(0.1))
+                            .frame(width: 80, height: 80)
+                        
+                        Image(systemName: "music.note")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundColor(.white)
                     }
-                    .frame(width: 200)
+                    
+                    // Title with gradient text
+                    Text("New Project")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.white, .white.opacity(0.9)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                 }
-            }
-            .padding(.horizontal, 40)
+            )
             
-            Spacer()
-            
-            // Buttons
-            HStack(spacing: 12) {
-                Button("Cancel") {
-                    dismiss()
+            // Form content with enhanced styling
+            VStack(spacing: 24) {
+                VStack(spacing: 20) {
+                    // Project Name with icon
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "textformat")
+                                .font(.system(size: 14))
+                                .foregroundColor(.blue)
+                            Text("Project Name")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.primary)
+                        }
+                        
+                        TextField("Enter project name", text: $projectName)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 16))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.controlBackgroundColor))
+                                    .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    
+                    // BPM with icon
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "metronome")
+                                .font(.system(size: 14))
+                                .foregroundColor(.purple)
+                            Text("Tempo (BPM)")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.primary)
+                        }
+                        
+                        TextField("120", value: $tempo, format: .number)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 16))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.controlBackgroundColor))
+                                    .stroke(Color.purple.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+                    
+                    // Sample Rate with icon
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 14))
+                                .foregroundColor(.pink)
+                            Text("Sample Rate")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.primary)
+                        }
+                        
+                        Menu {
+                            Button("44.1 kHz") { sampleRate = 44100.0 }
+                            Button("48 kHz") { sampleRate = 48000.0 }
+                            Button("96 kHz") { sampleRate = 96000.0 }
+                        } label: {
+                            HStack {
+                                Text(sampleRateText)
+                                    .foregroundColor(.primary)
+                                    .font(.system(size: 16))
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.controlBackgroundColor))
+                                    .stroke(Color.pink.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 32)
+                .padding(.top, 32)
                 
-                Button("Create") {
-                    projectManager.createNewProject(name: projectName.isEmpty ? "Untitled" : projectName, tempo: tempo)
-                    dismiss()
+                Spacer()
+                
+                // Enhanced buttons
+                HStack(spacing: 16) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.controlBackgroundColor))
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                    
+                    Button(action: createProject) {
+                        HStack(spacing: 8) {
+                            if isCreating {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 16))
+                            }
+                            Text(isCreating ? "Creating..." : "Create Project")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.blue, Color.purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(8)
+                        .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+                    }
+                    .disabled(isCreating || projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 32)
             }
-            .padding(.bottom, 32)
         }
-        .frame(width: 480, height: 320)
-        .background(Color(NSColor.windowBackgroundColor))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+        .frame(width: 520, height: 480)
+        .background(Color(.windowBackgroundColor))
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 12)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                animateGradient.toggle()
+            }
+        }
+    }
+    
+    private func createProject() {
+        guard !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        
+        isCreating = true
+        
+        // Add a small delay for better UX
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            projectManager.createNewProject(
+                name: projectName.trimmingCharacters(in: .whitespacesAndNewlines),
+                tempo: tempo
+            )
+            dismiss()
+        }
     }
     
     private var sampleRateText: String {
