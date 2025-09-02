@@ -826,7 +826,7 @@ struct CycleOverlayView: View {
     @State private var isDragging = false
     @State private var dragType: DragType = .none
     
-    private let pixelsPerSecond: CGFloat = 50 // Match timeline scaling
+    private let pixelsPerSecond: CGFloat = 100 // Match timeline scaling
     
     enum DragType {
         case none
