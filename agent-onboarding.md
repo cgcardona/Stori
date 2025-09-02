@@ -343,6 +343,16 @@ TellUrStoriDAW/
 - Integrated with macOS menu bar commands and NotificationCenter for complete transport control system
 - Professional DAW-grade timeline navigation with accurate position tracking and visual feedback
 
+**Track Controls:**
+- Changed master volume default from 100% to 60% for more reasonable startup audio levels
+- Added compact volume slider and pan knob directly to each track header (Logic Pro style layout)
+- Volume slider displays real-time percentage values with smooth HSliderView component
+- Pan knob shows L/R positioning (L50, C, R50) with proper center detent behavior
+- Perfect bidirectional synchronization between track controls and mixer interface
+- Space-efficient design with 8pt font sizing maintaining professional appearance
+- All controls use identical AudioEngine methods ensuring consistent behavior across the entire interface
+- Enhanced user workflow allowing quick adjustments without opening full mixer panel
+
 **Key Technical Fixes:**
 - Replaced iOS-specific toolbar placements with macOS-compatible alternatives
 - Fixed MainDAWView structure with proper toolbar and sheet management

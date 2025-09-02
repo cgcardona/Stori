@@ -236,6 +236,49 @@ struct TrackHeaderView: View {
                 .buttonStyle(.plain)
             }
             .font(.caption)
+            
+            // Volume and Pan Controls 
+            HStack(spacing: 12) {
+                // Volume Slider
+                VStack(spacing: 2) {
+                    Text("VOL")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.secondary)
+                    
+                    HSliderView(value: .constant(track.mixerSettings.volume), range: 0...1) { value in
+                        var updatedTrack = track
+                        updatedTrack.mixerSettings.volume = value
+                        projectManager.updateTrack(updatedTrack)
+                        audioEngine.updateTrackVolume(trackId: track.id, volume: value)
+                    }
+                    .frame(width: 60, height: 12)
+                    
+                    Text("\(Int(track.mixerSettings.volume * 100))")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+                
+                // Pan Knob
+                VStack(spacing: 2) {
+                    Text("PAN")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.secondary)
+                    
+                    KnobView(value: .constant(track.mixerSettings.pan), range: -1...1, sensitivity: 0.02) { value in
+                        var updatedTrack = track
+                        updatedTrack.mixerSettings.pan = value
+                        projectManager.updateTrack(updatedTrack)
+                        audioEngine.updateTrackPan(trackId: track.id, pan: value)
+                    }
+                    .frame(width: 24, height: 24)
+                    
+                    Text(panDisplayText(track.mixerSettings.pan))
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
         }
         .padding(8)
         .background(isSelected ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
@@ -245,6 +288,16 @@ struct TrackHeaderView: View {
         }
         .sheet(isPresented: $showingAIGeneration) {
             AIGenerationView(targetTrack: track, projectManager: projectManager)
+        }
+    }
+    
+    private func panDisplayText(_ pan: Float) -> String {
+        if abs(pan) < 0.01 {
+            return "C"
+        } else if pan > 0 {
+            return "R\(Int(pan * 100))"
+        } else {
+            return "L\(Int(abs(pan) * 100))"
         }
     }
 }

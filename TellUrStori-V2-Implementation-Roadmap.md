@@ -2391,7 +2391,7 @@ services:
   - Transport menu (Play/Pause Space, Stop ⌘Space, Record R)
   - NotificationCenter-based menu action handling
   - Keyboard shortcuts working throughout the application
-- [x] **Logic Pro-Style Landing Page** - Professional project chooser interface ✅
+- [x] **Landing Page** - Professional project chooser interface ✅
   - Left sidebar with project categories (New Project, Recent, Tutorials, Demo Projects, Templates)
   - Main content area with project selection and preview
   - Bottom action bar with "Choose" and "Open existing project" buttons
@@ -2462,6 +2462,14 @@ services:
   - Updated seekToPosition to properly sync startTime and pausedTime with position timer
   - Added keyboard shortcuts (left/right arrows for rewind/forward, home/end for skip)
   - Integrated with menu bar commands and notification system for complete transport control
+- [x] **Track Controls** - Professional track-level mixing interface ✅ 
+  - Changed master volume default from 100% to 60% for more reasonable startup levels
+  - Added compact volume slider and pan knob to each track header (Logic Pro style)
+  - Volume slider shows percentage display with real-time updates
+  - Pan knob displays L/R positioning (L50, C, R50) with center detent
+  - Perfect synchronization between track controls and mixer - changes in either location update both
+  - Compact 8pt font sizing for professional, space-efficient design
+  - All controls use same AudioEngine methods ensuring consistent behavior across interface
 - [ ] **Execute L1 Contract Deployment** - Deploy contracts to live L1 subnet
 - [ ] **Production Indexer Service** - Deploy indexer with L1 configuration
 - [ ] **IPFS Production Infrastructure** - Production IPFS setup with redundancy

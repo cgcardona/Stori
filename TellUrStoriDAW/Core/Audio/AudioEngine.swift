@@ -52,6 +52,9 @@ class AudioEngine: ObservableObject {
         engine.attach(mixer)
         engine.connect(mixer, to: engine.outputNode, format: nil)
         
+        // Set default master volume to 60%
+        mixer.outputVolume = 0.6
+        
         // Start the engine
         startAudioEngine()
     }
