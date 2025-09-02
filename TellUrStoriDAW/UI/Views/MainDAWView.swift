@@ -64,46 +64,7 @@ struct MainDAWView: View {
                 }
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                HStack {
-                    Button("New") {
-                        showingNewProjectSheet = true
-                    }
-                    .help("Create New Project (⌘N)")
-                    
-                    Button("Open") {
-                        showingProjectBrowser = true
-                    }
-                    .help("Open Project (⌘O)")
-                    
-                    if let project = projectManager.currentProject {
-                        Button("Save") {
-                            projectManager.saveCurrentProject()
-                        }
-                        .help("Save Project (⌘S)")
-                        
-                        // Add Track button (only show when in DAW tab)
-                        if selectedMainTab == .daw {
-                            Button("Add Track") {
-                                addTrack()
-                            }
-                            .help("Add New Track (⇧⌘N)")
-                        }
-                    }
-                }
-            }
-            
-            ToolbarItem(placement: .principal) {
-                HStack {
-                    if let project = projectManager.currentProject {
-                        Text(project.name)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                    }
-                }
-            }
-        }
+
         .sheet(isPresented: $showingNewProjectSheet) {
             NewProjectView(projectManager: projectManager)
         }

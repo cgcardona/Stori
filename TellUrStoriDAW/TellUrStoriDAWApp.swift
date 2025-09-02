@@ -41,40 +41,36 @@ struct TellUrStoriDAWApp: App {
             }
             
             // Track menu
-            CommandGroup(after: .toolbar) {
-                Menu("Track") {
-                    Button("New Track") {
-                        NotificationCenter.default.post(name: .newTrack, object: nil)
-                    }
-                    .keyboardShortcut("n", modifiers: [.shift, .command])
-                    
-                    Divider()
-                    
-                    Button("Delete Track") {
-                        NotificationCenter.default.post(name: .deleteTrack, object: nil)
-                    }
-                    .keyboardShortcut(.delete)
+            CommandMenu("Track") {
+                Button("New Track") {
+                    NotificationCenter.default.post(name: .newTrack, object: nil)
                 }
+                .keyboardShortcut("n", modifiers: [.shift, .command])
+                
+                Divider()
+                
+                Button("Delete Track") {
+                    NotificationCenter.default.post(name: .deleteTrack, object: nil)
+                }
+                .keyboardShortcut(.delete)
             }
             
             // Transport commands
-            CommandGroup(after: .toolbar) {
-                Menu("Transport") {
-                    Button("Play/Pause") {
-                        NotificationCenter.default.post(name: .playPause, object: nil)
-                    }
-                    .keyboardShortcut(.space)
-                    
-                    Button("Stop") {
-                        NotificationCenter.default.post(name: .stop, object: nil)
-                    }
-                    .keyboardShortcut(.space, modifiers: .command)
-                    
-                    Button("Record") {
-                        NotificationCenter.default.post(name: .record, object: nil)
-                    }
-                    .keyboardShortcut("r")
+            CommandMenu("Transport") {
+                Button("Play/Pause") {
+                    NotificationCenter.default.post(name: .playPause, object: nil)
                 }
+                .keyboardShortcut(.space)
+                
+                Button("Stop") {
+                    NotificationCenter.default.post(name: .stop, object: nil)
+                }
+                .keyboardShortcut(.space, modifiers: .command)
+                
+                Button("Record") {
+                    NotificationCenter.default.post(name: .record, object: nil)
+                }
+                .keyboardShortcut("r")
             }
         }
     }
