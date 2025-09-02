@@ -160,45 +160,45 @@ struct MainDAWView: View {
             HStack(spacing: 0) {
                     // Timeline and tracks area
                     VStack(spacing: 0) {
-                        // Timeline ruler (aligned with track content)
-                        HStack(spacing: 0) {
-                            // Spacer to align with track headers (280px)
-                            Color.clear
-                                .frame(width: 280)
-                            
-                            // Timeline ruler
-                            TimelineRulerView(
-                                audioEngine: audioEngine,
-                                project: projectManager.currentProject
-                            )
-                        }
-                        .frame(height: 40)
-                        
-                        // Step 4: Horizontal-only ScrollView with Cycle Overlay
+                        // Timeline ruler (aligned with track content) with Cycle Overlay
                         ZStack(alignment: .topLeading) {
-                            ScrollView(.horizontal) {
-                                TimelineView(
-                                    project: projectManager.currentProject,
+                            HStack(spacing: 0) {
+                                // Spacer to align with track headers (280px)
+                                Color.clear
+                                    .frame(width: 280)
+                                
+                                // Timeline ruler
+                                TimelineRulerView(
                                     audioEngine: audioEngine,
-                                    projectManager: projectManager,
-                                    selectedTrackId: $selectedTrackId,
-                                    onAddTrack: { addTrack() },
-                                    onCreateProject: { showingNewProjectSheet = true },
-                                    onOpenProject: { showingProjectBrowser = true }
+                                    project: projectManager.currentProject
                                 )
                             }
+                            .frame(height: 40)
                             
-                                        // Cycle overlay
-            if audioEngine.isCycleEnabled {
-                CycleOverlayView(
-                    cycleStartTime: audioEngine.cycleStartTime,
-                    cycleEndTime: audioEngine.cycleEndTime,
-                    onCycleRegionChanged: { start, end in
-                        audioEngine.setCycleRegion(start: start, end: end)
-                    }
-                )
-                .offset(x: 280, y: 40) // Align with timeline content, below ruler
-            }
+                            // Cycle overlay over timeline ruler
+                            if audioEngine.isCycleEnabled {
+                                CycleOverlayView(
+                                    cycleStartTime: audioEngine.cycleStartTime,
+                                    cycleEndTime: audioEngine.cycleEndTime,
+                                    onCycleRegionChanged: { start, end in
+                                        audioEngine.setCycleRegion(start: start, end: end)
+                                    }
+                                )
+                                .offset(x: 280, y: 0) // Align with timeline ruler
+                            }
+                        }
+                        
+                        // Step 4: Horizontal-only ScrollView
+                        ScrollView(.horizontal) {
+                            TimelineView(
+                                project: projectManager.currentProject,
+                                audioEngine: audioEngine,
+                                projectManager: projectManager,
+                                selectedTrackId: $selectedTrackId,
+                                onAddTrack: { addTrack() },
+                                onCreateProject: { showingNewProjectSheet = true },
+                                onOpenProject: { showingProjectBrowser = true }
+                            )
                         }
                         
                         // COMMENTED OUT - will add back step by step
@@ -843,20 +843,20 @@ struct CycleOverlayView: View {
         HStack(spacing: 0) {
             // Cycle region background and handles
             Rectangle()
-                .fill(Color.yellow.opacity(0.2))
-                .frame(width: width, height: 120) // Reasonable height for tracks
+                .fill(Color.yellow.opacity(0.3))
+                .frame(width: width, height: 40) // Match timeline ruler height
                 .overlay(
                     // Cycle region border
                     Rectangle()
                         .stroke(Color.yellow, lineWidth: 2)
-                        .frame(width: width, height: 120)
+                        .frame(width: width, height: 40)
                 )
                 .overlay(
                     // Start handle
                     HStack {
                         Rectangle()
                             .fill(Color.yellow)
-                            .frame(width: 8, height: 120)
+                            .frame(width: 6, height: 40)
                             .gesture(
                                 DragGesture()
                                     .onChanged { value in
@@ -872,7 +872,7 @@ struct CycleOverlayView: View {
                         // End handle
                         Rectangle()
                             .fill(Color.yellow)
-                            .frame(width: 8, height: 120)
+                            .frame(width: 6, height: 40)
                             .gesture(
                                 DragGesture()
                                     .onChanged { value in
@@ -897,7 +897,7 @@ struct CycleOverlayView: View {
             
             Spacer()
         }
-        .frame(height: 120)
+        .frame(height: 40)
         .clipped()
     }
 }

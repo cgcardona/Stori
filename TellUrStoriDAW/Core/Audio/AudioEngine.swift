@@ -916,10 +916,21 @@ class AudioEngine: ObservableObject {
     }
     
     private func checkCycleLoop() {
-        guard isCycleEnabled && transportState.isPlaying else { return }
+        guard isCycleEnabled else { 
+            // print("🔄 Cycle disabled, skipping loop check")
+            return 
+        }
         
-        if currentPosition.timeInterval >= cycleEndTime {
-            print("🔄 Cycling back to start: \(cycleStartTime)s")
+        guard transportState.isPlaying else { 
+            // print("🔄 Not playing, skipping loop check")
+            return 
+        }
+        
+        let currentTime = currentPosition.timeInterval
+        print("🔄 Cycle check: current=\(String(format: "%.2f", currentTime))s, end=\(String(format: "%.2f", cycleEndTime))s, enabled=\(isCycleEnabled)")
+        
+        if currentTime >= cycleEndTime {
+            print("🔄 LOOPING! Cycling back to start: \(cycleStartTime)s")
             seekToPosition(cycleStartTime)
         }
     }
