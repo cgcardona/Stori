@@ -278,8 +278,187 @@ struct BrowseSTEMsView: View {
     @State private var selectedSTEM: STEMToken?
     @State private var showingSTEMDetail: Bool = false
     
+    // Beautiful placeholder data for Browse tab
+    private let placeholderListings: [MarketplaceListing] = [
+        MarketplaceListing(
+            id: "listing_1",
+            listingId: "listing_1",
+            seller: "0x1234567890abcdef1234567890abcdef12345678",
+            stem: STEMToken(
+                id: "stem_1",
+                tokenId: "1",
+                name: "🔥 Epic Bass Drop",
+                description: "Massive bass drop perfect for EDM tracks",
+                creator: "0x1234567890abcdef1234567890abcdef12345678",
+                stemType: .bass,
+                duration: 45,
+                bpm: 128,
+                key: "Am",
+                genre: "Electronic",
+                totalSupply: "100",
+                floorPrice: "2500000000000000000",
+                lastSalePrice: "2200000000000000000",
+                totalVolume: "5000000000000000000",
+                createdAt: Date().addingTimeInterval(-86400 * 30),
+                audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+                imageCID: "QmImageCID1"
+            ),
+            amount: "5",
+            pricePerToken: "2500000000000000000", // 2.5 AVAX
+            totalPrice: "12500000000000000000", // 12.5 AVAX
+            expiration: Date().addingTimeInterval(86400 * 7), // 1 week
+            createdAt: Date().addingTimeInterval(-86400 * 2)
+        ),
+        MarketplaceListing(
+            id: "listing_2",
+            listingId: "listing_2",
+            seller: "0x9876543210fedcba9876543210fedcba98765432",
+            stem: STEMToken(
+                id: "stem_2",
+                tokenId: "2",
+                name: "✨ Synthwave Melody",
+                description: "Nostalgic 80s synthwave lead melody",
+                creator: "0x9876543210fedcba9876543210fedcba98765432",
+                stemType: .melody,
+                duration: 32,
+                bpm: 110,
+                key: "C#m",
+                genre: "Synthwave",
+                totalSupply: "50",
+                floorPrice: "1800000000000000000",
+                lastSalePrice: "1600000000000000000",
+                totalVolume: "3600000000000000000",
+                createdAt: Date().addingTimeInterval(-86400 * 20),
+                audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+                imageCID: "QmImageCID2"
+            ),
+            amount: "3",
+            pricePerToken: "1800000000000000000", // 1.8 AVAX
+            totalPrice: "5400000000000000000", // 5.4 AVAX
+            expiration: Date().addingTimeInterval(86400 * 5), // 5 days
+            createdAt: Date().addingTimeInterval(-86400 * 1)
+        ),
+        MarketplaceListing(
+            id: "listing_3",
+            listingId: "listing_3",
+            seller: "0xabcdef1234567890abcdef1234567890abcdef12",
+            stem: STEMToken(
+                id: "stem_3",
+                tokenId: "3",
+                name: "🎵 Lo-Fi Hip Hop Beat",
+                description: "Chill lo-fi drums with vinyl crackle",
+                creator: "0xabcdef1234567890abcdef1234567890abcdef12",
+                stemType: .drums,
+                duration: 60,
+                bpm: 85,
+                key: "F",
+                genre: "Hip Hop",
+                totalSupply: "200",
+                floorPrice: "750000000000000000",
+                lastSalePrice: "700000000000000000",
+                totalVolume: "7500000000000000000",
+                createdAt: Date().addingTimeInterval(-86400 * 15),
+                audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+                imageCID: "QmImageCID3"
+            ),
+            amount: "10",
+            pricePerToken: "750000000000000000", // 0.75 AVAX
+            totalPrice: "7500000000000000000", // 7.5 AVAX
+            expiration: nil,
+            createdAt: Date().addingTimeInterval(-86400 * 3)
+        ),
+        MarketplaceListing(
+            id: "listing_4",
+            listingId: "listing_4",
+            seller: "0x5555666677778888999900001111222233334444",
+            stem: STEMToken(
+                id: "stem_4",
+                tokenId: "4",
+                name: "🌊 Ambient Soundscape",
+                description: "Ethereal ambient pad with reverb",
+                creator: "0x5555666677778888999900001111222233334444",
+                stemType: .harmony,
+                duration: 120,
+                bpm: 72,
+                key: "Dm",
+                genre: "Ambient",
+                totalSupply: "25",
+                floorPrice: "3200000000000000000",
+                lastSalePrice: "3000000000000000000",
+                totalVolume: "6400000000000000000",
+                createdAt: Date().addingTimeInterval(-86400 * 10),
+                audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+                imageCID: "QmImageCID4"
+            ),
+            amount: "2",
+            pricePerToken: "3200000000000000000", // 3.2 AVAX
+            totalPrice: "6400000000000000000", // 6.4 AVAX
+            expiration: Date().addingTimeInterval(86400 * 3), // 3 days
+            createdAt: Date().addingTimeInterval(-86400 * 1)
+        ),
+        MarketplaceListing(
+            id: "listing_5",
+            listingId: "listing_5",
+            seller: "0xaaaaaabbbbbbccccccddddddeeeeeeffffffffff",
+            stem: STEMToken(
+                id: "stem_5",
+                tokenId: "5",
+                name: "🥁 Trap Drums",
+                description: "Hard-hitting trap drum pattern with 808s",
+                creator: "0xaaaaaabbbbbbccccccddddddeeeeeeffffffffff",
+                stemType: .drums,
+                duration: 30,
+                bpm: 140,
+                key: "G",
+                genre: "Trap",
+                totalSupply: "75",
+                floorPrice: "1200000000000000000",
+                lastSalePrice: "1100000000000000000",
+                totalVolume: "9600000000000000000",
+                createdAt: Date().addingTimeInterval(-86400 * 5),
+                audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+                imageCID: "QmImageCID5"
+            ),
+            amount: "8",
+            pricePerToken: "1200000000000000000", // 1.2 AVAX
+            totalPrice: "9600000000000000000", // 9.6 AVAX
+            expiration: Date().addingTimeInterval(86400 * 10), // 10 days
+            createdAt: Date().addingTimeInterval(-86400 * 2)
+        ),
+        MarketplaceListing(
+            id: "listing_6",
+            listingId: "listing_6",
+            seller: "0x1111222233334444555566667777888899990000",
+            stem: STEMToken(
+                id: "stem_6",
+                tokenId: "6",
+                name: "🎸 Rock Guitar Riff",
+                description: "Powerful distorted guitar riff in drop D",
+                creator: "0x1111222233334444555566667777888899990000",
+                stemType: .melody,
+                duration: 25,
+                bpm: 120,
+                key: "D",
+                genre: "Rock",
+                totalSupply: "40",
+                floorPrice: "2100000000000000000",
+                lastSalePrice: "2000000000000000000",
+                totalVolume: "8400000000000000000",
+                createdAt: Date().addingTimeInterval(-86400 * 7),
+                audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+                imageCID: "QmImageCID6"
+            ),
+            amount: "4",
+            pricePerToken: "2100000000000000000", // 2.1 AVAX
+            totalPrice: "8400000000000000000", // 8.4 AVAX
+            expiration: Date().addingTimeInterval(86400 * 14), // 2 weeks
+            createdAt: Date().addingTimeInterval(-86400 * 1)
+        )
+    ]
+    
     var filteredListings: [MarketplaceListing] {
-        var listings = blockchainClient.marketplaceListings
+        // Use placeholder data if no blockchain data available
+        var listings = blockchainClient.marketplaceListings.isEmpty ? placeholderListings : blockchainClient.marketplaceListings
         
         // Apply search filter
         if !searchText.isEmpty {
@@ -509,12 +688,77 @@ struct MySTEMsView: View {
     @Binding var isPlaying: Bool
     let onPlaySTEM: (STEMToken) -> Void
     
+    // Placeholder user STEMs data
+    private let placeholderUserSTEMs: [STEMToken] = [
+        STEMToken(
+            id: "my_stem_1",
+            tokenId: "101",
+            name: "🎹 My Piano Melody",
+            description: "Beautiful piano composition I created",
+            creator: "0x1234567890abcdef1234567890abcdef12345678", // User's address
+            stemType: .melody,
+            duration: 180,
+            bpm: 90,
+            key: "C",
+            genre: "Classical",
+            totalSupply: "10",
+            floorPrice: "1500000000000000000",
+            lastSalePrice: "1400000000000000000",
+            totalVolume: "15000000000000000000",
+            createdAt: Date().addingTimeInterval(-86400 * 7),
+            audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+            imageCID: "QmMyImageCID1"
+        ),
+        STEMToken(
+            id: "my_stem_2",
+            tokenId: "102",
+            name: "🎤 Vocal Harmony",
+            description: "Layered vocal harmonies in A minor",
+            creator: "0x1234567890abcdef1234567890abcdef12345678",
+            stemType: .vocals,
+            duration: 90,
+            bpm: 100,
+            key: "Am",
+            genre: "Pop",
+            totalSupply: "5",
+            floorPrice: "2000000000000000000",
+            lastSalePrice: "1900000000000000000",
+            totalVolume: "10000000000000000000",
+            createdAt: Date().addingTimeInterval(-86400 * 14),
+            audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+            imageCID: "QmMyImageCID2"
+        ),
+        STEMToken(
+            id: "my_stem_3",
+            tokenId: "103",
+            name: "🎛️ Synth Pad",
+            description: "Warm analog synth pad with filter sweep",
+            creator: "0x1234567890abcdef1234567890abcdef12345678",
+            stemType: .harmony,
+            duration: 240,
+            bpm: 120,
+            key: "Em",
+            genre: "Electronic",
+            totalSupply: "20",
+            floorPrice: "1000000000000000000",
+            lastSalePrice: "950000000000000000",
+            totalVolume: "20000000000000000000",
+            createdAt: Date().addingTimeInterval(-86400 * 21),
+            audioCID: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+            imageCID: "QmMyImageCID3"
+        )
+    ]
+    
+    private var displaySTEMs: [STEMToken] {
+        return blockchainClient.userSTEMs.isEmpty ? placeholderUserSTEMs : blockchainClient.userSTEMs
+    }
+    
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [
                 GridItem(.adaptive(minimum: 300, maximum: 400), spacing: 16)
             ], spacing: 16) {
-                ForEach(blockchainClient.userSTEMs, id: \.id) { stem in
+                ForEach(displaySTEMs, id: \.id) { stem in
                     MySTEMCard(
                         stem: stem,
                         isPlaying: currentlyPlayingSTEM?.id == stem.id && isPlaying,
@@ -528,7 +772,7 @@ struct MySTEMsView: View {
             await blockchainClient.refreshData()
         }
         .overlay {
-            if blockchainClient.userSTEMs.isEmpty {
+            if displaySTEMs.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "music.note.house")
                         .font(.system(size: 48))
@@ -650,18 +894,289 @@ struct MySTEMCard: View {
 struct ActivityView: View {
     @ObservedObject var blockchainClient: BlockchainClient
     
+    // Placeholder activity data
+    private let placeholderActivities: [ActivityItem] = [
+        ActivityItem(
+            id: "1",
+            type: .purchase,
+            stemName: "Epic Bass Drop",
+            amount: "2.5 AVAX",
+            timestamp: Date().addingTimeInterval(-300), // 5 minutes ago
+            fromAddress: "0x1234...5678",
+            toAddress: "0x9876...5432",
+            transactionHash: "0xabcd...efgh"
+        ),
+        ActivityItem(
+            id: "2",
+            type: .sale,
+            stemName: "Synthwave Melody",
+            amount: "1.8 AVAX",
+            timestamp: Date().addingTimeInterval(-1800), // 30 minutes ago
+            fromAddress: "0x5555...6666",
+            toAddress: "0x7777...8888",
+            transactionHash: "0x1111...2222"
+        ),
+        ActivityItem(
+            id: "3",
+            type: .mint,
+            stemName: "Lo-Fi Hip Hop Beat",
+            amount: "0.1 AVAX",
+            timestamp: Date().addingTimeInterval(-3600), // 1 hour ago
+            fromAddress: nil,
+            toAddress: "0x9999...0000",
+            transactionHash: "0x3333...4444"
+        ),
+        ActivityItem(
+            id: "4",
+            type: .listing,
+            stemName: "Ambient Soundscape",
+            amount: "3.2 AVAX",
+            timestamp: Date().addingTimeInterval(-7200), // 2 hours ago
+            fromAddress: "0xaaaa...bbbb",
+            toAddress: nil,
+            transactionHash: "0x5555...6666"
+        ),
+        ActivityItem(
+            id: "5",
+            type: .offer,
+            stemName: "Trap Drums",
+            amount: "0.9 AVAX",
+            timestamp: Date().addingTimeInterval(-10800), // 3 hours ago
+            fromAddress: "0xcccc...dddd",
+            toAddress: "0xeeee...ffff",
+            transactionHash: "0x7777...8888"
+        )
+    ]
+    
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(blockchainClient.recentActivity, id: \.id) { activity in
-                    ActivityCard(activity: activity)
+            VStack(spacing: 20) {
+                // Activity Summary Cards
+                HStack(spacing: 16) {
+                    ActivitySummaryCard(
+                        title: "Today's Volume",
+                        value: "12.4 AVAX",
+                        change: "+8.2%",
+                        isPositive: true,
+                        icon: "chart.line.uptrend.xyaxis"
+                    )
+                    
+                    ActivitySummaryCard(
+                        title: "Transactions",
+                        value: "47",
+                        change: "+12",
+                        isPositive: true,
+                        icon: "arrow.left.arrow.right"
+                    )
+                    
+                    ActivitySummaryCard(
+                        title: "Active Listings",
+                        value: "23",
+                        change: "-2",
+                        isPositive: false,
+                        icon: "list.bullet"
+                    )
+                }
+                .padding(.horizontal)
+                
+                // Activity Feed
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Recent Activity")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        
+                        Spacer()
+                        
+                        Button("View All") {
+                            // Action to view all activity
+                        }
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                    }
+                    .padding(.horizontal)
+                    
+                    LazyVStack(spacing: 8) {
+                        ForEach(placeholderActivities) { activity in
+                            EnhancedActivityCard(activity: activity)
+                        }
+                    }
+                    .padding(.horizontal)
                 }
             }
-            .padding()
+            .padding(.vertical)
         }
         .refreshable {
             await blockchainClient.refreshData()
         }
+    }
+}
+
+// MARK: - Activity Supporting Types
+
+struct ActivityItem: Identifiable {
+    let id: String
+    let type: MarketplaceActivityType
+    let stemName: String
+    let amount: String
+    let timestamp: Date
+    let fromAddress: String?
+    let toAddress: String?
+    let transactionHash: String
+}
+
+enum MarketplaceActivityType {
+    case purchase, sale, mint, listing, offer
+    
+    var emoji: String {
+        switch self {
+        case .purchase: return "🛒"
+        case .sale: return "💰"
+        case .mint: return "✨"
+        case .listing: return "📋"
+        case .offer: return "🤝"
+        }
+    }
+    
+    var displayName: String {
+        switch self {
+        case .purchase: return "Purchase"
+        case .sale: return "Sale"
+        case .mint: return "Mint"
+        case .listing: return "Listed"
+        case .offer: return "Offer"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .purchase: return .blue
+        case .sale: return .green
+        case .mint: return .purple
+        case .listing: return .orange
+        case .offer: return .yellow
+        }
+    }
+}
+
+// MARK: - Activity Summary Card
+
+struct ActivitySummaryCard: View {
+    let title: String
+    let value: String
+    let change: String
+    let isPositive: Bool
+    let icon: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(.blue)
+                
+                Spacer()
+                
+                HStack(spacing: 2) {
+                    Image(systemName: isPositive ? "arrow.up" : "arrow.down")
+                        .font(.caption)
+                    Text(change)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .foregroundColor(isPositive ? .green : .red)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(
+            LinearGradient(
+                colors: [Color.blue.opacity(0.1), Color.purple.opacity(0.05)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Enhanced Activity Card
+
+struct EnhancedActivityCard: View {
+    let activity: ActivityItem
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Activity type icon
+            ZStack {
+                Circle()
+                    .fill(activity.type.color.opacity(0.2))
+                    .frame(width: 40, height: 40)
+                
+                Text(activity.type.emoji)
+                    .font(.title3)
+            }
+            
+            // Activity details
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(activity.type.displayName)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                    
+                    Text(activity.amount)
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                }
+                
+                Text(activity.stemName)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                
+                HStack {
+                    Text(formatRelativeTime(activity.timestamp))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    let hash = String(activity.transactionHash.prefix(8)) + "..."
+                    Text(hash)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospaced()
+                }
+            }
+        }
+        .padding()
+        .background(Color(.controlBackgroundColor))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(.separatorColor), lineWidth: 1)
+        )
+    }
+    
+    private func formatRelativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
@@ -718,38 +1233,138 @@ struct AnalyticsView: View {
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                if let networkInfo = blockchainClient.networkInfo {
-                    // Market overview
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("📊 Market Overview")
-                            .font(.headline)
-                        
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 16) {
-                            StatCard(title: "Total Volume", value: formatPrice(networkInfo.totalVolume), subtitle: "AVAX")
-                            StatCard(title: "Total STEMs", value: "\(networkInfo.totalSTEMs)", subtitle: "tokens")
-                            StatCard(title: "Active Listings", value: "\(networkInfo.activeListings)", subtitle: "listings")
-                            StatCard(title: "Creators", value: "\(networkInfo.totalCreators)", subtitle: "artists")
+            VStack(spacing: 24) {
+                // Market Overview Cards
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("📊 Market Overview")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    LazyVGrid(columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible())
+                    ], spacing: 16) {
+                        EnhancedStatCard(
+                            title: "Total Volume",
+                            value: "847.2 AVAX",
+                            subtitle: "$42,360",
+                            change: "+12.5%",
+                            isPositive: true,
+                            icon: "chart.bar.fill"
+                        )
+                        EnhancedStatCard(
+                            title: "Total STEMs",
+                            value: "1,247",
+                            subtitle: "tokens",
+                            change: "+8",
+                            isPositive: true,
+                            icon: "music.note"
+                        )
+                        EnhancedStatCard(
+                            title: "Active Listings",
+                            value: "156",
+                            subtitle: "listings",
+                            change: "-3",
+                            isPositive: false,
+                            icon: "list.bullet"
+                        )
+                        EnhancedStatCard(
+                            title: "Creators",
+                            value: "89",
+                            subtitle: "artists",
+                            change: "+5",
+                            isPositive: true,
+                            icon: "person.3.fill"
+                        )
+                    }
+                }
+                
+                // Price Chart
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("💎 Floor Price Trend")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Current Floor")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text("2.4 AVAX")
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.blue)
+                            }
+                            
+                            Spacer()
+                            
+                            VStack(alignment: .trailing, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.up")
+                                        .font(.caption)
+                                    Text("+15.2%")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundColor(.green)
+                                
+                                Text("24h change")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
+                        
+                        // Simple chart representation
+                        SimpleChartView()
+                            .frame(height: 120)
+                    }
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            colors: [Color.blue.opacity(0.1), Color.purple.opacity(0.05)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .cornerRadius(16)
+                }
+                
+                // Top Genres
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("🎵 Popular Genres")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    VStack(spacing: 12) {
+                        GenreStatsRow(genre: "Electronic", percentage: 35, volume: "296.5 AVAX")
+                        GenreStatsRow(genre: "Hip Hop", percentage: 28, volume: "237.2 AVAX")
+                        GenreStatsRow(genre: "Pop", percentage: 18, volume: "152.5 AVAX")
+                        GenreStatsRow(genre: "Rock", percentage: 12, volume: "101.7 AVAX")
+                        GenreStatsRow(genre: "Ambient", percentage: 7, volume: "59.3 AVAX")
+                    }
+                }
+                
+                // Recent Sales
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("🔥 Recent High Sales")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        
+                        Spacer()
+                        
+                        Button("View All") {
+                            // Action to view all sales
+                        }
+                        .font(.caption)
+                        .foregroundColor(.blue)
                     }
                     
-                    // Floor price
-                    if let floorPrice = networkInfo.floorPrice {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("💎 Floor Price")
-                                .font(.headline)
-                            
-                            Text("\(formatPrice(floorPrice)) AVAX")
-                                .font(.title)
-                                .fontWeight(.bold)
-                                .foregroundColor(.blue)
-                        }
-                        .padding()
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(12)
+                    VStack(spacing: 8) {
+                        HighSaleRow(stemName: "Epic Bass Drop", price: "12.5 AVAX", time: "2h ago")
+                        HighSaleRow(stemName: "Synthwave Melody", price: "8.9 AVAX", time: "5h ago")
+                        HighSaleRow(stemName: "Trap Drums", price: "7.2 AVAX", time: "1d ago")
                     }
                 }
             }
@@ -758,13 +1373,6 @@ struct AnalyticsView: View {
         .refreshable {
             await blockchainClient.refreshData()
         }
-    }
-    
-    private func formatPrice(_ price: String) -> String {
-        if let priceValue = Double(price) {
-            return String(format: "%.2f", priceValue / 1e18)
-        }
-        return price
     }
 }
 
@@ -791,6 +1399,237 @@ struct StatCard: View {
         .padding()
         .background(Color(.controlBackgroundColor))
         .cornerRadius(8)
+    }
+}
+
+// MARK: - Enhanced Analytics Components
+
+struct EnhancedStatCard: View {
+    let title: String
+    let value: String
+    let subtitle: String
+    let change: String
+    let isPositive: Bool
+    let icon: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(.blue)
+                
+                Spacer()
+                
+                HStack(spacing: 2) {
+                    Image(systemName: isPositive ? "arrow.up" : "arrow.down")
+                        .font(.caption)
+                    Text(change)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .foregroundColor(isPositive ? .green : .red)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(
+            LinearGradient(
+                colors: [Color.blue.opacity(0.05), Color.purple.opacity(0.02)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.blue.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+struct SimpleChartView: View {
+    private let dataPoints: [Double] = [2.1, 2.3, 2.0, 2.4, 2.6, 2.2, 2.8, 2.4, 2.9, 2.4]
+    
+    var body: some View {
+        GeometryReader { geometry in
+            Path { path in
+                let width = geometry.size.width
+                let height = geometry.size.height
+                let stepX = width / CGFloat(dataPoints.count - 1)
+                
+                let minY = dataPoints.min() ?? 0
+                let maxY = dataPoints.max() ?? 1
+                let range = maxY - minY
+                
+                for (index, point) in dataPoints.enumerated() {
+                    let x = CGFloat(index) * stepX
+                    let y = height - (CGFloat(point - minY) / CGFloat(range)) * height
+                    
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+            }
+            .stroke(
+                LinearGradient(
+                    colors: [.blue, .purple],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+            )
+            
+            // Add gradient fill
+            Path { path in
+                let width = geometry.size.width
+                let height = geometry.size.height
+                let stepX = width / CGFloat(dataPoints.count - 1)
+                
+                let minY = dataPoints.min() ?? 0
+                let maxY = dataPoints.max() ?? 1
+                let range = maxY - minY
+                
+                path.move(to: CGPoint(x: 0, y: height))
+                
+                for (index, point) in dataPoints.enumerated() {
+                    let x = CGFloat(index) * stepX
+                    let y = height - (CGFloat(point - minY) / CGFloat(range)) * height
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+                
+                path.addLine(to: CGPoint(x: geometry.size.width, y: height))
+                path.closeSubpath()
+            }
+            .fill(
+                LinearGradient(
+                    colors: [.blue.opacity(0.3), .purple.opacity(0.1), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+    }
+}
+
+struct GenreStatsRow: View {
+    let genre: String
+    let percentage: Int
+    let volume: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(genreEmoji(for: genre))
+                .font(.title3)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(genre)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    Text("\(percentage)%")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                }
+                
+                HStack {
+                    // Progress bar
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(height: 4)
+                                .cornerRadius(2)
+                            
+                            Rectangle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.blue, .purple],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geometry.size.width * CGFloat(percentage) / 100, height: 4)
+                                .cornerRadius(2)
+                        }
+                    }
+                    .frame(height: 4)
+                    
+                    Text(volume)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(width: 80, alignment: .trailing)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    private func genreEmoji(for genre: String) -> String {
+        switch genre.lowercased() {
+        case "electronic": return "🎛️"
+        case "hip hop": return "🎤"
+        case "pop": return "🎵"
+        case "rock": return "🎸"
+        case "ambient": return "🌊"
+        default: return "🎵"
+        }
+    }
+}
+
+struct HighSaleRow: View {
+    let stemName: String
+    let price: String
+    let time: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.2))
+                    .frame(width: 32, height: 32)
+                
+                Text("💰")
+                    .font(.caption)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(stemName)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Text(time)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Text(price)
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .foregroundColor(.green)
+        }
+        .padding(.vertical, 4)
     }
 }
 
