@@ -70,18 +70,21 @@ struct MainDAWView: View {
                     Button("New") {
                         showingNewProjectSheet = true
                     }
-                    .help("Create New Project")
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("Create New Project (⌘N)")
                     
                     Button("Open") {
                         showingProjectBrowser = true
                     }
-                    .help("Open Project")
+                    .keyboardShortcut("o", modifiers: .command)
+                    .help("Open Project (⌘O)")
                     
                     if let project = projectManager.currentProject {
                         Button("Save") {
                             projectManager.saveCurrentProject()
                         }
-                        .help("Save Project")
+                        .keyboardShortcut("s", modifiers: .command)
+                        .help("Save Project (⌘S)")
                     }
                 }
             }

@@ -833,42 +833,315 @@ struct MarketplaceFilters {
 struct MarketplaceFiltersView: View {
     @Binding var filters: MarketplaceFilters
     @Environment(\.dismiss) private var dismiss
+    @State private var animateGradient: Bool = false
     
     var body: some View {
-        NavigationView {
-            Form {
-                Section("STEM Type") {
-                    Picker("STEM Type", selection: $filters.stemType) {
-                        Text("All Types").tag(STEMType?.none)
-                        ForEach(STEMType.allCases, id: \.self) { type in
-                            Text("\(type.emoji) \(type.displayName)").tag(STEMType?.some(type))
+        VStack(spacing: 0) {
+            // Animated gradient background
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color.blue.opacity(0.3),
+                    Color.purple.opacity(0.3),
+                    Color.pink.opacity(0.3)
+                ]),
+                startPoint: animateGradient ? .topLeading : .bottomTrailing,
+                endPoint: animateGradient ? .bottomTrailing : .topLeading
+            )
+            .frame(height: 120)
+            .overlay(
+                VStack(spacing: 8) {
+                    // Filter icon with glow effect
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 60, height: 60)
+                            .blur(radius: 10)
+                        
+                        Circle()
+                            .fill(Color.white.opacity(0.1))
+                            .frame(width: 50, height: 50)
+                        
+                        Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.white)
+                    }
+                    
+                    // Title with gradient text
+                    Text("Filter STEMs")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.white, .white.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            )
+            .onAppear {
+                withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                    animateGradient = true
+                }
+            }
+            
+            // Content
+            ScrollView {
+                VStack(spacing: 24) {
+                    // STEM Type Section
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Image(systemName: "music.note.list")
+                                .foregroundColor(.blue)
+                                .font(.title3)
+                            
+                            Text("STEM Type")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            
+                            Spacer()
+                        }
+                        
+                        // Custom picker with beautiful styling
+                        VStack(spacing: 12) {
+                            Menu {
+                                Button("All Types") {
+                                    filters.stemType = nil
+                                }
+                                
+                                ForEach(STEMType.allCases, id: \.self) { type in
+                                    Button("\(type.emoji) \(type.displayName)") {
+                                        filters.stemType = type
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    if let stemType = filters.stemType {
+                                        Text("\(stemType.emoji) \(stemType.displayName)")
+                                    } else {
+                                        Text("All Types")
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .foregroundColor(.blue)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.gray.opacity(0.1))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                                        )
+                                )
+                                .foregroundColor(.primary)
+                            }
                         }
                     }
-                }
-                
-                Section("Price Range") {
-                    HStack {
-                        TextField("Min Price", value: $filters.minPrice, format: .number)
-                        Text("to")
-                        TextField("Max Price", value: $filters.maxPrice, format: .number)
+                    .padding(.horizontal, 20)
+                    
+                    // Price Range Section
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Image(systemName: "dollarsign.circle")
+                                .foregroundColor(.green)
+                                .font(.title3)
+                            
+                            Text("Price Range")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            
+                            Spacer()
+                        }
+                        
+                        HStack(spacing: 16) {
+                            // Min Price
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Min Price")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                HStack {
+                                    Image(systemName: "dollarsign")
+                                        .foregroundColor(.green)
+                                        .font(.caption)
+                                    
+                                    TextField("0", value: $filters.minPrice, format: .number)
+                                        .textFieldStyle(.plain)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.gray.opacity(0.1))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                        )
+                                )
+                            }
+                            
+                            // "to" separator with styling
+                            VStack {
+                                Spacer()
+                                Text("to")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(.bottom, 8)
+                            }
+                            
+                            // Max Price
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Max Price")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                HStack {
+                                    Image(systemName: "dollarsign")
+                                        .foregroundColor(.green)
+                                        .font(.caption)
+                                    
+                                    TextField("∞", value: $filters.maxPrice, format: .number)
+                                        .textFieldStyle(.plain)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.gray.opacity(0.1))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                        )
+                                )
+                            }
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    
+                    // Active Filters Summary
+                    if filters.hasActiveFilters {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.blue)
+                                
+                                Text("Active Filters")
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                                
+                                Spacer()
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let stemType = filters.stemType {
+                                    HStack {
+                                        Text("Type:")
+                                            .foregroundColor(.secondary)
+                                        Text("\(stemType.emoji) \(stemType.displayName)")
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                    }
+                                }
+                                
+                                if let minPrice = filters.minPrice, minPrice > 0 {
+                                    HStack {
+                                        Text("Min Price:")
+                                            .foregroundColor(.secondary)
+                                        Text("$\(minPrice, specifier: "%.2f")")
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                    }
+                                }
+                                
+                                if let maxPrice = filters.maxPrice, maxPrice > 0 {
+                                    HStack {
+                                        Text("Max Price:")
+                                            .foregroundColor(.secondary)
+                                        Text("$\(maxPrice, specifier: "%.2f")")
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                    }
+                                }
+                            }
+                            .font(.caption)
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.blue.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                                )
+                        )
+                        .padding(.horizontal, 20)
+                    }
+                    
+                    Spacer(minLength: 20)
                 }
+                .padding(.top, 20)
             }
-            .navigationTitle("Filters")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Reset") {
+            
+            // Action buttons
+            HStack(spacing: 16) {
+                // Reset button
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         filters = MarketplaceFilters()
                     }
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
+                }) {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise")
+                        Text("Reset")
                     }
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.1))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            )
+                    )
                 }
+                .buttonStyle(PlainButtonStyle())
+                
+                // Done button
+                Button(action: {
+                    dismiss()
+                }) {
+                    HStack {
+                        Image(systemName: "checkmark")
+                        Text("Done")
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.blue, Color.purple]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(12)
+                    .shadow(color: Color.blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .background(Color(.windowBackgroundColor))
         }
+        .frame(width: 500, height: 600)
     }
 }
 
