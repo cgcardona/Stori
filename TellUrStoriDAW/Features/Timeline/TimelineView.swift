@@ -14,6 +14,7 @@ struct TimelineView: View {
     @Binding var selectedTrackId: UUID?
     let onAddTrack: () -> Void
     let onCreateProject: () -> Void
+    let onOpenProject: () -> Void
     
     private let trackHeight: CGFloat = 80
     private let pixelsPerSecond: CGFloat = 100
@@ -43,7 +44,7 @@ struct TimelineView: View {
                 Spacer()
                 
             } else {
-                EmptyTimelineView(onCreateProject: onCreateProject)
+                EmptyTimelineView(onCreateProject: onCreateProject, onOpenProject: onOpenProject)
             }
         }
         .frame(minHeight: 300)
@@ -408,8 +409,8 @@ struct AddTrackButton: View {
 // MARK: - Empty Timeline View
 struct EmptyTimelineView: View {
     let onCreateProject: () -> Void
+    let onOpenProject: () -> Void
     @State private var selectedCategory: ProjectCategory = .newProject
-    @State private var showingProjectBrowser = false
     
     var body: some View {
         HStack(spacing: 0) {
@@ -472,8 +473,6 @@ struct EmptyTimelineView: View {
                         newProjectContent
                     case .recent:
                         recentProjectsContent
-                    case .liveLoopsGrids:
-                        liveLoopsContent
                     case .tutorials:
                         tutorialsContent
                     case .demoProjects:
@@ -492,7 +491,7 @@ struct EmptyTimelineView: View {
                     Spacer()
                     
                     Button("Open an existing project...") {
-                        showingProjectBrowser = true
+                        onOpenProject()
                     }
                     .foregroundColor(.secondary)
                     
@@ -511,10 +510,6 @@ struct EmptyTimelineView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .sheet(isPresented: $showingProjectBrowser) {
-            // This would open the existing project browser
-            Text("Project Browser")
-        }
     }
     
     // MARK: - Content Views
@@ -580,23 +575,7 @@ struct EmptyTimelineView: View {
         }
     }
     
-    private var liveLoopsContent: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "grid.circle")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-            
-            Text("Live Loops Grids")
-                .font(.title3)
-                .fontWeight(.medium)
-            
-            Text("Coming soon - Create music with live loops")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
+
     private var tutorialsContent: some View {
         VStack(spacing: 16) {
             Image(systemName: "play.circle")
@@ -670,7 +649,6 @@ struct EmptyTimelineView: View {
 enum ProjectCategory: CaseIterable {
     case newProject
     case recent
-    case liveLoopsGrids
     case tutorials
     case demoProjects
     case projectTemplates
@@ -680,7 +658,6 @@ enum ProjectCategory: CaseIterable {
         switch self {
         case .newProject: return "New Project"
         case .recent: return "Recent"
-        case .liveLoopsGrids: return "Live Loops Grids"
         case .tutorials: return "Tutorials"
         case .demoProjects: return "Demo Projects"
         case .projectTemplates: return "Project Templates"
@@ -692,7 +669,6 @@ enum ProjectCategory: CaseIterable {
         switch self {
         case .newProject: return "doc.badge.plus"
         case .recent: return "clock"
-        case .liveLoopsGrids: return "grid.circle"
         case .tutorials: return "play.circle"
         case .demoProjects: return "music.note.list"
         case .projectTemplates: return "doc.on.doc"
@@ -736,7 +712,8 @@ extension Color {
         projectManager: ProjectManager(),
         selectedTrackId: .constant(nil),
         onAddTrack: {},
-        onCreateProject: {}
+        onCreateProject: {},
+        onOpenProject: {}
     )
     .frame(width: 1000, height: 600)
 }

@@ -64,7 +64,13 @@ struct MainDAWView: View {
                 }
             }
         }
-
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("TellUrStoriDAW")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+            }
+        }
         .sheet(isPresented: $showingNewProjectSheet) {
             NewProjectView(projectManager: projectManager)
         }
@@ -129,7 +135,8 @@ struct MainDAWView: View {
                                 projectManager: projectManager,
                                 selectedTrackId: $selectedTrackId,
                                 onAddTrack: { addTrack() },
-                                onCreateProject: { showingNewProjectSheet = true }
+                                onCreateProject: { showingNewProjectSheet = true },
+                                onOpenProject: { showingProjectBrowser = true }
                             )
                         }
                         
@@ -142,7 +149,8 @@ struct MainDAWView: View {
                                 projectManager: projectManager,
                                 selectedTrackId: $selectedTrackId,
                                 onAddTrack: { addTrack() },
-                                onCreateProject: { showingNewProjectSheet = true }
+                                onCreateProject: { showingNewProjectSheet = true },
+                                onOpenProject: { showingProjectBrowser = true }
                             )
                         }
                         */
