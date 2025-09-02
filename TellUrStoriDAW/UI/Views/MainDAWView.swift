@@ -174,17 +174,31 @@ struct MainDAWView: View {
                         }
                         .frame(height: 40)
                         
-                        // Step 4: Horizontal-only ScrollView
-                        ScrollView(.horizontal) {
-                            TimelineView(
-                                project: projectManager.currentProject,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId,
-                                onAddTrack: { addTrack() },
-                                onCreateProject: { showingNewProjectSheet = true },
-                                onOpenProject: { showingProjectBrowser = true }
-                            )
+                        // Step 4: Horizontal-only ScrollView with Cycle Overlay
+                        ZStack(alignment: .topLeading) {
+                            ScrollView(.horizontal) {
+                                TimelineView(
+                                    project: projectManager.currentProject,
+                                    audioEngine: audioEngine,
+                                    projectManager: projectManager,
+                                    selectedTrackId: $selectedTrackId,
+                                    onAddTrack: { addTrack() },
+                                    onCreateProject: { showingNewProjectSheet = true },
+                                    onOpenProject: { showingProjectBrowser = true }
+                                )
+                            }
+                            
+                            // Cycle overlay
+                            if audioEngine.isCycleEnabled {
+                                CycleOverlayView(
+                                    cycleStartTime: audioEngine.cycleStartTime,
+                                    cycleEndTime: audioEngine.cycleEndTime,
+                                    onCycleRegionChanged: { start, end in
+                                        audioEngine.setCycleRegion(start: start, end: end)
+                                    }
+                                )
+                                .offset(x: 280) // Align with timeline content
+                            }
                         }
                         
                         // COMMENTED OUT - will add back step by step
@@ -799,5 +813,91 @@ enum MainTab: String, CaseIterable {
         case .daw: return "waveform"
         case .marketplace: return "music.note.list"
         }
+    }
+}
+
+// MARK: - Cycle Overlay View
+struct CycleOverlayView: View {
+    let cycleStartTime: TimeInterval
+    let cycleEndTime: TimeInterval
+    let onCycleRegionChanged: (TimeInterval, TimeInterval) -> Void
+    
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDragging = false
+    @State private var dragType: DragType = .none
+    
+    private let pixelsPerSecond: CGFloat = 50 // Match timeline scaling
+    
+    enum DragType {
+        case none
+        case start
+        case end
+        case region
+    }
+    
+    var body: some View {
+        let startX = CGFloat(cycleStartTime) * pixelsPerSecond
+        let endX = CGFloat(cycleEndTime) * pixelsPerSecond
+        let width = endX - startX
+        
+        ZStack(alignment: .leading) {
+            // Cycle region background
+            Rectangle()
+                .fill(Color.yellow.opacity(0.2))
+                .frame(width: width, height: 300) // Cover all tracks
+                .position(x: startX + width/2, y: 150)
+                .overlay(
+                    // Cycle region border
+                    Rectangle()
+                        .stroke(Color.yellow, lineWidth: 2)
+                        .frame(width: width, height: 300)
+                        .position(x: startX + width/2, y: 150)
+                )
+            
+            // Start handle
+            Rectangle()
+                .fill(Color.yellow)
+                .frame(width: 8, height: 300)
+                .position(x: startX, y: 150)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let newStartTime = max(0, cycleStartTime + Double(value.translation.width / pixelsPerSecond))
+                            if newStartTime < cycleEndTime - 0.1 {
+                                onCycleRegionChanged(newStartTime, cycleEndTime)
+                            }
+                        }
+                )
+            
+            // End handle
+            Rectangle()
+                .fill(Color.yellow)
+                .frame(width: 8, height: 300)
+                .position(x: endX, y: 150)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let newEndTime = max(cycleStartTime + 0.1, cycleEndTime + Double(value.translation.width / pixelsPerSecond))
+                            onCycleRegionChanged(cycleStartTime, newEndTime)
+                        }
+                )
+            
+            // Region drag area (middle)
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: max(20, width - 16), height: 300)
+                .position(x: startX + width/2, y: 150)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let deltaTime = Double(value.translation.width / pixelsPerSecond)
+                            let newStartTime = max(0, cycleStartTime + deltaTime)
+                            let cycleDuration = cycleEndTime - cycleStartTime
+                            let newEndTime = newStartTime + cycleDuration
+                            onCycleRegionChanged(newStartTime, newEndTime)
+                        }
+                )
+        }
+        .clipped()
     }
 }

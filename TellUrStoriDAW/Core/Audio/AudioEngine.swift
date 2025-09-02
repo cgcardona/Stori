@@ -19,6 +19,9 @@ class AudioEngine: ObservableObject {
     @Published var isRecording: Bool = false
     @Published var cpuUsage: Double = 0.0
     @Published var audioLevels: [Float] = []
+    @Published var isCycleEnabled: Bool = false
+    @Published var cycleStartTime: TimeInterval = 0.0
+    @Published var cycleEndTime: TimeInterval = 8.0
     
     // MARK: - Private Properties
     private let engine = AVAudioEngine()
@@ -115,6 +118,9 @@ class AudioEngine: ObservableObject {
                 timeSignature: project.timeSignature
             )
         }
+        
+        // Check for cycle loop
+        checkCycleLoop()
         
         // Update CPU usage (simplified)
         updateCPUUsage()
@@ -894,6 +900,28 @@ class AudioEngine: ObservableObject {
         }.max() ?? currentPosition.timeInterval + 10
         
         seekToPosition(maxDuration)
+    }
+    
+    // MARK: - Cycle Controls
+    
+    func toggleCycle() {
+        isCycleEnabled.toggle()
+        print("🔄 Cycle \(isCycleEnabled ? "enabled" : "disabled"): \(cycleStartTime)s - \(cycleEndTime)s")
+    }
+    
+    func setCycleRegion(start: TimeInterval, end: TimeInterval) {
+        cycleStartTime = max(0, start)
+        cycleEndTime = max(cycleStartTime + 0.1, end) // Ensure minimum 0.1s cycle length
+        print("🔄 Cycle region set: \(cycleStartTime)s - \(cycleEndTime)s")
+    }
+    
+    private func checkCycleLoop() {
+        guard isCycleEnabled && transportState.isPlaying else { return }
+        
+        if currentPosition.timeInterval >= cycleEndTime {
+            print("🔄 Cycling back to start: \(cycleStartTime)s")
+            seekToPosition(cycleStartTime)
+        }
     }
 }
 

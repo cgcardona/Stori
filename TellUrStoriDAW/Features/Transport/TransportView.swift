@@ -68,6 +68,15 @@ struct TransportView: View {
                     action: { audioEngine.fastForward() }
                 )
                 .keyboardShortcut(.rightArrow, modifiers: [])
+                
+                // Cycle
+                TransportButton(
+                    icon: "repeat",
+                    isActive: audioEngine.isCycleEnabled,
+                    color: audioEngine.isCycleEnabled ? .yellow : .secondary,
+                    action: { audioEngine.toggleCycle() }
+                )
+                .keyboardShortcut("c", modifiers: [])
             }
             .padding(.leading, 20)
             
