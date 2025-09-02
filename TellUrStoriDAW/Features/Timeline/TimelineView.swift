@@ -74,7 +74,7 @@ struct TrackLaneView: View {
                 isSelected: isSelected,
                 onSelect: onSelect
             )
-            .frame(width: 200)
+            .frame(width: 280)
             
             // Track content area
             ZStack(alignment: .leading) {
@@ -178,7 +178,7 @@ struct TrackHeaderView: View {
             }
             
             // Logic Pro-style single row controls
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 // Record enable
                 Button(action: {
                     var updatedTrack = track
@@ -239,7 +239,7 @@ struct TrackHeaderView: View {
                     projectManager.updateTrack(updatedTrack)
                     audioEngine.updateTrackVolume(trackId: track.id, volume: value)
                 }
-                .frame(width: 50, height: 16)
+                .frame(width: 60, height: 16)
                 
                 // Pan Knob (compact)
                 KnobView(value: .constant(track.mixerSettings.pan), range: -1...1, sensitivity: 0.02) { value in
@@ -248,7 +248,7 @@ struct TrackHeaderView: View {
                     projectManager.updateTrack(updatedTrack)
                     audioEngine.updateTrackPan(trackId: track.id, pan: value)
                 }
-                .frame(width: 20, height: 20)
+                .frame(width: 24, height: 24)
                 
                 // AI Generation
                 Button(action: {

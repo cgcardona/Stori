@@ -162,9 +162,9 @@ struct MainDAWView: View {
                     VStack(spacing: 0) {
                         // Timeline ruler (aligned with track content)
                         HStack(spacing: 0) {
-                            // Spacer to align with track headers (200px)
+                            // Spacer to align with track headers (280px)
                             Color.clear
-                                .frame(width: 200)
+                                .frame(width: 280)
                             
                             // Timeline ruler
                             TimelineRulerView(
