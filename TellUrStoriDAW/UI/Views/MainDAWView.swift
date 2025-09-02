@@ -160,11 +160,18 @@ struct MainDAWView: View {
             HStack(spacing: 0) {
                     // Timeline and tracks area
                     VStack(spacing: 0) {
-                        // Timeline ruler
-                        TimelineRulerView(
-                            audioEngine: audioEngine,
-                            project: projectManager.currentProject
-                        )
+                        // Timeline ruler (aligned with track content)
+                        HStack(spacing: 0) {
+                            // Spacer to align with track headers (200px)
+                            Color.clear
+                                .frame(width: 200)
+                            
+                            // Timeline ruler
+                            TimelineRulerView(
+                                audioEngine: audioEngine,
+                                project: projectManager.currentProject
+                            )
+                        }
                         .frame(height: 40)
                         
                         // Step 4: Horizontal-only ScrollView
