@@ -997,8 +997,15 @@ struct ActivityView: View {
                     .padding(.horizontal)
                     
                     LazyVStack(spacing: 8) {
-                        ForEach(placeholderActivities) { activity in
-                            EnhancedActivityCard(activity: activity)
+                        ForEach(blockchainClient.recentActivity) { activity in
+                            RealActivityCard(activity: activity)
+                        }
+                        
+                        // Show placeholder if no real activity yet
+                        if blockchainClient.recentActivity.isEmpty {
+                            ForEach(placeholderActivities) { activity in
+                                EnhancedActivityCard(activity: activity)
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -1009,6 +1016,54 @@ struct ActivityView: View {
         .refreshable {
             await blockchainClient.refreshData()
         }
+    }
+}
+
+// MARK: - Real Activity Card
+
+struct RealActivityCard: View {
+    let activity: BlockchainActivity
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Activity Type Icon
+            Circle()
+                .fill(activity.type.color.opacity(0.2))
+                .frame(width: 40, height: 40)
+                .overlay(
+                    Text(activity.type.emoji)
+                        .font(.title3)
+                )
+            
+            // Activity Details
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(activity.type.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    Text(activity.timestamp, style: .relative)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Text("Token #\(activity.tokenId)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text(activity.address.prefix(10) + "..." + activity.address.suffix(4))
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                    .monospaced()
+            }
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 }
 
@@ -1231,6 +1286,12 @@ struct ActivityCard: View {
 struct AnalyticsView: View {
     @ObservedObject var blockchainClient: BlockchainClient
     
+    private func formatVolume(_ volume: String) -> String {
+        guard let volumeDouble = Double(volume) else { return "0" }
+        let avaxVolume = volumeDouble / 1e18 // Convert from wei to AVAX
+        return String(format: "%.1f", avaxVolume)
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -1246,15 +1307,15 @@ struct AnalyticsView: View {
                     ], spacing: 16) {
                         EnhancedStatCard(
                             title: "Total Volume",
-                            value: "847.2 AVAX",
-                            subtitle: "$42,360",
+                            value: formatVolume(blockchainClient.networkInfo?.totalVolume ?? "0"),
+                            subtitle: "AVAX",
                             change: "+12.5%",
                             isPositive: true,
                             icon: "chart.bar.fill"
                         )
                         EnhancedStatCard(
                             title: "Total STEMs",
-                            value: "1,247",
+                            value: "\(blockchainClient.networkInfo?.totalSTEMs ?? 0)",
                             subtitle: "tokens",
                             change: "+8",
                             isPositive: true,
@@ -1262,7 +1323,7 @@ struct AnalyticsView: View {
                         )
                         EnhancedStatCard(
                             title: "Active Listings",
-                            value: "156",
+                            value: "\(blockchainClient.networkInfo?.activeListings ?? 0)",
                             subtitle: "listings",
                             change: "-3",
                             isPositive: false,
@@ -1270,7 +1331,7 @@ struct AnalyticsView: View {
                         )
                         EnhancedStatCard(
                             title: "Creators",
-                            value: "89",
+                            value: "\(blockchainClient.networkInfo?.totalCreators ?? 0)",
                             subtitle: "artists",
                             change: "+5",
                             isPositive: true,

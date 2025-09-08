@@ -116,6 +116,27 @@ TellUrStoriDAW/
    - Press `Cmd+R` to build and run
    - The app should launch with the DAW interface
 
+### 🔗 Running the GraphQL Indexer (For Real Blockchain Data)
+
+To see real blockchain data in the marketplace, start the GraphQL indexer service:
+
+1. **Navigate to indexer service**
+   ```bash
+   cd indexer-service
+   ```
+
+2. **Start the GraphQL server**
+   ```bash
+   node marketplace-graphql-server.js
+   ```
+
+3. **Verify it's running**
+   - Server starts on `http://localhost:4000`
+   - GraphQL endpoint: `http://localhost:4000/graphql`
+   - The Swift app will automatically connect and display real STEM data
+
+**Note**: The indexer connects to your deployed TellUrStori L1 contracts and serves real blockchain data to the Swift frontend. Without it, the app will show placeholder data.
+
 ### Development Workflow
 
 1. **Branch Strategy**: Use feature branches for development

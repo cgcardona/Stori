@@ -803,6 +803,17 @@ enum ActivityType: String {
         case .unknown: return "❓"
         }
     }
+    
+    var color: Color {
+        switch self {
+        case .mint: return .green
+        case .transfer: return .blue
+        case .listing: return .orange
+        case .sale: return .purple
+        case .offer: return .yellow
+        case .unknown: return .gray
+        }
+    }
 }
 
 // MARK: - Pending Transaction
