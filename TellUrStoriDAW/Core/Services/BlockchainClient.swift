@@ -41,15 +41,21 @@ class BlockchainClient: ObservableObject {
     
     // MARK: - Initialization
     init(
-        rpcURL: String = "http://localhost:8545",
+        rpcURL: String = "http://127.0.0.1:49315/ext/bc/2Y2VATbw3jVSeZmZzb4ydyjwbYjzd5xfU4d7UWqPHQ2QEK1mki/rpc",
         indexerURL: String = "http://localhost:4000",
-        contractAddresses: ContractAddresses = ContractAddresses.localhost
+        contractAddresses: ContractAddresses = ContractAddresses.tellUrStoriL1
     ) {
         self.rpcURL = URL(string: rpcURL)!
         self.indexerURL = URL(string: indexerURL)!
         self.contractAddresses = contractAddresses
         
         setupNetworkMonitoring()
+        
+        // Auto-connect to ewoq wallet for development
+        connectWallet(
+            address: "0x8db97C7cEcE249c2b98bDC0226Cc4C2A57BF52FC",
+            privateKey: "0x56289e99c94b6912bfc12adc093c9b51124f0dc54ac7a766b2bc5ccf558d8027"
+        )
         
         // Initialize connection check
         Task {
@@ -142,8 +148,8 @@ class BlockchainClient: ObservableObject {
             
             if let data = response.data {
                 networkInfo = NetworkInfo(
-                    chainId: 31337, // Local development
-                    networkName: "TellUrStori Local",
+                    chainId: 507, // TellUrStori L1
+                    networkName: "TellUrStori L1",
                     totalVolume: data.marketStats.totalVolume,
                     totalSTEMs: data.stemStats.totalStems,
                     totalCreators: data.stemStats.totalCreators,
@@ -167,58 +173,53 @@ class BlockchainClient: ObservableObject {
         
         do {
             let query = """
-            query GetUserSTEMs($creator: String!) {
-              stems(where: { creator: $creator }, first: 50, orderBy: CREATED_AT, orderDirection: DESC) {
+            {
+              stems {
                 edges {
                   node {
-                    id
                     tokenId
                     name
                     description
-                    stemType
-                    duration
-                    bpm
-                    key
+                    creator
                     genre
+                    tags
+                    duration
+                    royaltyPercentage
                     totalSupply
-                    floorPrice
-                    lastSalePrice
-                    totalVolume
                     createdAt
-                    audioCID
-                    imageCID
+                    audioIPFSHash
+                    imageIPFSHash
                   }
                 }
               }
             }
             """
             
-            let variables = ["creator": walletAddress]
-            let response: GraphQLResponse<UserSTEMsData> = try await executeGraphQLQuery(
-                query: query,
-                variables: variables
-            )
+            let response: GraphQLResponse<UserSTEMsData> = try await executeGraphQLQuery(query: query)
             
             if let data = response.data {
-                userSTEMs = data.stems.edges.map { edge in
-                    STEMToken(
-                        id: edge.node.id,
+                // Filter for user's STEMs
+                userSTEMs = data.stems.edges.compactMap { edge in
+                    guard edge.node.creator.lowercased() == walletAddress.lowercased() else { return nil }
+                    
+                    return STEMToken(
+                        id: edge.node.tokenId,
                         tokenId: edge.node.tokenId,
-                        name: edge.node.name ?? "Untitled STEM",
-                        description: edge.node.description ?? "",
-                        creator: walletAddress,
-                        stemType: STEMType(rawValue: edge.node.stemType?.lowercased() ?? "other") ?? .other,
-                        duration: edge.node.duration ?? 0,
-                        bpm: edge.node.bpm ?? 0,
-                        key: edge.node.key,
+                        name: edge.node.name,
+                        description: edge.node.description ?? "Professional STEM for music production",
+                        creator: edge.node.creator,
+                        stemType: STEMType.fromGenre(edge.node.genre ?? "Other"),
+                        duration: Int(edge.node.duration ?? "180") ?? 180,
+                        bpm: 120, // Default BPM
+                        key: nil,
                         genre: edge.node.genre,
                         totalSupply: edge.node.totalSupply,
-                        floorPrice: edge.node.floorPrice,
-                        lastSalePrice: edge.node.lastSalePrice,
-                        totalVolume: edge.node.totalVolume,
+                        floorPrice: nil,
+                        lastSalePrice: nil,
+                        totalVolume: "0",
                         createdAt: ISO8601DateFormatter().date(from: edge.node.createdAt) ?? Date(),
-                        audioCID: edge.node.audioCID,
-                        imageCID: edge.node.imageCID
+                        audioCID: edge.node.audioIPFSHash,
+                        imageCID: edge.node.imageIPFSHash
                     )
                 }
             }
@@ -231,65 +232,66 @@ class BlockchainClient: ObservableObject {
     private func loadMarketplaceListings() async {
         do {
             let query = """
-            query GetMarketplaceListings {
-              listings(where: { active: true }, first: 20, orderBy: CREATED_AT, orderDirection: DESC) {
+            {
+              stems {
                 edges {
                   node {
-                    id
-                    listingId
-                    seller
-                    stem {
-                      tokenId
-                      name
-                      stemType
-                      duration
-                      bpm
-                      genre
-                      audioCID
-                      imageCID
-                    }
-                    amount
-                    pricePerToken
-                    totalPrice
-                    expiration
+                    tokenId
+                    name
+                    genre
+                    creator
+                    totalSupply
+                    duration
+                    royaltyPercentage
                     createdAt
+                    audioIPFSHash
+                    imageIPFSHash
                   }
                 }
+              }
+              marketStats {
+                totalVolume
+                activeListings
+                floorPrice
               }
             }
             """
             
-            let response: GraphQLResponse<MarketplaceListingsData> = try await executeGraphQLQuery(query: query)
+            let response: GraphQLResponse<MarketplaceData> = try await executeGraphQLQuery(query: query)
             
             if let data = response.data {
-                marketplaceListings = data.listings.edges.map { edge in
-                    MarketplaceListing(
-                        id: edge.node.id,
-                        listingId: edge.node.listingId,
-                        seller: edge.node.seller,
+                marketplaceListings = data.stems.edges.enumerated().map { index, edge in
+                    // Create mock listings from our real STEM data
+                    let priceVariations = ["0.75", "1.2", "1.5", "1.8", "2.0", "2.5", "3.2", "5.0", "8.0"]
+                    let mockPrice = priceVariations[index % priceVariations.count]
+                    
+                    return MarketplaceListing(
+                        id: "listing_\(edge.node.tokenId)",
+                        listingId: edge.node.tokenId,
+                        seller: edge.node.creator,
                         stem: STEMToken(
-                            id: edge.node.stem.tokenId,
-                            tokenId: edge.node.stem.tokenId,
-                            name: edge.node.stem.name ?? "Untitled STEM",
-                            description: "",
-                            creator: edge.node.seller,
-                            stemType: STEMType(rawValue: edge.node.stem.stemType?.lowercased() ?? "other") ?? .other,
-                            duration: edge.node.stem.duration ?? 0,
-                            bpm: edge.node.stem.bpm ?? 0,
+                            id: edge.node.tokenId,
+                            tokenId: edge.node.tokenId,
+                            name: edge.node.name,
+                            description: "Professional \(edge.node.genre ?? "Music") STEM for production",
+                            creator: edge.node.creator,
+                            stemType: STEMType.fromGenre(edge.node.genre ?? "Other"),
+                            duration: Int(edge.node.duration ?? "180") ?? 180,
+                            bpm: 120, // Default BPM
                             key: nil,
-                            genre: edge.node.stem.genre,
-                            totalSupply: "0",
-                            floorPrice: nil,
+                            genre: edge.node.genre,
+                            totalSupply: edge.node.totalSupply,
+                            floorPrice: mockPrice,
                             lastSalePrice: nil,
                             totalVolume: "0",
-                            createdAt: Date(),
-                            audioCID: edge.node.stem.audioCID,
-                            imageCID: edge.node.stem.imageCID
+                            createdAt: ISO8601DateFormatter().date(from: edge.node.createdAt) ?? Date(),
+                            audioCID: edge.node.audioIPFSHash,
+                            imageCID: edge.node.imageIPFSHash
                         ),
-                        amount: edge.node.amount,
-                        pricePerToken: edge.node.pricePerToken,
-                        totalPrice: edge.node.totalPrice,
-                        expiration: edge.node.expiration.flatMap { ISO8601DateFormatter().date(from: $0) },
+                        amount: "5", // Mock available amount
+                        pricePerToken: mockPrice,
+                        totalPrice: String(Double(mockPrice)! * 5.0),
+                        expiration: Calendar.current.date(byAdding: .day, value: 7, to: Date()),
                         createdAt: ISO8601DateFormatter().date(from: edge.node.createdAt) ?? Date()
                     )
                 }
@@ -303,11 +305,13 @@ class BlockchainClient: ObservableObject {
     private func loadRecentActivity() async {
         do {
             let query = """
-            query GetRecentActivity {
-              recentActivity(limit: 20) {
+            {
+              recentActivity {
                 type
                 tokenId
-                address
+                from
+                to
+                amount
                 timestamp
                 transactionHash
                 blockNumber
@@ -315,17 +319,17 @@ class BlockchainClient: ObservableObject {
             }
             """
             
-            let response: GraphQLResponse<RecentActivityData> = try await executeGraphQLQuery(query: query)
+            let response: GraphQLResponse<RecentActivityResponse> = try await executeGraphQLQuery(query: query)
             
             if let data = response.data {
                 recentActivity = data.recentActivity.map { activity in
                     BlockchainActivity(
                         type: ActivityType(rawValue: activity.type.lowercased()) ?? .unknown,
                         tokenId: activity.tokenId,
-                        address: activity.address,
+                        address: activity.from, // Use 'from' as primary address
                         timestamp: ISO8601DateFormatter().date(from: activity.timestamp) ?? Date(),
                         transactionHash: activity.transactionHash,
-                        blockNumber: activity.blockNumber
+                        blockNumber: activity.blockNumber ?? "0"
                     )
                 }
             }
@@ -597,6 +601,11 @@ struct ContractAddresses {
         marketplaceContract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
     )
     
+    static let tellUrStoriL1 = ContractAddresses(
+        stemContract: "0x0938Ae5E07A7af37Bfb629AC94fA55B2eDA5E930",
+        marketplaceContract: "0x3f772F690AbBBb1F7122eAd83962D7919BFdD729"
+    )
+    
     static let fuji = ContractAddresses(
         stemContract: "0x...", // To be deployed
         marketplaceContract: "0x..." // To be deployed
@@ -673,6 +682,25 @@ enum STEMType: String, CaseIterable, Codable {
         case .harmony: return "🎵"
         case .effects: return "✨"
         case .other: return "🎶"
+        }
+    }
+    
+    static func fromGenre(_ genre: String) -> STEMType {
+        let lowercased = genre.lowercased()
+        if lowercased.contains("drum") || lowercased.contains("beat") || lowercased.contains("percussion") {
+            return .drums
+        } else if lowercased.contains("bass") {
+            return .bass
+        } else if lowercased.contains("vocal") || lowercased.contains("voice") {
+            return .vocals
+        } else if lowercased.contains("melody") || lowercased.contains("lead") {
+            return .melody
+        } else if lowercased.contains("harmony") || lowercased.contains("chord") {
+            return .harmony
+        } else if lowercased.contains("effect") || lowercased.contains("fx") {
+            return .effects
+        } else {
+            return .other
         }
     }
 }
@@ -928,26 +956,27 @@ struct STEMEdge: Codable {
 }
 
 struct STEMNode: Codable {
-    let id: String
     let tokenId: String
-    let name: String?
+    let name: String
     let description: String?
-    let stemType: String?
-    let duration: Int?
-    let bpm: Int?
-    let key: String?
+    let creator: String
     let genre: String?
+    let tags: [String]?
+    let duration: String?
+    let royaltyPercentage: String
     let totalSupply: String
-    let floorPrice: String?
-    let lastSalePrice: String?
-    let totalVolume: String
     let createdAt: String
-    let audioCID: String?
-    let imageCID: String?
+    let audioIPFSHash: String?
+    let imageIPFSHash: String?
 }
 
 struct MarketplaceListingsData: Codable {
     let listings: ListingConnection
+}
+
+struct MarketplaceData: Codable {
+    let stems: STEMConnection
+    let marketStats: MarketStatsData
 }
 
 struct ListingConnection: Codable {
@@ -972,6 +1001,21 @@ struct ListingNode: Codable {
 
 struct RecentActivityData: Codable {
     let recentActivity: [ActivityNode]
+}
+
+struct RecentActivityResponse: Codable {
+    let recentActivity: [RecentActivityNode]
+}
+
+struct RecentActivityNode: Codable {
+    let type: String
+    let tokenId: String
+    let from: String
+    let to: String
+    let amount: String
+    let timestamp: String
+    let transactionHash: String
+    let blockNumber: String?
 }
 
 struct ActivityNode: Codable {
