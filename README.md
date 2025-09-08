@@ -170,11 +170,15 @@ cd indexer-service
 # Install dependencies (if needed)
 npm install
 
-# Start the GraphQL indexer (connects to L1 and serves data)
-node marketplace-graphql-server.js &
+# Start the GraphQL indexer in background (connects to L1 and serves data)
+nohup node marketplace-graphql-server.js > indexer.log 2>&1 &
 
 # Verify it's running
 curl http://localhost:4000/health
+
+# Optional: Check logs
+tail -f indexer.log
+
 cd ..
 ```
 
@@ -242,14 +246,61 @@ curl -X POST http://localhost:8000/generate \
   -d '{"prompt": "upbeat electronic music", "duration": 10}'
 ```
 
-### 🔧 Service Endpoints
+### 🔧 Service Management
 
+#### **Service Endpoints**
 When all services are running, you'll have:
 
 - **Swift DAW**: Native macOS application
 - **AI Service**: `http://localhost:8000` (MusicGen API)
 - **Blockchain L1**: `http://127.0.0.1:XXXXX/ext/bc/.../rpc` (Avalanche subnet)
 - **GraphQL Indexer**: `http://localhost:4000/graphql` (Blockchain data API)
+
+#### **Managing Background Services**
+
+**Start Services:**
+```bash
+# Start AI service in background
+cd musicgen-service
+source venv/bin/activate
+nohup python -m app.main > ai-service.log 2>&1 &
+
+# Start GraphQL indexer in background
+cd ../indexer-service
+nohup node marketplace-graphql-server.js > indexer.log 2>&1 &
+```
+
+**Check Running Services:**
+```bash
+# Check what's running on each port
+lsof -i :8000  # AI service
+lsof -i :4000  # GraphQL indexer
+
+# Check process by name
+ps aux | grep "marketplace-graphql-server"
+ps aux | grep "python -m app.main"
+```
+
+**Stop Services:**
+```bash
+# Kill by port
+kill $(lsof -t -i:4000)  # Stop GraphQL indexer
+kill $(lsof -t -i:8000)  # Stop AI service
+
+# Or kill by process name
+pkill -f "marketplace-graphql-server"
+pkill -f "python -m app.main"
+
+# Stop Avalanche network
+avalanche network stop
+```
+
+**View Logs:**
+```bash
+# Real-time log monitoring
+tail -f indexer-service/indexer.log
+tail -f musicgen-service/ai-service.log
+```
 
 ### 🚨 Troubleshooting
 
