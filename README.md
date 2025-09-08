@@ -90,52 +90,217 @@ TellUrStoriDAW/
 - **MixerView**: Professional mixing console interface
 - **TransportView**: Standard DAW transport controls
 
-## 🛠️ Development Setup
+## 🛠️ Complete Development Setup
 
 ### Prerequisites
 
-- **Xcode 16.0+** with Swift 6.0
 - **macOS 15.0+** (Sonoma or later)
+- **Xcode 16.0+** with Swift 6.0
+- **Node.js 20+** (for blockchain and indexer services)
+- **Python 3.11+** (for AI music generation)
+- **Docker** (for services)
+- **Avalanche CLI** (for L1 subnet management)
 - **Apple Developer Account** (for code signing)
 
-### Quick Start
+### 🚀 Full Stack Setup (Complete Ecosystem)
 
-1. **Clone the repository**
+Follow these steps to set up the entire TellUrStori V2 ecosystem from scratch:
+
+#### 1. **Clone and Setup Repository**
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/TellUrStoriDAW.git
+cd TellUrStoriDAW
+
+# Install Avalanche CLI (if not already installed)
+curl -sSfL https://raw.githubusercontent.com/ava-labs/avalanche-cli/main/scripts/install.sh | sh -s
+export PATH=$PATH:~/bin
+```
+
+#### 2. **Setup AI Music Generation Service**
+```bash
+# Navigate to MusicGen service
+cd musicgen-service
+
+# Create Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the AI service (runs on port 8000)
+python -m app.main &
+cd ..
+```
+
+#### 3. **Setup Avalanche L1 Subnet & Deploy Contracts**
+```bash
+# Navigate to blockchain directory
+cd blockchain
+
+# Install Node.js dependencies
+npm install
+
+# Create and deploy TellUrStori L1 subnet
+avalanche blockchain create tellurstoridaw
+# Follow prompts: SubnetEVM, Chain ID: 507, Token Symbol: TUS
+
+# Deploy the subnet locally
+avalanche blockchain deploy tellurstoridaw --local
+# Note: Save the RPC URL from output (e.g., http://127.0.0.1:XXXXX/ext/bc/.../rpc)
+
+# Deploy optimized smart contracts
+node scripts/deploy-optimized-direct.js
+
+# Run comprehensive contract tests
+node scripts/run-all-tests-direct.js
+
+# Populate blockchain with sample data
+node scripts/populate-marketplace-data.js
+
+cd ..
+```
+
+#### 4. **Setup GraphQL Indexer Service**
+```bash
+# Navigate to indexer service
+cd indexer-service
+
+# Install dependencies (if needed)
+npm install
+
+# Start the GraphQL indexer (connects to L1 and serves data)
+node marketplace-graphql-server.js &
+
+# Verify it's running
+curl http://localhost:4000/health
+cd ..
+```
+
+#### 5. **Launch Swift DAW Application**
+```bash
+# Open in Xcode
+open TellUrStoriDAW.xcodeproj
+
+# Build and run (Cmd+R in Xcode)
+# The app will automatically connect to all services
+```
+
+### 🎯 Quick Start (Swift App Only)
+
+If you just want to run the Swift DAW with placeholder data:
+
+1. **Clone and Open**
    ```bash
    git clone https://github.com/yourusername/TellUrStoriDAW.git
    cd TellUrStoriDAW
-   ```
-
-2. **Open in Xcode**
-   ```bash
    open TellUrStoriDAW.xcodeproj
    ```
 
-3. **Build and Run**
+2. **Build and Run**
    - Select your target device/simulator
    - Press `Cmd+R` to build and run
-   - The app should launch with the DAW interface
+   - The app will launch with placeholder data
 
-### 🔗 Running the GraphQL Indexer (For Real Blockchain Data)
+### 🧪 Running Tests
 
-To see real blockchain data in the marketplace, start the GraphQL indexer service:
+#### **Blockchain Tests**
+```bash
+cd blockchain
 
-1. **Navigate to indexer service**
+# Test both STEM and Marketplace contracts
+node scripts/run-all-tests-direct.js
+
+# Test only STEM contract
+node scripts/run-all-tests-direct.js --stem
+
+# Test only Marketplace contract  
+node scripts/run-all-tests-direct.js --marketplace
+```
+
+#### **Swift Tests**
+```bash
+# Unit tests
+xcodebuild test -scheme TellUrStoriDAW -destination 'platform=macOS'
+
+# UI tests
+xcodebuild test -scheme TellUrStoriDAWUITests -destination 'platform=macOS'
+```
+
+#### **AI Service Tests**
+```bash
+cd musicgen-service
+source venv/bin/activate
+
+# Run Python tests
+python -m pytest tests/
+
+# Test generation endpoint
+curl -X POST http://localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "upbeat electronic music", "duration": 10}'
+```
+
+### 🔧 Service Endpoints
+
+When all services are running, you'll have:
+
+- **Swift DAW**: Native macOS application
+- **AI Service**: `http://localhost:8000` (MusicGen API)
+- **Blockchain L1**: `http://127.0.0.1:XXXXX/ext/bc/.../rpc` (Avalanche subnet)
+- **GraphQL Indexer**: `http://localhost:4000/graphql` (Blockchain data API)
+
+### 🚨 Troubleshooting
+
+#### **Common Issues**
+
+1. **Avalanche CLI Issues**
    ```bash
-   cd indexer-service
+   # Clean and restart network
+   avalanche network clean
+   avalanche blockchain deploy tellurstoridaw --local
    ```
 
-2. **Start the GraphQL server**
+2. **Python Dependencies**
    ```bash
-   node marketplace-graphql-server.js
+   # If MusicGen installation fails
+   pip install --upgrade pip
+   pip install torch torchvision torchaudio
+   pip install -r requirements.txt
    ```
 
-3. **Verify it's running**
-   - Server starts on `http://localhost:4000`
-   - GraphQL endpoint: `http://localhost:4000/graphql`
-   - The Swift app will automatically connect and display real STEM data
+3. **Node.js Issues**
+   ```bash
+   # Clear npm cache and reinstall
+   npm cache clean --force
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
 
-**Note**: The indexer connects to your deployed TellUrStori L1 contracts and serves real blockchain data to the Swift frontend. Without it, the app will show placeholder data.
+4. **GraphQL Connection Issues**
+   ```bash
+   # Verify indexer is connecting to correct RPC
+   # Update RPC URL in indexer-service/marketplace-graphql-server.js
+   # Restart the indexer service
+   ```
+
+### 📊 Verifying Full Setup
+
+After completing all steps, verify everything is working:
+
+1. **Check AI Service**: Visit `http://localhost:8000/docs` for API documentation
+2. **Check Blockchain**: Run `node scripts/run-all-tests-direct.js` (should show 100% pass rate)
+3. **Check Indexer**: Visit `http://localhost:4000/graphql` for GraphQL playground
+4. **Check Swift App**: Marketplace should show real STEMs and data from blockchain
+
+### 🎵 Data Population
+
+The setup automatically populates your blockchain with:
+- **51 diverse STEM tokens** (Electronic, Hip Hop, Rock, Pop, etc.)
+- **Real marketplace listings** with various price points
+- **Transaction history** and activity data
+- **Creator profiles** and royalty information
 
 ### Development Workflow
 
