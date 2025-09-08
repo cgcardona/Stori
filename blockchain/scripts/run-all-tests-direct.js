@@ -3,9 +3,19 @@
 import { ethers } from "ethers";
 import fs from "fs";
 
+// Parse command line arguments for contract selection
+const args = process.argv.slice(2);
+const testStem = args.includes('--stem') || args.includes('--all') || args.length === 0;
+const testMarketplace = args.includes('--marketplace') || args.includes('--all');
+
 console.log("🧪 TellUrStori V2 - COMPLETE Direct Test Suite");
-console.log("🛡️ Running ALL 2,568 Lines of Test Logic WITHOUT Hardhat");
+console.log("🛡️ Running Comprehensive Contract Tests");
 console.log("=" .repeat(80));
+
+console.log(`\n📋 Test Configuration:`);
+console.log(`├── STEM Contract Tests: ${testStem ? '✅ ENABLED' : '❌ DISABLED'}`);
+console.log(`├── Marketplace Contract Tests: ${testMarketplace ? '✅ ENABLED' : '❌ DISABLED'}`);
+console.log(`└── Usage: node run-all-tests-direct.js [--stem] [--marketplace] [--all]`);
 
 // Test results tracking
 const results = {
@@ -59,18 +69,33 @@ async function main() {
     console.log(`\n📜 Testing Deployed Contracts:`);
     console.log(`└── STEM: ${deployment.TellUrStoriSTEM_Optimized}`);
 
-    // Load contract ABIs
+    // Load contract ABIs and create contract instances
     const stemABI = JSON.parse(fs.readFileSync("./artifacts/contracts/TellUrStoriSTEM_Optimized.sol/TellUrStoriSTEM.json", "utf8")).abi;
     const stemContract = new ethers.Contract(deployment.TellUrStoriSTEM_Optimized, stemABI, wallet);
+    
+    let marketplaceContract = null;
+    if (testMarketplace && deployment.STEMMarketplace_Optimized && deployment.STEMMarketplace_Optimized !== "NOT_DEPLOYED_YET") {
+      const marketplaceABI = JSON.parse(fs.readFileSync("./artifacts/contracts/STEMMarketplace_Optimized.sol/STEMMarketplace.json", "utf8")).abi;
+      marketplaceContract = new ethers.Contract(deployment.STEMMarketplace_Optimized, marketplaceABI, wallet);
+      console.log(`📜 Marketplace Contract: ${deployment.STEMMarketplace_Optimized}`);
+    }
 
-    console.log(`\n🧪 Starting COMPLETE Test Suite (All 5 Test Files Logic)...\n`);
+    console.log(`\n🧪 Starting COMPLETE Test Suite...\n`);
 
     // ===========================================
-    // SUITE 1: BASIC STEM CONTRACT TESTS (TellUrStoriSTEM.test.js - 238 lines)
+    // STEM CONTRACT TESTS (if enabled)
     // ===========================================
     
-    console.log("📄 SUITE 1: Basic STEM Contract Tests (238 lines)");
-    console.log("-".repeat(60));
+    if (testStem) {
+      console.log("🎵 STEM CONTRACT TESTS");
+      console.log("=".repeat(50));
+      
+      // ===========================================
+      // SUITE 1: BASIC STEM CONTRACT TESTS (TellUrStoriSTEM.test.js - 238 lines)
+      // ===========================================
+      
+      console.log("\n📄 SUITE 1: Basic STEM Contract Tests (238 lines)");
+      console.log("-".repeat(60));
 
     // Test 1.1: Contract deployment
     try {
@@ -482,6 +507,111 @@ async function main() {
       logTest("INTEGRATION", "Gas efficiency validation", gasEstimate < 1000000n); // Under 1M gas
     } catch (error) {
       logTest("INTEGRATION", "Gas efficiency validation", false, error.message);
+    }
+    
+    } // End of STEM tests
+
+    // ===========================================
+    // MARKETPLACE CONTRACT TESTS (if enabled)
+    // ===========================================
+    
+    if (testMarketplace && marketplaceContract) {
+      console.log("\n🏪 MARKETPLACE CONTRACT TESTS");
+      console.log("=".repeat(50));
+      
+      let testTokenId;
+      
+      // Setup: Create test token for marketplace testing
+      console.log("\n📄 MARKETPLACE SETUP: Creating Test Token");
+      console.log("-".repeat(60));
+      
+      try {
+        const metadata = {
+          name: "Marketplace Test STEM",
+          description: "STEM token for marketplace testing",
+          audioIPFSHash: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+          imageIPFSHash: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+          creator: wallet.address,
+          createdAt: Math.floor(Date.now() / 1000),
+          duration: 180,
+          genre: "Test",
+          tags: ["marketplace", "test"],
+          royaltyPercentage: 500
+        };
+        
+        const tx = await stemContract.mintSTEM(wallet.address, 50, metadata, "0x");
+        await waitForTx(tx);
+        
+        testTokenId = await stemContract.getCurrentTokenId() - 1n;
+        
+        // Approve marketplace
+        const approveTx = await stemContract.setApprovalForAll(deployment.STEMMarketplace_Optimized, true);
+        await waitForTx(approveTx);
+        
+        logTest("MARKETPLACE_SETUP", "Test token creation and approval", true);
+      } catch (error) {
+        logTest("MARKETPLACE_SETUP", "Test token creation and approval", false, error.message);
+      }
+      
+      // Test marketplace deployment
+      try {
+        const stemContractAddr = await marketplaceContract.stemContract();
+        const owner = await marketplaceContract.owner();
+        logTest("MARKETPLACE", "Contract deployment verification", 
+          stemContractAddr.toLowerCase() === deployment.TellUrStoriSTEM_Optimized.toLowerCase() &&
+          owner === wallet.address
+        );
+      } catch (error) {
+        logTest("MARKETPLACE", "Contract deployment verification", false, error.message);
+      }
+      
+      // Test listing creation
+      try {
+        const price = ethers.parseEther("1.0");
+        const amount = 10;
+        const expiration = Math.floor(Date.now() / 1000) + 86400;
+        
+        const tx = await marketplaceContract.createListing(testTokenId, amount, price, expiration);
+        await waitForTx(tx);
+        
+        logTest("MARKETPLACE", "Create fixed price listing", true);
+      } catch (error) {
+        logTest("MARKETPLACE", "Create fixed price listing", false, error.message);
+      }
+      
+      // Test getting active listings
+      try {
+        const activeListings = await marketplaceContract.getActiveListingsForToken(testTokenId);
+        logTest("MARKETPLACE", "Get active listings", activeListings.length > 0);
+      } catch (error) {
+        logTest("MARKETPLACE", "Get active listings", false, error.message);
+      }
+      
+      // Test auction creation
+      try {
+        const startingPrice = ethers.parseEther("0.5");
+        const duration = 3600;
+        const amount = 5;
+        
+        const tx = await marketplaceContract.createAuction(testTokenId, amount, startingPrice, duration);
+        await waitForTx(tx);
+        
+        logTest("MARKETPLACE", "Create auction", true);
+      } catch (error) {
+        logTest("MARKETPLACE", "Create auction", false, error.message);
+      }
+      
+      // Test marketplace fee functions
+      try {
+        const currentFee = await marketplaceContract.marketplaceFee();
+        logTest("MARKETPLACE", "Marketplace fee verification", currentFee > 0);
+      } catch (error) {
+        logTest("MARKETPLACE", "Marketplace fee verification", false, error.message);
+      }
+      
+      console.log(`\n✅ Marketplace tests completed!`);
+    } else if (testMarketplace && !marketplaceContract) {
+      console.log("\n⚠️ Marketplace tests requested but contract not deployed!");
     }
 
     // ===========================================

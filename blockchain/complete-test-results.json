@@ -1,218 +1,59 @@
 {
-  "timestamp": "2025-09-08T18:36:56.367Z",
+  "timestamp": "2025-09-08T18:58:24.055Z",
   "network": "TellUrStori L1 (Chain ID: 507)",
-  "contract": "0x4Ac1d98D9cEF99EC6546dEd4Bd550b0b287aaD6D",
+  "contract": "0x0938Ae5E07A7af37Bfb629AC94fA55B2eDA5E930",
   "totalTestLines": 2568,
   "results": {
-    "passed": 30,
+    "passed": 6,
     "failed": 0,
-    "total": 30,
+    "total": 6,
     "suites": [],
     "details": [
       {
-        "suite": "BASIC",
-        "name": "Contract deployment and ownership",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "BASIC",
-        "name": "Token ID initialization",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "BASIC",
-        "name": "Basic STEM minting",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "BASIC",
-        "name": "Balance tracking after mint",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "BASIC",
-        "name": "Metadata storage and retrieval",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "COMPREHENSIVE",
-        "name": "Advanced minting with complex metadata",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "COMPREHENSIVE",
-        "name": "Batch minting multiple STEMs",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "COMPREHENSIVE",
-        "name": "Metadata update functionality",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "COMPREHENSIVE",
-        "name": "Safe transfer functionality",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "COMPREHENSIVE",
-        "name": "Total supply tracking",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "ERC2981 interface support",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Royalty calculation accuracy",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Pausable mechanism availability",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "IPFS hash validation (valid)",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "IPFS invalid hash rejection",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Batch size limit constants",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Duration validation constants",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Royalty percentage limits",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Tag limit validation",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "REMIXAI",
-        "name": "Ownable access control",
+        "suite": "MARKETPLACE_SETUP",
+        "name": "Test token creation and approval",
         "passed": true,
         "details": ""
       },
       {
         "suite": "MARKETPLACE",
-        "name": "Marketplace approval mechanism",
+        "name": "Contract deployment verification",
         "passed": true,
         "details": ""
       },
       {
         "suite": "MARKETPLACE",
-        "name": "Token existence verification",
+        "name": "Create fixed price listing",
         "passed": true,
         "details": ""
       },
       {
         "suite": "MARKETPLACE",
-        "name": "Creator verification system",
+        "name": "Get active listings",
         "passed": true,
         "details": ""
       },
       {
         "suite": "MARKETPLACE",
-        "name": "Royalty integration for marketplace",
+        "name": "Create auction",
         "passed": true,
         "details": ""
       },
       {
         "suite": "MARKETPLACE",
-        "name": "Batch balance queries",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "INTEGRATION",
-        "name": "Complete mint workflow",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "INTEGRATION",
-        "name": "Multi-user token distribution",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "INTEGRATION",
-        "name": "Trading royalty calculations",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "INTEGRATION",
-        "name": "Metadata consistency",
-        "passed": true,
-        "details": ""
-      },
-      {
-        "suite": "INTEGRATION",
-        "name": "Gas efficiency validation",
+        "name": "Marketplace fee verification",
         "passed": true,
         "details": ""
       }
     ]
   },
   "suiteBreakdown": {
-    "BASIC": {
-      "passed": 5,
+    "MARKETPLACE_SETUP": {
+      "passed": 1,
       "failed": 0,
-      "total": 5
-    },
-    "COMPREHENSIVE": {
-      "passed": 5,
-      "failed": 0,
-      "total": 5
-    },
-    "REMIXAI": {
-      "passed": 10,
-      "failed": 0,
-      "total": 10
+      "total": 1
     },
     "MARKETPLACE": {
-      "passed": 5,
-      "failed": 0,
-      "total": 5
-    },
-    "INTEGRATION": {
       "passed": 5,
       "failed": 0,
       "total": 5
