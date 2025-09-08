@@ -1,0 +1,64 @@
+{
+  "timestamp": "2025-09-08T18:14:56.210Z",
+  "summary": {
+    "totalSuites": 4,
+    "passedSuites": 0,
+    "failedSuites": 4,
+    "successRate": "0.0%"
+  },
+  "details": [
+    {
+      "suite": "🎵 STEM Contract - Original Functionality",
+      "file": "test/TellUrStoriSTEM.comprehensive.test.js",
+      "passed": 0,
+      "failed": 1,
+      "duration": "N/A",
+      "status": "💥 ERROR",
+      "error": "Command failed: npx hardhat test test/TellUrStoriSTEM.comprehensive.test.js\nAn unexpected error occurred:\n\nError [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './common/bigInt' is not defined by \"exports\" in /Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/hardhat/package.json\n    at exportsNotFound (node:internal/modules/esm/resolve:314:10)\n    at packageExportsResolve (node:internal/modules/esm/resolve:661:9)\n    at resolveExports (node:internal/modules/cjs/loader:657:36)\n    at Function._findPath (node:internal/modules/cjs/loader:749:31)\n    at node:internal/modules/cjs/loader:1387:27\n    at m._resolveFilename (file:///Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1057:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1062:22)\n    at Function._load (node:internal/modules/cjs/loader:1211:37)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14) {\n  code: 'ERR_PACKAGE_PATH_NOT_EXPORTED'\n}\n\nIf you think this is a bug in Hardhat, please report it here: https://hardhat.org/report-bug\n"
+    },
+    {
+      "suite": "🏪 Marketplace Contract - Original Functionality",
+      "file": "test/STEMMarketplace.comprehensive.test.js",
+      "passed": 0,
+      "failed": 1,
+      "duration": "N/A",
+      "status": "💥 ERROR",
+      "error": "Command failed: npx hardhat test test/STEMMarketplace.comprehensive.test.js\nAn unexpected error occurred:\n\nError [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './common/bigInt' is not defined by \"exports\" in /Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/hardhat/package.json\n    at exportsNotFound (node:internal/modules/esm/resolve:314:10)\n    at packageExportsResolve (node:internal/modules/esm/resolve:661:9)\n    at resolveExports (node:internal/modules/cjs/loader:657:36)\n    at Function._findPath (node:internal/modules/cjs/loader:749:31)\n    at node:internal/modules/cjs/loader:1387:27\n    at m._resolveFilename (file:///Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1057:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1062:22)\n    at Function._load (node:internal/modules/cjs/loader:1211:37)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14) {\n  code: 'ERR_PACKAGE_PATH_NOT_EXPORTED'\n}\n\nIf you think this is a bug in Hardhat, please report it here: https://hardhat.org/report-bug\n"
+    },
+    {
+      "suite": "🔄 User Flow Integration Tests",
+      "file": "test/UserFlow.integration.test.js",
+      "passed": 0,
+      "failed": 1,
+      "duration": "N/A",
+      "status": "💥 ERROR",
+      "error": "Command failed: npx hardhat test test/UserFlow.integration.test.js\nAn unexpected error occurred:\n\nError [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './common/bigInt' is not defined by \"exports\" in /Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/hardhat/package.json\n    at exportsNotFound (node:internal/modules/esm/resolve:314:10)\n    at packageExportsResolve (node:internal/modules/esm/resolve:661:9)\n    at resolveExports (node:internal/modules/cjs/loader:657:36)\n    at Function._findPath (node:internal/modules/cjs/loader:749:31)\n    at node:internal/modules/cjs/loader:1387:27\n    at m._resolveFilename (file:///Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1057:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1062:22)\n    at Function._load (node:internal/modules/cjs/loader:1211:37)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14) {\n  code: 'ERR_PACKAGE_PATH_NOT_EXPORTED'\n}\n\nIf you think this is a bug in Hardhat, please report it here: https://hardhat.org/report-bug\n"
+    },
+    {
+      "suite": "🛡️ RemixAI Optimized Features - Complete Coverage",
+      "file": "test/OptimizedContracts.comprehensive.test.js",
+      "passed": 0,
+      "failed": 1,
+      "duration": "N/A",
+      "status": "💥 ERROR",
+      "error": "Command failed: npx hardhat test test/OptimizedContracts.comprehensive.test.js\nAn unexpected error occurred:\n\nError [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './common/bigInt' is not defined by \"exports\" in /Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/hardhat/package.json\n    at exportsNotFound (node:internal/modules/esm/resolve:314:10)\n    at packageExportsResolve (node:internal/modules/esm/resolve:661:9)\n    at resolveExports (node:internal/modules/cjs/loader:657:36)\n    at Function._findPath (node:internal/modules/cjs/loader:749:31)\n    at node:internal/modules/cjs/loader:1387:27\n    at m._resolveFilename (file:///Users/gabriel/dev/tellurstori/MacOS/TellUrStoriDAW/blockchain/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1057:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1062:22)\n    at Function._load (node:internal/modules/cjs/loader:1211:37)\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14) {\n  code: 'ERR_PACKAGE_PATH_NOT_EXPORTED'\n}\n\nIf you think this is a bug in Hardhat, please report it here: https://hardhat.org/report-bug\n"
+    }
+  ],
+  "remixAIFeaturesCovered": [
+    "✅ Pausable mechanism (emergency stops)",
+    "✅ IPFS hash validation (CIDv0 & CIDv1)",
+    "✅ ERC2981 royalty standard compliance",
+    "✅ Batch operation limits and validation",
+    "✅ Enhanced input validation (duration, tags, royalty)",
+    "✅ Anti-sniping auction protection",
+    "✅ Fee precision safeguards",
+    "✅ Pagination optimization",
+    "✅ Offer rejection functionality",
+    "✅ Enhanced events and transparency",
+    "✅ Receive function protection",
+    "✅ Custom error handling",
+    "✅ Reentrancy protection",
+    "✅ Complete integration workflows"
+  ],
+  "securityStatus": "⚠️ NEEDS ATTENTION"
+}

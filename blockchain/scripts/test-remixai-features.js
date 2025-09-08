@@ -30,7 +30,7 @@ function logTest(name, passed, details = "") {
 async function main() {
   try {
     // Setup
-    const provider = new ethers.JsonRpcProvider("http://127.0.0.1:64815/ext/bc/48tTofoS1HoWcr5ggv2ci8pzuqoZGCoFMetYWcxUEbEHE3x8X/rpc");
+    const provider = new ethers.JsonRpcProvider("http://127.0.0.1:49315/ext/bc/2Y2VATbw3jVSeZmZzb4ydyjwbYjzd5xfU4d7UWqPHQ2QEK1mki/rpc");
     const privateKey = "0x56289e99c94b6912bfc12adc093c9b51124f0dc54ac7a766b2bc5ccf558d8027";
     const wallet = new ethers.Wallet(privateKey, provider);
     
@@ -41,7 +41,7 @@ async function main() {
     console.log(`└── Balance: ${ethers.formatEther(balance)} TUS`);
 
     // Load deployment info
-    const deployment = JSON.parse(fs.readFileSync("./deployments/optimized_l1_deployment.json", "utf8"));
+    const deployment = JSON.parse(fs.readFileSync("./deployments/fresh_l1_deployment.json", "utf8"));
     console.log(`\n📜 Testing Optimized STEM Contract:`);
     console.log(`└── Address: ${deployment.TellUrStoriSTEM_Optimized}`);
 
