@@ -14,8 +14,3 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-
-#Preview {
-    ContentView()
-        .frame(width: 1400, height: 900)
-}

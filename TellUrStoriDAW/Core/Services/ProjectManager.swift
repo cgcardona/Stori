@@ -18,6 +18,7 @@ class ProjectManager: ObservableObject {
     @Published var recentProjects: [AudioProject] = []
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
+    @Published var hasUnsavedChanges: Bool = false
     
     // MARK: - Private Properties
     private let documentsDirectory: URL
@@ -51,7 +52,7 @@ class ProjectManager: ObservableObject {
         
         // Add a default audio track
         var updatedProject = project
-        let defaultTrack = AudioTrack(name: "Track 1", colorHex: "#3B82F6")
+        let defaultTrack = AudioTrack(name: "Track 1", color: .blue)
         updatedProject.addTrack(defaultTrack)
         
         currentProject = updatedProject
@@ -202,10 +203,10 @@ class ProjectManager: ObservableObject {
         
         let trackNumber = project.tracks.count + 1
         let trackName = name ?? "Track \(trackNumber)"
-        let colors = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"]
+        let colors: [TrackColor] = [.blue, .red, .green, .yellow, .purple, .pink]
         let colorIndex = (trackNumber - 1) % colors.count
         
-        let newTrack = AudioTrack(name: trackName, colorHex: colors[colorIndex])
+        let newTrack = AudioTrack(name: trackName, color: colors[colorIndex])
         project.addTrack(newTrack)
         
         currentProject = project
@@ -305,6 +306,82 @@ class ProjectManager: ObservableObject {
         if recentProjects.count > 10 {
             recentProjects = Array(recentProjects.prefix(10))
         }
+    }
+    
+    // MARK: - Project Property Updates
+    func updateTempo(_ newTempo: Double) {
+        guard var project = currentProject else { return }
+        project.tempo = newTempo
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
+    }
+    
+    func updateKeySignature(_ newKeySignature: String) {
+        guard var project = currentProject else { return }
+        project.keySignature = newKeySignature
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
+    }
+    
+    func updateTimeSignature(_ newTimeSignature: TimeSignature) {
+        guard var project = currentProject else { return }
+        project.timeSignature = newTimeSignature
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
+    }
+    
+    // MARK: - Unsaved Changes Management
+    func markSaved() {
+        hasUnsavedChanges = false
+    }
+    
+    func markUnsaved() {
+        hasUnsavedChanges = true
+    }
+    
+    // MARK: - Track Management
+    func updateTrackName(_ trackId: UUID, _ newName: String) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+        
+        project.tracks[trackIndex].name = newName
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
+    }
+    
+    func updateTrackColor(_ trackId: UUID, _ newColor: TrackColor) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+        
+        project.tracks[trackIndex].color = newColor
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
+    }
+    
+    func duplicateTrack(_ trackId: UUID) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+        
+        var duplicatedTrack = project.tracks[trackIndex]
+        duplicatedTrack = AudioTrack(
+            name: "\(duplicatedTrack.name) Copy",
+            trackType: duplicatedTrack.trackType,
+            color: duplicatedTrack.color
+        )
+        // Copy regions and settings
+        duplicatedTrack.regions = project.tracks[trackIndex].regions
+        duplicatedTrack.mixerSettings = project.tracks[trackIndex].mixerSettings
+        duplicatedTrack.effects = project.tracks[trackIndex].effects
+        
+        project.tracks.insert(duplicatedTrack, at: trackIndex + 1)
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
     }
 }
 

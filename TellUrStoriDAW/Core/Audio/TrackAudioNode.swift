@@ -241,6 +241,25 @@ class TrackAudioNode {
     func stop() {
         playerNode.stop()
     }
+    
+    // MARK: - Additional Methods for DAWTrackHeader
+    func setRecordEnabled(_ enabled: Bool) {
+        // Implementation for record enable functionality
+        // This would typically involve setting up input monitoring and recording paths
+        print("🎙️ TrackAudioNode record enable: \(enabled)")
+    }
+    
+    func setInputMonitoring(_ enabled: Bool) {
+        // Implementation for input monitoring functionality
+        // This would typically involve routing input to output for zero-latency monitoring
+        print("🎧 TrackAudioNode input monitoring: \(enabled)")
+    }
+    
+    func setFrozen(_ frozen: Bool) {
+        // Implementation for track freezing functionality
+        // This would typically involve bouncing the track to audio and disabling real-time processing
+        print("❄️ TrackAudioNode frozen: \(frozen)")
+    }
 }
 
 // MARK: - Audio Engine Error

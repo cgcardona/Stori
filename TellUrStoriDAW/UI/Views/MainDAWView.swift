@@ -202,35 +202,18 @@ struct MainDAWView: View {
                             }
                         }
                         
-                        // Step 4: Horizontal-only ScrollView
-                        ScrollView(.horizontal) {
-                            TimelineView(
-                                project: projectManager.currentProject,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId,
-                                horizontalZoom: horizontalZoom,
-                                verticalZoom: verticalZoom,
-                                onAddTrack: { addTrack() },
-                                onCreateProject: { showingNewProjectSheet = true },
-                                onOpenProject: { showingProjectBrowser = true }
-                            )
-                        }
-                        
-                        // COMMENTED OUT - will add back step by step
-                        /*
-                        ScrollView([.horizontal, .vertical]) {
-                            TimelineView(
-                                project: projectManager.currentProject,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId,
-                                onAddTrack: { addTrack() },
-                                onCreateProject: { showingNewProjectSheet = true },
-                                onOpenProject: { showingProjectBrowser = true }
-                            )
-                        }
-                        */
+                        // Professional DAW Timeline
+                        DAWTimelineView(
+                            project: projectManager.currentProject,
+                            audioEngine: audioEngine,
+                            projectManager: projectManager,
+                            selectedTrackId: $selectedTrackId,
+                            horizontalZoom: horizontalZoom,
+                            verticalZoom: verticalZoom,
+                            onAddTrack: { addTrack() },
+                            onCreateProject: { showingNewProjectSheet = true },
+                            onOpenProject: { showingProjectBrowser = true }
+                        )
                     }
                     
                     // Mixer panel
@@ -243,9 +226,11 @@ struct MainDAWView: View {
                     .frame(width: 300)
                 }
                 
-                // Transport controls
-                TransportView(audioEngine: audioEngine)
-                    .frame(height: 80)
+                // Professional DAW Control Bar - Pinned to Bottom
+                DAWControlBar(
+                    audioEngine: audioEngine,
+                    projectManager: projectManager
+                )
             }
         }
     }

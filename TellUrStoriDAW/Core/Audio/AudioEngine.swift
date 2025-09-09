@@ -582,7 +582,7 @@ class AudioEngine: ObservableObject {
         
         if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
             var updatedProject = project
-            updatedProject.tracks[trackIndex].isMuted = muted
+            updatedProject.tracks[trackIndex].mixerSettings.isMuted = muted
             currentProject = updatedProject
             
             // Update actual mute state in audio engine
@@ -598,12 +598,12 @@ class AudioEngine: ObservableObject {
         if solo {
             // Mute all other tracks
             for i in 0..<updatedProject.tracks.count {
-                updatedProject.tracks[i].isSolo = updatedProject.tracks[i].id == trackId
+                updatedProject.tracks[i].mixerSettings.isSolo = updatedProject.tracks[i].id == trackId
             }
         } else {
             // Un-solo this track
             if let trackIndex = updatedProject.tracks.firstIndex(where: { $0.id == trackId }) {
-                updatedProject.tracks[trackIndex].isSolo = false
+                updatedProject.tracks[trackIndex].mixerSettings.isSolo = false
             }
         }
         
@@ -750,7 +750,7 @@ class AudioEngine: ObservableObject {
         // Update the project model
         if let project = currentProject,
            let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
-            currentProject?.tracks[trackIndex].isRecordEnabled = isRecordEnabled
+            currentProject?.tracks[trackIndex].mixerSettings.isRecordEnabled = isRecordEnabled
         }
         
         print("🔴 Record \(isRecordEnabled ? "enabled" : "disabled") for track \(trackId)")
@@ -998,5 +998,55 @@ extension AudioEngine {
     var currentMusicalTimeString: String {
         guard let project = currentProject else { return "1.1.00" }
         return currentPosition.displayString(timeSignature: project.timeSignature)
+    }
+    
+    // MARK: - Track-Specific Methods for DAWTrackHeader
+    func getTrackLevel(_ trackId: UUID) -> Float {
+        // Return the current audio level for the specified track
+        guard let trackNode = trackNodes[trackId] else { return 0.0 }
+        return trackNode.currentLevel
+    }
+    
+    func updateTrackRecordEnable(_ trackId: UUID, _ enabled: Bool) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+        
+        project.tracks[trackIndex].mixerSettings.isRecordEnabled = enabled
+        currentProject = project
+        
+        // Update audio node if it exists
+        trackNodes[trackId]?.setRecordEnabled(enabled)
+        
+        print("🎙️ Track \(project.tracks[trackIndex].name) record enable: \(enabled)")
+    }
+    
+    func updateInputMonitoring(_ trackId: UUID, _ enabled: Bool) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+        
+        project.tracks[trackIndex].mixerSettings.inputMonitoring = enabled
+        currentProject = project
+        
+        // Update audio node if it exists
+        trackNodes[trackId]?.setInputMonitoring(enabled)
+        
+        print("🎧 Track \(project.tracks[trackIndex].name) input monitoring: \(enabled)")
+    }
+    
+    func toggleTrackFreeze(_ trackId: UUID) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+        
+        project.tracks[trackIndex].isFrozen.toggle()
+        currentProject = project
+        
+        let isFrozen = project.tracks[trackIndex].isFrozen
+        
+        // Update audio processing for frozen tracks
+        if let trackNode = trackNodes[trackId] {
+            trackNode.setFrozen(isFrozen)
+        }
+        
+        print("❄️ Track \(project.tracks[trackIndex].name) freeze: \(isFrozen)")
     }
 }

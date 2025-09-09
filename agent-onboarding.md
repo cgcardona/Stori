@@ -296,7 +296,7 @@ TellUrStoriDAW/
 - Each waveform now displays actual audio signatures instead of identical placeholder patterns
 - Intelligent caching system prevents redundant analysis operations and improves performance
 - Downsampling algorithm preserves audio characteristics while optimizing for visualization
-- Professional waveform quality matching industry-standard DAWs like Logic Pro and Pro Tools
+- Professional waveform quality matching industry-standard DAWs and professional audio software
 - Dramatic visual improvement - Electronic tracks show dense patterns, Hip-Hop shows rhythmic signatures
 - Asynchronous processing with loading states and graceful fallback to placeholders
 
@@ -354,7 +354,7 @@ TellUrStoriDAW/
 
 **Track Controls:**
 - Changed master volume default from 100% to 60% for more reasonable startup audio levels
-- Added compact volume slider and pan knob directly to each track header (Logic Pro style layout)
+- Added compact volume slider and pan knob directly to each track header (professional DAW layout)
 - Volume slider displays real-time percentage values with smooth HSliderView component
 - Pan knob shows L/R positioning (L50, C, R50) with proper center detent behavior
 - Perfect bidirectional synchronization between track controls and mixer interface

@@ -7,6 +7,7 @@
 
 import Foundation
 import AVFoundation
+import SwiftUI
 
 // MARK: - Track Type
 enum TrackType: String, Codable, CaseIterable {
@@ -28,15 +29,24 @@ enum TrackColor: String, Codable, CaseIterable {
     case teal = "#14B8A6"
     case indigo = "#6366F1"
     case gray = "#6B7280"
+    
+    var color: Color {
+        Color(hex: self.rawValue)
+    }
 }
 
 // MARK: - Time Signature
 struct TimeSignature: Codable, Equatable {
-    let numerator: Int
-    let denominator: Int
+    var numerator: Int
+    var denominator: Int
     
     static let fourFour = TimeSignature(numerator: 4, denominator: 4)
     static let threeFour = TimeSignature(numerator: 3, denominator: 4)
+    
+    // TODO do we need both?
+    var description: String {
+        "\(numerator)/\(denominator)"
+    }
     
     var displayString: String {
         "\(numerator)/\(denominator)"
@@ -49,6 +59,7 @@ struct AudioProject: Identifiable, Codable, Equatable {
     var name: String
     var tracks: [AudioTrack]
     var tempo: Double
+    var keySignature: String
     var timeSignature: TimeSignature
     var sampleRate: Double
     var bufferSize: Int
@@ -58,6 +69,7 @@ struct AudioProject: Identifiable, Codable, Equatable {
     init(
         name: String,
         tempo: Double = 120.0,
+        keySignature: String = "C",
         timeSignature: TimeSignature = .fourFour,
         sampleRate: Double = 44100.0,
         bufferSize: Int = 512
@@ -66,6 +78,7 @@ struct AudioProject: Identifiable, Codable, Equatable {
         self.name = name
         self.tracks = []
         self.tempo = tempo
+        self.keySignature = keySignature
         self.timeSignature = timeSignature
         self.sampleRate = sampleRate
         self.bufferSize = bufferSize
@@ -99,21 +112,23 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     var regions: [AudioRegion]
     var mixerSettings: MixerSettings
     var effects: [AudioEffect]
-    var isMuted: Bool
-    var isSolo: Bool
-    var isRecordEnabled: Bool
-    var colorHex: String
+    var trackType: TrackType
+    var color: TrackColor
+    var isFrozen: Bool
+    var isEnabled: Bool
+    var createdAt: Date
     
-    init(name: String, colorHex: String = "#3B82F6") {
+    init(name: String, trackType: TrackType = .audio, color: TrackColor = .blue) {
         self.id = UUID()
         self.name = name
         self.regions = []
         self.mixerSettings = MixerSettings()
         self.effects = []
-        self.isMuted = false
-        self.isSolo = false
-        self.isRecordEnabled = false
-        self.colorHex = colorHex
+        self.trackType = trackType
+        self.color = color
+        self.isFrozen = false
+        self.isEnabled = true
+        self.createdAt = Date()
     }
     
     var duration: TimeInterval? {
@@ -258,6 +273,8 @@ struct MixerSettings: Codable, Equatable {
     var sendLevel: Float
     var isMuted: Bool
     var isSolo: Bool
+    var isRecordEnabled: Bool
+    var inputMonitoring: Bool
     
     init(
         volume: Float = 0.8,
@@ -267,7 +284,9 @@ struct MixerSettings: Codable, Equatable {
         lowEQ: Float = 0.0,
         sendLevel: Float = 0.0,
         isMuted: Bool = false,
-        isSolo: Bool = false
+        isSolo: Bool = false,
+        isRecordEnabled: Bool = false,
+        inputMonitoring: Bool = false
     ) {
         self.volume = volume
         self.pan = pan
@@ -277,6 +296,8 @@ struct MixerSettings: Codable, Equatable {
         self.sendLevel = sendLevel
         self.isMuted = isMuted
         self.isSolo = isSolo
+        self.isRecordEnabled = isRecordEnabled
+        self.inputMonitoring = inputMonitoring
     }
 }
 

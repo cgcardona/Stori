@@ -80,191 +80,225 @@ struct MixerChannelView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // Track name and color
-            HStack {
-                Circle()
-                    .fill(Color(hex: track.colorHex))
-                    .frame(width: 8, height: 8)
-                
-                Text(track.name)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                
-                Spacer()
-            }
-            
-            // EQ and Pan Controls (Compact Layout)
-            VStack(spacing: 8) {
-                Text("EQ & PAN")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                // EQ + Pan knobs in one row
-                HStack(spacing: 12) {
-                    // High EQ
-                    VStack(spacing: 2) {
-                        Text("HI")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        
-                        KnobView(value: .constant(track.mixerSettings.highEQ), range: -12...12, sensitivity: 0.03) { value in
-                            var updatedTrack = track
-                            updatedTrack.mixerSettings.highEQ = value
-                            projectManager.updateTrack(updatedTrack)
-                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: track.mixerSettings.midEQ, lowEQ: track.mixerSettings.lowEQ)
-                        }
-                        .frame(width: 32, height: 32)
-                    }
-                    
-                    // Mid EQ
-                    VStack(spacing: 2) {
-                        Text("MID")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        
-                        KnobView(value: .constant(track.mixerSettings.midEQ), range: -12...12, sensitivity: 0.03) { value in
-                            var updatedTrack = track
-                            updatedTrack.mixerSettings.midEQ = value
-                            projectManager.updateTrack(updatedTrack)
-                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: track.mixerSettings.highEQ, midEQ: value, lowEQ: track.mixerSettings.lowEQ)
-                        }
-                        .frame(width: 32, height: 32)
-                    }
-                    
-                    // Low EQ
-                    VStack(spacing: 2) {
-                        Text("LO")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        
-                        KnobView(value: .constant(track.mixerSettings.lowEQ), range: -12...12, sensitivity: 0.03) { value in
-                            var updatedTrack = track
-                            updatedTrack.mixerSettings.lowEQ = value
-                            projectManager.updateTrack(updatedTrack)
-                            audioEngine.updateTrackEQ(trackId: track.id, highEQ: track.mixerSettings.highEQ, midEQ: track.mixerSettings.midEQ, lowEQ: value)
-                        }
-                        .frame(width: 32, height: 32)
-                    }
-                    
-                    // Pan Control
-                    VStack(spacing: 2) {
-                        Text("PAN")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        
-                        KnobView(value: .constant(track.mixerSettings.pan), range: -1...1, sensitivity: 0.02) { value in
-                            var updatedTrack = track
-                            updatedTrack.mixerSettings.pan = value
-                            projectManager.updateTrack(updatedTrack)
-                            audioEngine.updateTrackPan(trackId: track.id, pan: value)
-                        }
-                        .frame(width: 32, height: 32)
-                        
-                        Text(panDisplayText)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            
-            Divider()
-            
-            // Horizontal Volume Slider
-            VStack(spacing: 6) {
-                Text("VOLUME")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                HSliderView(value: .constant(track.mixerSettings.volume), range: 0...1) { value in
-                    var updatedTrack = track
-                    updatedTrack.mixerSettings.volume = value
-                    projectManager.updateTrack(updatedTrack)
-                    audioEngine.updateTrackVolume(trackId: track.id, volume: value)
-                }
-                .frame(height: 20)
-                
-                Text("\(Int(track.mixerSettings.volume * 100))%")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            
-            // Control Buttons
-            HStack(spacing: 8) {
-                // Mute
-                Button(action: {
-                    var updatedTrack = track
-                    updatedTrack.mixerSettings.isMuted.toggle()
-                    projectManager.updateTrack(updatedTrack)
-                    audioEngine.updateTrackMute(trackId: track.id, isMuted: updatedTrack.mixerSettings.isMuted)
-                }) {
-                    Text("M")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .frame(width: 24, height: 24)
-                        .background(track.mixerSettings.isMuted ? Color.orange : Color.gray.opacity(0.3))
-                        .foregroundColor(track.mixerSettings.isMuted ? .white : .primary)
-                        .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
-                
-                // Solo
-                Button(action: {
-                    var updatedTrack = track
-                    updatedTrack.mixerSettings.isSolo.toggle()
-                    projectManager.updateTrack(updatedTrack)
-                    audioEngine.updateTrackSolo(trackId: track.id, isSolo: updatedTrack.mixerSettings.isSolo)
-                }) {
-                    Text("S")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .frame(width: 24, height: 24)
-                        .background(track.mixerSettings.isSolo ? Color.yellow : Color.gray.opacity(0.3))
-                        .foregroundColor(track.mixerSettings.isSolo ? .black : .primary)
-                        .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
-                
-                // Record
-                Button(action: {
-                    var updatedTrack = track
-                    updatedTrack.isRecordEnabled.toggle()
-                    projectManager.updateTrack(updatedTrack)
-                    audioEngine.updateTrackRecordEnabled(trackId: track.id, isRecordEnabled: updatedTrack.isRecordEnabled)
-                }) {
-                    Text("R")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .frame(width: 24, height: 24)
-                        .background(track.isRecordEnabled ? Color.red : Color.gray.opacity(0.3))
-                        .foregroundColor(track.isRecordEnabled ? .white : .primary)
-                        .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
-            }
-            
-            // Level Meter (Horizontal)
-            HorizontalLevelMeterView(level: trackLevel)
-                .frame(height: 8)
+            trackHeaderView
+            eqAndPanControls
+            volumeAndMuteControls
+            levelMeterView
         }
-        .padding(12)
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
-        .cornerRadius(8)
-        .overlay(
+        .padding(8)
+        .background(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                .fill(Color(NSColor.controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                )
         )
         .onTapGesture {
             onSelect()
         }
         .onAppear {
-            // Start level monitoring
             startLevelMonitoring()
         }
         .onDisappear {
-            // Stop level monitoring
             stopLevelMonitoring()
         }
+    }
+    
+    // MARK: - Subviews
+    
+    private var trackHeaderView: some View {
+        HStack {
+            Circle()
+                .fill(track.color.color)
+                .frame(width: 8, height: 8)
+            
+            Text(track.name)
+                .font(.caption)
+                .fontWeight(.medium)
+                .lineLimit(1)
+            
+            Spacer()
+        }
+    }
+    
+    private var eqAndPanControls: some View {
+        VStack(spacing: 8) {
+            Text("EQ & PAN")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            HStack(spacing: 12) {
+                highEQKnob
+                midEQKnob
+                lowEQKnob
+                panKnob
+            }
+        }
+    }
+    
+    private var highEQKnob: some View {
+        VStack(spacing: 2) {
+            Text("HI")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            KnobView(value: .constant(track.mixerSettings.highEQ), range: -12...12, sensitivity: 0.03) { value in
+                var updatedTrack = track
+                updatedTrack.mixerSettings.highEQ = value
+                projectManager.updateTrack(updatedTrack)
+                audioEngine.updateTrackEQ(trackId: track.id, highEQ: value, midEQ: track.mixerSettings.midEQ, lowEQ: track.mixerSettings.lowEQ)
+            }
+            .frame(width: 32, height: 32)
+        }
+    }
+    
+    private var midEQKnob: some View {
+        VStack(spacing: 2) {
+            Text("MID")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            KnobView(value: .constant(track.mixerSettings.midEQ), range: -12...12, sensitivity: 0.03) { value in
+                var updatedTrack = track
+                updatedTrack.mixerSettings.midEQ = value
+                projectManager.updateTrack(updatedTrack)
+                audioEngine.updateTrackEQ(trackId: track.id, highEQ: track.mixerSettings.highEQ, midEQ: value, lowEQ: track.mixerSettings.lowEQ)
+            }
+            .frame(width: 32, height: 32)
+        }
+    }
+    
+    private var lowEQKnob: some View {
+        VStack(spacing: 2) {
+            Text("LO")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            KnobView(value: .constant(track.mixerSettings.lowEQ), range: -12...12, sensitivity: 0.03) { value in
+                var updatedTrack = track
+                updatedTrack.mixerSettings.lowEQ = value
+                projectManager.updateTrack(updatedTrack)
+                audioEngine.updateTrackEQ(trackId: track.id, highEQ: track.mixerSettings.highEQ, midEQ: track.mixerSettings.midEQ, lowEQ: value)
+            }
+            .frame(width: 32, height: 32)
+        }
+    }
+    
+    private var panKnob: some View {
+        VStack(spacing: 2) {
+            Text("PAN")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            KnobView(value: .constant(track.mixerSettings.pan), range: -1...1, sensitivity: 0.02) { value in
+                var updatedTrack = track
+                updatedTrack.mixerSettings.pan = value
+                projectManager.updateTrack(updatedTrack)
+                audioEngine.updateTrackPan(trackId: track.id, pan: value)
+            }
+            .frame(width: 32, height: 32)
+            
+            Text(panDisplayText)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+    
+    private var volumeAndMuteControls: some View {
+        VStack(spacing: 8) {
+            Divider()
+            
+            volumeSlider
+            controlButtons
+        }
+    }
+    
+    private var volumeSlider: some View {
+        VStack(spacing: 6) {
+            Text("VOLUME")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            HSliderView(value: .constant(track.mixerSettings.volume), range: 0...1) { value in
+                var updatedTrack = track
+                updatedTrack.mixerSettings.volume = value
+                projectManager.updateTrack(updatedTrack)
+                audioEngine.updateTrackVolume(trackId: track.id, volume: value)
+            }
+            .frame(height: 20)
+            
+            Text("\(Int(track.mixerSettings.volume * 100))%")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+    
+    private var controlButtons: some View {
+        HStack(spacing: 8) {
+            muteButton
+            soloButton
+            recordButton
+        }
+    }
+    
+    private var muteButton: some View {
+        Button(action: {
+            var updatedTrack = track
+            updatedTrack.mixerSettings.isMuted.toggle()
+            projectManager.updateTrack(updatedTrack)
+            audioEngine.updateTrackMute(trackId: track.id, isMuted: updatedTrack.mixerSettings.isMuted)
+        }) {
+            Text("M")
+                .font(.caption)
+                .fontWeight(.bold)
+                .frame(width: 24, height: 24)
+                .background(track.mixerSettings.isMuted ? Color.orange : Color.gray.opacity(0.3))
+                .foregroundColor(track.mixerSettings.isMuted ? .white : .primary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var soloButton: some View {
+        Button(action: {
+            var updatedTrack = track
+            updatedTrack.mixerSettings.isSolo.toggle()
+            projectManager.updateTrack(updatedTrack)
+            audioEngine.updateTrackSolo(trackId: track.id, isSolo: updatedTrack.mixerSettings.isSolo)
+        }) {
+            Text("S")
+                .font(.caption)
+                .fontWeight(.bold)
+                .frame(width: 24, height: 24)
+                .background(track.mixerSettings.isSolo ? Color.yellow : Color.gray.opacity(0.3))
+                .foregroundColor(track.mixerSettings.isSolo ? .black : .primary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var recordButton: some View {
+        Button(action: {
+            var updatedTrack = track
+            updatedTrack.mixerSettings.isRecordEnabled.toggle()
+            projectManager.updateTrack(updatedTrack)
+            audioEngine.updateTrackRecordEnabled(trackId: track.id, isRecordEnabled: updatedTrack.mixerSettings.isRecordEnabled)
+        }) {
+            Text("R")
+                .font(.caption)
+                .fontWeight(.bold)
+                .frame(width: 24, height: 24)
+                .background(track.mixerSettings.isRecordEnabled ? Color.red : Color.gray.opacity(0.3))
+                .foregroundColor(track.mixerSettings.isRecordEnabled ? .white : .primary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var levelMeterView: some View {
+        HorizontalLevelMeterView(level: trackLevel)
+            .frame(height: 8)
     }
     
     private var panDisplayText: String {
