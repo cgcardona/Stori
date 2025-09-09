@@ -30,5 +30,7 @@ struct DAWControlButton: View {
         }
         .buttonStyle(.plain)
         .help(tooltip)
+        .scaleEffect(isActive ? 1.05 : 1.0)
+        .animation(.easeInOut(duration: 0.1), value: isActive)
     }
 }

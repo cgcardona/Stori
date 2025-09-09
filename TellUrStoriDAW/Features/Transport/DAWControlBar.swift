@@ -16,6 +16,9 @@ struct DAWControlBar: View {
     @State private var showingKeySignatureEditor = false
     @State private var showingTimeSignatureEditor = false
     @State private var masterVolume: Double = 0.8
+    @State private var showingMixer = false
+    @State private var showingLibrary = false
+    @State private var showingInspector = false
     
     var body: some View {
         HStack(spacing: 0) {
@@ -23,27 +26,30 @@ struct DAWControlBar: View {
             HStack(spacing: 6) {
                 DAWControlButton(
                     icon: "slider.horizontal.3",
-                    isActive: false, // TODO: Connect to mixer visibility state
-                    tooltip: "Show/Hide Mixer"
+                    isActive: showingMixer,
+                    tooltip: "Show/Hide Mixer (⌘M)"
                 ) {
-                    // TODO: Toggle mixer visibility
+                    showingMixer.toggle()
                 }
+                .keyboardShortcut("m", modifiers: .command)
                 
                 DAWControlButton(
                     icon: "books.vertical",
-                    isActive: false,
-                    tooltip: "Show/Hide Library"
+                    isActive: showingLibrary,
+                    tooltip: "Show/Hide Library (⌘L)"
                 ) {
-                    // TODO: Toggle library visibility
+                    showingLibrary.toggle()
                 }
+                .keyboardShortcut("l", modifiers: .command)
                 
                 DAWControlButton(
                     icon: "sidebar.right",
-                    isActive: false,
-                    tooltip: "Show/Hide Inspector"
+                    isActive: showingInspector,
+                    tooltip: "Show/Hide Inspector (⌘I)"
                 ) {
-                    // TODO: Toggle inspector visibility
+                    showingInspector.toggle()
                 }
+                .keyboardShortcut("i", modifiers: .command)
             }
             .padding(.leading, 12)
             
@@ -59,6 +65,8 @@ struct DAWControlBar: View {
                         isActive: false,
                         action: { audioEngine.seek(to: 0) }
                     )
+                    .help("Go to Beginning (Home)")
+                    .keyboardShortcut(.home, modifiers: [])
                     
                     // Rewind
                     TransportButton(
@@ -69,6 +77,8 @@ struct DAWControlBar: View {
                             audioEngine.seek(to: max(0, currentTime - 10))
                         }
                     )
+                    .help("Rewind 10 seconds (←)")
+                    .keyboardShortcut(.leftArrow, modifiers: [])
                     
                     // Play/Pause
                     TransportButton(
@@ -82,6 +92,8 @@ struct DAWControlBar: View {
                             }
                         }
                     )
+                    .help(audioEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
+                    .keyboardShortcut(.space, modifiers: [])
                     
                     // Stop
                     TransportButton(
@@ -92,6 +104,8 @@ struct DAWControlBar: View {
                             audioEngine.seek(to: 0)
                         }
                     )
+                    .help("Stop (⌘Space)")
+                    .keyboardShortcut(.space, modifiers: .command)
                     
                     // Record
                     TransportButton(
@@ -105,6 +119,8 @@ struct DAWControlBar: View {
                             }
                         }
                     )
+                    .help(audioEngine.isRecording ? "Stop Recording (R)" : "Record (R)")
+                    .keyboardShortcut("r", modifiers: [])
                     
                     // Fast Forward
                     TransportButton(
@@ -115,6 +131,8 @@ struct DAWControlBar: View {
                             audioEngine.seek(to: currentTime + 10)
                         }
                     )
+                    .help("Fast Forward 10 seconds (→)")
+                    .keyboardShortcut(.rightArrow, modifiers: [])
                     
                     // Go to End
                     TransportButton(
@@ -129,6 +147,8 @@ struct DAWControlBar: View {
                             }
                         }
                     )
+                    .help("Go to End (End)")
+                    .keyboardShortcut(.end, modifiers: [])
                 }
                 
                 // Separator
@@ -143,6 +163,8 @@ struct DAWControlBar: View {
                     isActive: audioEngine.isCycleEnabled,
                     action: { audioEngine.toggleCycle() }
                 )
+                .help("Toggle Cycle Mode (C)")
+                .keyboardShortcut("c", modifiers: [])
                 
                 // Separator
                 Rectangle()
@@ -182,6 +204,16 @@ struct DAWControlBar: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .help("Edit Tempo (⌘T)")
+                    .keyboardShortcut("t", modifiers: .command)
+                    .contextMenu {
+                        Button("Set to 60 BPM") { setTempo(60) }
+                        Button("Set to 120 BPM") { setTempo(120) }
+                        Button("Set to 140 BPM") { setTempo(140) }
+                        Button("Set to 180 BPM") { setTempo(180) }
+                        Divider()
+                        Button("Tap Tempo") { /* TODO: Implement tap tempo */ }
+                    }
                     .popover(isPresented: $showingTempoEditor) {
                         tempoEditor
                     }
@@ -198,6 +230,19 @@ struct DAWControlBar: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .help("Edit Key Signature (⌘K)")
+                    .keyboardShortcut("k", modifiers: .command)
+                    .contextMenu {
+                        Button("C Major") { setKeySignature("C") }
+                        Button("G Major") { setKeySignature("G") }
+                        Button("D Major") { setKeySignature("D") }
+                        Button("A Major") { setKeySignature("A") }
+                        Button("E Major") { setKeySignature("E") }
+                        Divider()
+                        Button("F Major") { setKeySignature("F") }
+                        Button("Bb Major") { setKeySignature("Bb") }
+                        Button("Eb Major") { setKeySignature("Eb") }
+                    }
                     .popover(isPresented: $showingKeySignatureEditor) {
                         keySignatureEditor
                     }
@@ -214,6 +259,18 @@ struct DAWControlBar: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .help("Edit Time Signature (⌘⇧T)")
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+                    .contextMenu {
+                        Button("4/4") { setTimeSignature(4, 4) }
+                        Button("3/4") { setTimeSignature(3, 4) }
+                        Button("2/4") { setTimeSignature(2, 4) }
+                        Button("6/8") { setTimeSignature(6, 8) }
+                        Button("12/8") { setTimeSignature(12, 8) }
+                        Divider()
+                        Button("7/8") { setTimeSignature(7, 8) }
+                        Button("5/4") { setTimeSignature(5, 4) }
+                    }
                     .popover(isPresented: $showingTimeSignatureEditor) {
                         timeSignatureEditor
                     }
@@ -237,6 +294,7 @@ struct DAWControlBar: View {
                         
                         Slider(value: $masterVolume, in: 0...1)
                             .frame(width: 60)
+                            .help("Master Volume: \(Int(masterVolume * 100))%")
                         
                         Text("\(Int(masterVolume * 100))%")
                             .font(.caption2)
@@ -244,6 +302,7 @@ struct DAWControlBar: View {
                             .frame(width: 28)
                     }
                 }
+                .help("Master Volume Control")
                 
                 // Separator
                 Rectangle()
@@ -261,32 +320,36 @@ struct DAWControlBar: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
+                .help("CPU Usage: \(Int(audioEngine.cpuUsage * 100))%")
                 
                 // More View Toggles
                 HStack(spacing: 6) {
                     DAWControlButton(
                         icon: "waveform",
                         isActive: false,
-                        tooltip: "Show/Hide Track Area"
+                        tooltip: "Show/Hide Track Area (⌘⇧T)"
                     ) {
                         // TODO: Toggle track area visibility
                     }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
                     
                     DAWControlButton(
                         icon: "list.bullet",
                         isActive: false,
-                        tooltip: "Show/Hide Event List"
+                        tooltip: "Show/Hide Event List (⌘E)"
                     ) {
                         // TODO: Toggle event list visibility
                     }
+                    .keyboardShortcut("e", modifiers: .command)
                     
                     DAWControlButton(
                         icon: "square.grid.3x3",
                         isActive: false,
-                        tooltip: "Show/Hide Step Sequencer"
+                        tooltip: "Show/Hide Step Sequencer (⌘⇧S)"
                     ) {
                         // TODO: Toggle step sequencer visibility
                     }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
                 }
             }
             .padding(.trailing, 12)
@@ -314,6 +377,20 @@ struct DAWControlBar: View {
         } else {
             return .green
         }
+    }
+    
+    // MARK: - Helper Methods
+    private func setTempo(_ tempo: Double) {
+        projectManager.updateTempo(tempo)
+    }
+    
+    private func setKeySignature(_ keySignature: String) {
+        projectManager.updateKeySignature(keySignature)
+    }
+    
+    private func setTimeSignature(_ numerator: Int, _ denominator: Int) {
+        let timeSignature = TimeSignature(numerator: numerator, denominator: denominator)
+        projectManager.updateTimeSignature(timeSignature)
     }
     
     // MARK: - Editor Views
