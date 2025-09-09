@@ -415,6 +415,12 @@ Use this format for all commits:
 - **Document testing approaches** and results
 - **Record any external dependencies** or setup requirements
 
+### Chat Management
+- **Proactive Summarization**: Start summarizing conversations at 80% capacity instead of near 100%
+- **Context Preservation**: When summarizing, capture all technical decisions, architecture changes, and pending work
+- **Prevent Freezing**: Avoid waiting until the chat is too large to summarize effectively
+- **Maintain Continuity**: Ensure new agents can pick up work seamlessly from summaries
+
 ## Code Quality & Maintenance
 
 ### MANDATORY: Deadcode Vigilance

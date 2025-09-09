@@ -58,6 +58,7 @@ struct AudioProject: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var tracks: [AudioTrack]
+    var buses: [MixerBus]
     var tempo: Double
     var keySignature: String
     var timeSignature: TimeSignature
@@ -77,6 +78,7 @@ struct AudioProject: Identifiable, Codable, Equatable {
         self.id = UUID()
         self.name = name
         self.tracks = []
+        self.buses = []
         self.tempo = tempo
         self.keySignature = keySignature
         self.timeSignature = timeSignature
@@ -112,6 +114,7 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     var regions: [AudioRegion]
     var mixerSettings: MixerSettings
     var effects: [AudioEffect]
+    var sends: [TrackSend]
     var trackType: TrackType
     var color: TrackColor
     var isFrozen: Bool
@@ -124,6 +127,7 @@ struct AudioTrack: Identifiable, Codable, Equatable {
         self.regions = []
         self.mixerSettings = MixerSettings()
         self.effects = []
+        self.sends = []
         self.trackType = trackType
         self.color = color
         self.isFrozen = false
@@ -304,12 +308,12 @@ struct MixerSettings: Codable, Equatable {
 // MARK: - Audio Effect
 struct AudioEffect: Identifiable, Codable, Equatable {
     let id: UUID
-    let type: AudioEffectType
+    let type: EffectType
     var parameters: [String: Float]
     var isEnabled: Bool
     var bypass: Bool
     
-    init(type: AudioEffectType, parameters: [String: Float] = [:]) {
+    init(type: EffectType, parameters: [String: Float] = [:]) {
         self.id = UUID()
         self.type = type
         self.parameters = parameters
@@ -318,28 +322,7 @@ struct AudioEffect: Identifiable, Codable, Equatable {
     }
 }
 
-// MARK: - Audio Effect Type
-enum AudioEffectType: String, Codable, CaseIterable {
-    case reverb = "reverb"
-    case delay = "delay"
-    case chorus = "chorus"
-    case distortion = "distortion"
-    case compressor = "compressor"
-    case equalizer = "equalizer"
-    case filter = "filter"
-    
-    var displayName: String {
-        switch self {
-        case .reverb: return "Reverb"
-        case .delay: return "Delay"
-        case .chorus: return "Chorus"
-        case .distortion: return "Distortion"
-        case .compressor: return "Compressor"
-        case .equalizer: return "Equalizer"
-        case .filter: return "Filter"
-        }
-    }
-}
+// MARK: - Audio Effect Type (replaced by EffectType below)
 
 // MARK: - Transport State
 enum TransportState: Codable {
@@ -374,5 +357,136 @@ struct PlaybackPosition: Codable {
     
     func displayString(timeSignature: TimeSignature) -> String {
         "\(bars + 1).\(beatInBar).\(Int((beats.truncatingRemainder(dividingBy: 1)) * 100))"
+    }
+}
+
+// MARK: - Bus and Effects Models
+
+// Bus Type
+enum BusType: String, Codable, CaseIterable {
+    case reverb = "reverb"
+    case delay = "delay"
+    case chorus = "chorus"
+    case custom = "custom"
+    
+    var displayName: String {
+        switch self {
+        case .reverb: return "Reverb"
+        case .delay: return "Delay"
+        case .chorus: return "Chorus"
+        case .custom: return "Custom"
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .reverb: return "waveform.path.ecg"
+        case .delay: return "arrow.triangle.2.circlepath"
+        case .chorus: return "waveform.path.badge.plus"
+        case .custom: return "slider.horizontal.3"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .reverb: return .blue
+        case .delay: return .green
+        case .chorus: return .purple
+        case .custom: return .gray
+        }
+    }
+}
+
+// Effect Type
+enum EffectType: String, Codable, CaseIterable {
+    case reverb = "reverb"
+    case delay = "delay"
+    case chorus = "chorus"
+    case compressor = "compressor"
+    case eq = "eq"
+    case distortion = "distortion"
+    case filter = "filter"
+    case modulation = "modulation"
+    
+    var displayName: String {
+        switch self {
+        case .reverb: return "Reverb"
+        case .delay: return "Delay"
+        case .chorus: return "Chorus"
+        case .compressor: return "Compressor"
+        case .eq: return "EQ"
+        case .distortion: return "Distortion"
+        case .filter: return "Filter"
+        case .modulation: return "Modulation"
+        }
+    }
+}
+
+// Mixer Bus
+struct MixerBus: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    let type: BusType
+    var inputLevel: Double
+    var outputLevel: Double
+    var effects: [BusEffect]
+    var isMuted: Bool
+    var isSolo: Bool
+    var createdAt: Date
+    
+    init(
+        name: String,
+        type: BusType,
+        inputLevel: Double = 0.0,
+        outputLevel: Double = 0.75
+    ) {
+        self.id = UUID()
+        self.name = name
+        self.type = type
+        self.inputLevel = inputLevel
+        self.outputLevel = outputLevel
+        self.effects = []
+        self.isMuted = false
+        self.isSolo = false
+        self.createdAt = Date()
+    }
+}
+
+// Bus Effect
+struct BusEffect: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    let type: EffectType
+    var isEnabled: Bool
+    var parameters: [String: Double]
+    var presetName: String
+    
+    init(
+        name: String,
+        type: EffectType,
+        parameters: [String: Double] = [:],
+        presetName: String = "Default"
+    ) {
+        self.id = UUID()
+        self.name = name
+        self.type = type
+        self.isEnabled = true
+        self.parameters = parameters
+        self.presetName = presetName
+    }
+}
+
+// Track Send
+struct TrackSend: Identifiable, Codable, Equatable {
+    let id: UUID
+    let busId: UUID
+    var sendLevel: Double
+    var isPreFader: Bool
+    
+    init(busId: UUID, sendLevel: Double = 0.0, isPreFader: Bool = false) {
+        self.id = UUID()
+        self.busId = busId
+        self.sendLevel = sendLevel
+        self.isPreFader = isPreFader
     }
 }

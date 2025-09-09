@@ -26,6 +26,7 @@ class AudioEngine: ObservableObject {
     private let engine = AVAudioEngine()
     private let mixer = AVAudioMixerNode()
     private var trackNodes: [UUID: TrackAudioNode] = [:]
+    private var busNodes: [UUID: BusAudioNode] = [:]
     private var startTime: TimeInterval = 0
     private var pausedTime: TimeInterval = 0
     private var soloTracks: Set<UUID> = []
@@ -143,11 +144,13 @@ class AudioEngine: ObservableObject {
             // Double-check engine is still running
             if self.engine.isRunning {
                 self.setupTracksForProject(project)
+                self.setupBusesForProject(project)
             } else {
                 print("Engine not running, retrying...")
                 self.startAudioEngine()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     self.setupTracksForProject(project)
+                    self.setupBusesForProject(project)
                 }
             }
         }
@@ -322,6 +325,141 @@ class AudioEngine: ObservableObject {
         trackNodes.removeAll()
         soloTracks.removeAll()
         print("All track nodes cleared")
+    }
+    
+    // MARK: - Bus Management
+    func setupBusesForProject(_ project: AudioProject) {
+        // Clear existing bus nodes
+        clearAllBuses()
+        
+        // Create bus nodes for each bus
+        for bus in project.buses {
+            let busNode = createBusNode(for: bus)
+            busNodes[bus.id] = busNode
+            
+            // Setup effects for this bus
+            for effect in bus.effects {
+                busNode.addEffect(effect)
+            }
+        }
+        
+        print("🎛️ Set up \(project.buses.count) bus nodes")
+    }
+    
+    private func createBusNode(for bus: MixerBus) -> BusAudioNode {
+        let busNode = BusAudioNode(busId: bus.id, busType: bus.type)
+        
+        // Ensure engine is running before attaching nodes
+        if !engine.isRunning {
+            print("Warning: Engine not running for bus setup, starting it now...")
+            startAudioEngine()
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        
+        // Attach bus nodes to engine
+        engine.attach(busNode.getInputNode())
+        engine.attach(busNode.getOutputNode())
+        
+        // Connect bus output to main mixer
+        engine.connect(busNode.getOutputNode(), to: mixer, format: nil)
+        
+        // Apply bus settings
+        busNode.inputGain = Float(bus.inputLevel)
+        busNode.outputGain = Float(bus.outputLevel)
+        busNode.isMuted = bus.isMuted
+        busNode.isSolo = bus.isSolo
+        
+        print("🎛️ Created bus node: \(bus.name) (\(bus.type.displayName))")
+        return busNode
+    }
+    
+    func addBus(_ bus: MixerBus) {
+        guard busNodes[bus.id] == nil else { return }
+        
+        let busNode = createBusNode(for: bus)
+        busNodes[bus.id] = busNode
+        
+        // Setup effects
+        for effect in bus.effects {
+            busNode.addEffect(effect)
+        }
+    }
+    
+    func removeBus(withId busId: UUID) {
+        guard let busNode = busNodes[busId] else { return }
+        
+        // Disconnect and detach bus nodes
+        engine.disconnectNodeInput(busNode.getInputNode())
+        engine.disconnectNodeInput(busNode.getOutputNode())
+        engine.detach(busNode.getInputNode())
+        engine.detach(busNode.getOutputNode())
+        
+        // Remove from collection
+        busNodes.removeValue(forKey: busId)
+        
+        print("🗑️ Removed bus node: \(busId)")
+    }
+    
+    func updateBusEffect(_ busId: UUID, effect: BusEffect) {
+        guard let busNode = busNodes[busId] else { return }
+        busNode.updateEffect(effect)
+    }
+    
+    func addEffectToBus(_ busId: UUID, effect: BusEffect) {
+        guard let busNode = busNodes[busId] else { return }
+        busNode.addEffect(effect)
+    }
+    
+    func removeEffectFromBus(_ busId: UUID, effectId: UUID) {
+        guard let busNode = busNodes[busId] else { return }
+        busNode.removeEffect(withId: effectId)
+    }
+    
+    // MARK: - Track Send Management
+    func setupTrackSend(_ trackId: UUID, to busId: UUID, level: Double) {
+        guard let trackNode = trackNodes[trackId],
+              let busNode = busNodes[busId] else { return }
+        
+        // Create a send connection from track to bus
+        let sendMixer = AVAudioMixerNode()
+        sendMixer.outputVolume = Float(level)
+        
+        engine.attach(sendMixer)
+        
+        // Connect track output to send mixer, then to bus input
+        engine.connect(trackNode.panNode, to: sendMixer, format: nil)
+        engine.connect(sendMixer, to: busNode.getInputNode(), format: nil)
+        
+        print("🔗 Connected track \(trackId) to bus \(busId) at level \(level)")
+    }
+    
+    func updateTrackSendLevel(_ trackId: UUID, busId: UUID, level: Double) {
+        // This would require tracking send mixers - simplified for now
+        print("📊 Updated send level for track \(trackId) to bus \(busId): \(level)")
+    }
+    
+    private func clearAllBuses() {
+        print("🧹 Clearing all bus nodes...")
+        
+        for (busId, busNode) in busNodes {
+            // Stop level monitoring
+            busNode.stopLevelMonitoring()
+            
+            // Disconnect and detach nodes
+            if engine.attachedNodes.contains(busNode.getInputNode()) {
+                engine.disconnectNodeInput(busNode.getInputNode())
+                engine.detach(busNode.getInputNode())
+            }
+            if engine.attachedNodes.contains(busNode.getOutputNode()) {
+                engine.disconnectNodeInput(busNode.getOutputNode())
+                engine.detach(busNode.getOutputNode())
+            }
+            
+            print("Cleared bus node: \(busId)")
+        }
+        
+        busNodes.removeAll()
+        print("All bus nodes cleared")
     }
     
     // MARK: - Transport Controls

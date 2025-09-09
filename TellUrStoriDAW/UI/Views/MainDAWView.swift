@@ -284,17 +284,34 @@ struct MainDAWView: View {
                             ResizeHandle(
                                 orientation: .horizontal,
                                 onDrag: { delta in
-                                    mixerHeight = max(150, min(400, mixerHeight - delta))
+                                    // Leave 120px for control panel at bottom
+                                    let screenHeight = NSScreen.main?.frame.height ?? 800
+                                    let maxAllowedHeight = max(400, screenHeight - 200) // 200px for top UI + control panel
+                                    mixerHeight = max(200, min(maxAllowedHeight, mixerHeight - delta))
                                 }
                             )
                             
-                            MixerView(
-                                project: projectManager.currentProject,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId
-                            )
-                            .frame(height: mixerHeight)
+                            // Scrollable Mixer Content
+                            ScrollViewReader { proxy in
+                                ScrollView(.vertical, showsIndicators: true) {
+                                    VStack {
+                                        Spacer(minLength: 0)
+                                        MixerView(
+                                            project: projectManager.currentProject,
+                                            audioEngine: audioEngine,
+                                            projectManager: projectManager,
+                                            selectedTrackId: $selectedTrackId
+                                        )
+                                        .padding(.bottom, 10) // Ensure bottom is visible
+                                        .id("mixerBottom")
+                                    }
+                                }
+                                .frame(height: mixerHeight)
+                                .onAppear {
+                                    // Scroll to bottom when mixer opens
+                                    proxy.scrollTo("mixerBottom", anchor: .bottom)
+                                }
+                            }
                         }
                         .transition(.move(edge: .bottom))
                     }

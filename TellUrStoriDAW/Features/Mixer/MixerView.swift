@@ -2,7 +2,7 @@
 //  MixerView.swift
 //  TellUrStoriDAW
 //
-//  Professional mixer interface matching Logic Pro architecture
+//  Professional mixer interface with industry-standard architecture
 //
 
 import SwiftUI
@@ -14,8 +14,11 @@ struct MixerView: View {
     @Binding var selectedTrackId: UUID?
     
     @State private var isMonitoringLevels = false
-    @State private var buses: [MixerBus] = []
     @State private var showingBusCreation = false
+    
+    private var buses: [MixerBus] {
+        project?.buses ?? []
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -34,7 +37,13 @@ struct MixerView: View {
                                 isSelected: selectedTrackId == track.id,
                                 audioEngine: audioEngine,
                                 projectManager: projectManager,
-                                onSelect: { selectedTrackId = track.id }
+                                onSelect: { selectedTrackId = track.id },
+                                onCreateBus: { type, name in
+                                    createBus(type: type, name: name)
+                                },
+                                onRemoveBus: { busId in
+                                    removeBus(busId)
+                                }
                             )
                         }
                         
@@ -43,6 +52,8 @@ struct MixerView: View {
                             BusChannelStrip(
                                 bus: bus,
                                 audioEngine: audioEngine,
+                                projectManager: projectManager,
+                                project: project,
                                 onDelete: { deleteBus(bus) }
                             )
                         }
@@ -70,7 +81,7 @@ struct MixerView: View {
         }
         .sheet(isPresented: $showingBusCreation) {
             BusCreationView { busName, busType in
-                createBus(name: busName, type: busType)
+                createBus(type: busType, name: busName)
             }
         }
     }
@@ -82,31 +93,6 @@ struct MixerView: View {
                 .fontWeight(.semibold)
             
             Spacer()
-            
-            // Mixer Controls
-            HStack(spacing: 12) {
-                Button(action: { showingBusCreation = true }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.circle")
-                        Text("Add Bus")
-                    }
-                    .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .help("Create New Bus (⌘⇧B)")
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-                
-                Menu {
-                    Button("Show All Sends") { }
-                    Button("Hide All Sends") { }
-                    Divider()
-                    Button("Reset All Levels") { }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 14))
-                }
-                .help("Mixer Options")
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -119,22 +105,36 @@ struct MixerView: View {
         )
     }
     
-    private func createBus(name: String, type: BusType) {
-        let newBus = MixerBus(
-            id: UUID(),
-            name: name,
-            type: type,
-            inputLevel: 0.0,
-            outputLevel: 0.75,
-            effects: [],
-            isMuted: false,
-            isSolo: false
-        )
-        buses.append(newBus)
+    private func createBus(type: BusType, name: String) -> UUID {
+        let newBus = MixerBus(name: name, type: type)
+        
+        // Add to project and save
+        if var currentProject = project {
+            currentProject.buses.append(newBus)
+            currentProject.modifiedAt = Date()
+            projectManager.currentProject = currentProject
+            projectManager.saveCurrentProject()
+            
+            // Add to audio engine
+            audioEngine.addBus(newBus)
+        }
+        
+        return newBus.id
+    }
+    
+    private func removeBus(_ busId: UUID) {
+        guard var currentProject = project else { return }
+        currentProject.buses.removeAll { $0.id == busId }
+        currentProject.modifiedAt = Date()
+        projectManager.currentProject = currentProject
+        projectManager.saveCurrentProject()
+        
+        // Remove from audio engine
+        audioEngine.removeBus(withId: busId)
     }
     
     private func deleteBus(_ bus: MixerBus) {
-        buses.removeAll { $0.id == bus.id }
+        removeBus(bus.id)
     }
 }
 
@@ -146,6 +146,8 @@ struct TrackChannelStrip: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
+    let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
+    let onRemoveBus: (UUID) -> Void
     
     @State private var showingSends = false
     @State private var sendLevels: [UUID: Double] = [:]
@@ -155,21 +157,16 @@ struct TrackChannelStrip: View {
             // Track Header
             trackHeaderSection
             
-            // Sends Section (expandable)
-            if showingSends && !buses.isEmpty {
-                sendsSection
-            }
+            // Enhanced Sends Section (always visible)
+            enhancedSendsSection
             
-            // EQ Section
-            eqSection
-            
-            // Pan Control
-            panSection
-            
-            // Fader Section
+            // Fader Section (with more space)
             faderSection
             
-            // Track Name
+            // Mute/Solo Buttons (professional style at bottom)
+            muteSoloSection
+            
+            // Track Name (compact at very bottom)
             trackNameSection
         }
         .frame(width: 80)
@@ -215,71 +212,59 @@ struct TrackChannelStrip: View {
         .padding(.vertical, 8)
     }
     
-    private var sendsSection: some View {
-        VStack(spacing: 6) {
-            Text("Sends")
-                .font(.caption2)
+    // MARK: - Professional DAW Style Sends Section
+    private var enhancedSendsSection: some View {
+        VStack(spacing: 2) {
+            // Sends Header
+            Text("SENDS")
+                .font(.system(size: 8, weight: .bold))
                 .foregroundColor(.secondary)
+                .padding(.bottom, 2)
             
-            ForEach(buses) { bus in
-                VStack(spacing: 2) {
-                    Text(bus.name)
-                        .font(.caption2)
-                        .lineLimit(1)
-                    
-                    RotaryKnob(
-                        value: Binding(
-                            get: { sendLevels[bus.id] ?? 0.0 },
-                            set: { sendLevels[bus.id] = $0 }
-                        ),
-                        range: 0...1,
-                        size: 24
-                    )
-                }
+            // Send Slots (up to 8 sends like professional DAWs)
+            ForEach(0..<8, id: \.self) { sendIndex in
+                SendSlot(
+                    sendIndex: sendIndex,
+                    track: track,
+                    availableBuses: buses,
+                    onCreateBus: onCreateBus,
+                    onAssignBus: { busId in
+                        assignBusToSend(sendIndex: sendIndex, busId: busId)
+                    }
+                )
             }
         }
-        .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color.black.opacity(0.1))
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.black.opacity(0.15))
+        )
+        .padding(.horizontal, 4)
     }
     
-    private var eqSection: some View {
-        VStack(spacing: 4) {
-            Text("EQ")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            
-            VStack(spacing: 4) {
-                RotaryKnob(value: .constant(0.5), range: 0...1, size: 20)
-                Text("Hi")
-                    .font(.caption2)
-                
-                RotaryKnob(value: .constant(0.5), range: 0...1, size: 20)
-                Text("Mid")
-                    .font(.caption2)
-                
-                RotaryKnob(value: .constant(0.5), range: 0...1, size: 20)
-                Text("Lo")
-                    .font(.caption2)
-            }
-        }
-        .padding(.vertical, 8)
+    // MARK: - Bus Management Methods
+    private func showBusCreationMenu() {
+        // For now, create a default reverb bus
+        // TODO: Show proper bus creation menu
+        onCreateBus(.reverb, "Reverb \(buses.count + 1)")
     }
     
-    private var panSection: some View {
-        VStack(spacing: 4) {
-            Text("Pan")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            
-            RotaryKnob(
-                value: .constant(0.5),
-                range: 0...1,
-                size: 28
-            )
-        }
-        .padding(.vertical, 6)
+    private func removeBusSend(_ busId: UUID) {
+        sendLevels.removeValue(forKey: busId)
+        onRemoveBus(busId)
     }
+    
+    private func assignBusToSend(sendIndex: Int, busId: UUID) {
+        // Update the track's send assignment
+        // This will be handled by the parent MixerView
+        // For now, we'll store it in sendLevels with a composite key
+        // Initialize send level for this bus
+        sendLevels[busId] = 0.0
+        
+        // TODO: Update track model to support individual send assignments
+        // track.mixerSettings.sends[sendIndex] = SendAssignment(busId: busId, level: 0.0)
+    }
+    
     
     private var faderSection: some View {
         VStack(spacing: 4) {
@@ -288,7 +273,7 @@ struct TrackChannelStrip: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
             
-            // Vertical Fader
+            // Vertical Fader (taller for better visibility)
             VerticalFader(
                 value: Binding(
                     get: { Double(track.mixerSettings.volume) },
@@ -299,7 +284,7 @@ struct TrackChannelStrip: View {
                         audioEngine.updateTrackVolume(trackId: track.id, volume: Float(newValue))
                     }
                 ),
-                height: 120
+                height: 160
             )
             
             Text("-∞")
@@ -309,17 +294,55 @@ struct TrackChannelStrip: View {
         .padding(.vertical, 8)
     }
     
-    private var trackNameSection: some View {
-        VStack(spacing: 4) {
-            Text(track.name)
-                .font(.caption)
-                .fontWeight(.medium)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(height: 30)
+    // MARK: - Mute/Solo Section (Professional DAW Style)
+    private var muteSoloSection: some View {
+        HStack(spacing: 2) {
+            // Mute Button
+            Button(action: {
+                // TODO: Implement mute functionality
+            }) {
+                Text("M")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(track.mixerSettings.isMuted ? .white : .secondary)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(track.mixerSettings.isMuted ? .orange : Color(.controlBackgroundColor))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Mute Track")
+            
+            // Solo Button  
+            Button(action: {
+                // TODO: Implement solo functionality
+            }) {
+                Text("S")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(track.mixerSettings.isSolo ? .black : .secondary)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(track.mixerSettings.isSolo ? .yellow : Color(.controlBackgroundColor))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Solo Track")
         }
         .padding(.horizontal, 4)
-        .padding(.bottom, 8)
+        .padding(.vertical, 4)
+    }
+    
+    private var trackNameSection: some View {
+        VStack(spacing: 2) {
+            Text(track.name)
+                .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 4)
     }
 }
 
@@ -327,6 +350,8 @@ struct TrackChannelStrip: View {
 struct BusChannelStrip: View {
     let bus: MixerBus
     @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
+    let project: AudioProject?
     let onDelete: () -> Void
     
     @State private var showingEffects = false
@@ -336,10 +361,8 @@ struct BusChannelStrip: View {
             // Bus Header
             busHeaderSection
             
-            // Effects Section
-            if showingEffects {
-                effectsSection
-            }
+            // AudioFX Section (always visible like professional DAWs)
+            audioFXSection
             
             // Return Fader
             returnFaderSection
@@ -388,28 +411,80 @@ struct BusChannelStrip: View {
         .padding(.vertical, 8)
     }
     
-    private var effectsSection: some View {
-        VStack(spacing: 4) {
-            Text("FX")
-                .font(.caption2)
+    // MARK: - Professional DAW Style AudioFX Section
+    private var audioFXSection: some View {
+        VStack(spacing: 2) {
+            // AudioFX Header
+            Text("AUDIO FX")
+                .font(.system(size: 8, weight: .bold))
                 .foregroundColor(.secondary)
+                .padding(.bottom, 2)
             
-            if bus.effects.isEmpty {
-                Text("No Effects")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .italic()
-            } else {
-                ForEach(bus.effects) { effect in
-                    Text(effect.name)
-                        .font(.caption2)
-                        .lineLimit(1)
-                }
+            // Effect Slots (up to 8 like professional DAWs)
+            ForEach(0..<8, id: \.self) { effectIndex in
+                EffectSlot(
+                    effectIndex: effectIndex,
+                    bus: bus,
+                    onAddEffect: { effectType in
+                        addEffectToBus(effectIndex: effectIndex, effectType: effectType)
+                    },
+                    onToggleEffect: { effectIndex in
+                        toggleEffect(effectIndex: effectIndex)
+                    },
+                    onUpdateEffect: { effect in
+                        updateBusEffect(effect)
+                    },
+                    onRemoveEffect: { effectId in
+                        removeEffectFromBus(effectId)
+                    }
+                )
             }
         }
-        .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color.black.opacity(0.1))
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.black.opacity(0.15))
+        )
+        .padding(.horizontal, 4)
+    }
+    
+    private func addEffectToBus(effectIndex: Int, effectType: EffectType) {
+        // TODO: Add effect to bus at specific slot
+        print("Adding \(effectType) to bus \(bus.name) at slot \(effectIndex)")
+    }
+    
+    private func toggleEffect(effectIndex: Int) {
+        // TODO: Toggle effect on/off
+        print("Toggling effect at slot \(effectIndex)")
+    }
+    
+    private func updateBusEffect(_ effect: BusEffect) {
+        // Update effect in project and audio engine
+        guard var currentProject = project,
+              let busIndex = currentProject.buses.firstIndex(where: { $0.id == bus.id }),
+              let effectIndex = currentProject.buses[busIndex].effects.firstIndex(where: { $0.id == effect.id }) else { return }
+        
+        currentProject.buses[busIndex].effects[effectIndex] = effect
+        currentProject.modifiedAt = Date()
+        projectManager.currentProject = currentProject
+        projectManager.saveCurrentProject()
+        
+        // Update in audio engine
+        audioEngine.updateBusEffect(bus.id, effect: effect)
+    }
+    
+    private func removeEffectFromBus(_ effectId: UUID) {
+        // Remove effect from project and audio engine
+        guard var currentProject = project,
+              let busIndex = currentProject.buses.firstIndex(where: { $0.id == bus.id }) else { return }
+        
+        currentProject.buses[busIndex].effects.removeAll { $0.id == effectId }
+        currentProject.modifiedAt = Date()
+        projectManager.currentProject = currentProject
+        projectManager.saveCurrentProject()
+        
+        // Remove from audio engine
+        audioEngine.removeEffectFromBus(bus.id, effectId: effectId)
     }
     
     private var returnFaderSection: some View {
@@ -534,7 +609,7 @@ struct MasterChannelStrip: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
             
-            // Master Fader
+            // Master Fader (taller for better visibility)
             VerticalFader(
                 value: Binding(
                     get: { masterVolume },
@@ -543,7 +618,7 @@ struct MasterChannelStrip: View {
                         audioEngine.updateMasterVolume(Float(newValue))
                     }
                 ),
-                height: 120
+                height: 160
             )
             
             Text("-∞")
@@ -731,7 +806,7 @@ struct BusCreationView: View {
                     ForEach(BusType.allCases, id: \.self) { type in
                         HStack {
                             Image(systemName: type.iconName)
-                            Text(type.name)
+                            Text(type.displayName)
                         }
                         .tag(type)
                     }
@@ -746,7 +821,7 @@ struct BusCreationView: View {
                 .buttonStyle(.bordered)
                 
                 Button("Create Bus") {
-                    onCreate(busName.isEmpty ? selectedBusType.name : busName, selectedBusType)
+                    onCreate(busName.isEmpty ? selectedBusType.displayName : busName, selectedBusType)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -759,66 +834,7 @@ struct BusCreationView: View {
 }
 
 // MARK: - Supporting Models
-struct MixerBus: Identifiable {
-    let id: UUID
-    let name: String
-    let type: BusType
-    var inputLevel: Double
-    var outputLevel: Double
-    var effects: [BusEffect]
-    var isMuted: Bool
-    var isSolo: Bool
-}
-
-struct BusEffect: Identifiable {
-    let id = UUID()
-    let name: String
-    let type: EffectType
-    var isEnabled: Bool
-    var parameters: [String: Double]
-}
-
-enum BusType: CaseIterable {
-    case reverb
-    case delay
-    case chorus
-    case custom
-    
-    var name: String {
-        switch self {
-        case .reverb: return "Reverb"
-        case .delay: return "Delay"
-        case .chorus: return "Chorus"
-        case .custom: return "Custom"
-        }
-    }
-    
-    var color: Color {
-        switch self {
-        case .reverb: return .blue
-        case .delay: return .green
-        case .chorus: return .purple
-        case .custom: return .gray
-        }
-    }
-    
-    var iconName: String {
-        switch self {
-        case .reverb: return "waveform.path.ecg"
-        case .delay: return "arrow.triangle.2.circlepath"
-        case .chorus: return "waveform.path"
-        case .custom: return "gear"
-        }
-    }
-}
-
-enum EffectType {
-    case reverb
-    case delay
-    case eq
-    case compressor
-    case distortion
-}
+// MixerBus, BusEffect, BusType and EffectType are now defined in AudioModels.swift
 
 // MARK: - Custom UI Components
 
