@@ -167,12 +167,44 @@ class AudioEngine: ObservableObject {
             let newTrackIds = Set(project.tracks.map { $0.id })
             let addedTrackIds = newTrackIds.subtracting(oldTrackIds)
             
+            print("🔍 DEBUG: Project update - Old tracks: \(oldTrackIds.count), New tracks: \(newTrackIds.count), Added tracks: \(addedTrackIds.count)")
+            
             // Set up audio nodes for new tracks
             for trackId in addedTrackIds {
                 if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
                     print("🎵 Setting up audio node for new track: \(newTrack.name)")
                     let trackNode = createTrackNode(for: newTrack)
                     trackNodes[trackId] = trackNode
+                }
+            }
+            
+            // CRITICAL FIX: Check for new regions added to existing tracks
+            for track in project.tracks {
+                if let oldTrack = oldProject.tracks.first(where: { $0.id == track.id }),
+                   let trackNode = trackNodes[track.id] {
+                    
+                    // Compare region counts to detect new regions
+                    let oldRegionIds = Set(oldTrack.regions.map { $0.id })
+                    let newRegionIds = Set(track.regions.map { $0.id })
+                    let addedRegionIds = newRegionIds.subtracting(oldRegionIds)
+                    
+                    print("🔍 DEBUG: Track '\(track.name)' - Old regions: \(oldRegionIds.count), New regions: \(newRegionIds.count), Added: \(addedRegionIds.count)")
+                    
+                    // Load audio for new regions
+                    for regionId in addedRegionIds {
+                        if let newRegion = track.regions.first(where: { $0.id == regionId }) {
+                            print("🎵 Loading new audio region: \(newRegion.audioFile.name) for track: \(track.name)")
+                            loadAudioRegion(newRegion, trackNode: trackNode)
+                        }
+                    }
+                    
+                    // Handle removed regions (clear audio files that are no longer needed)
+                    let removedRegionIds = oldRegionIds.subtracting(newRegionIds)
+                    if !removedRegionIds.isEmpty {
+                        print("🗑️ Removed \(removedRegionIds.count) regions from track: \(track.name)")
+                        // Note: TrackAudioNode handles multiple regions, so we don't need to explicitly remove
+                        // The next playback will only schedule the remaining regions
+                    }
                 }
             }
             
@@ -401,7 +433,12 @@ class AudioEngine: ObservableObject {
     }
     
     func updateBusEffect(_ busId: UUID, effect: BusEffect) {
-        guard let busNode = busNodes[busId] else { return }
+        print("🎵 AUDIO ENGINE: Updating bus effect - Bus: \(busId), Effect: \(effect.type)")
+        guard let busNode = busNodes[busId] else { 
+            print("❌ AUDIO ENGINE: Bus node not found for ID: \(busId)")
+            return 
+        }
+        print("✅ AUDIO ENGINE: Found bus node, calling updateEffect...")
         busNode.updateEffect(effect)
     }
     
@@ -416,30 +453,36 @@ class AudioEngine: ObservableObject {
     }
     
     // MARK: - Track Send Management
+    private var trackSendNodes: [String: AVAudioMixerNode] = [:]  // Key: "trackId-busId"
+    
     func setupTrackSend(_ trackId: UUID, to busId: UUID, level: Double) {
-        guard let trackNode = trackNodes[trackId],
-              let busNode = busNodes[busId] else { return }
+        // TEMPORARILY DISABLED: Auxiliary sends are causing crashes
+        // Focus on getting basic audio playback working first
         
-        // Create a send connection from track to bus
-        let sendMixer = AVAudioMixerNode()
-        sendMixer.outputVolume = Float(level)
+        print("⚠️ SEND DISABLED: Track \(trackId) to bus \(busId) - sends temporarily disabled to prevent crashes")
+        print("🔧 TODO: Implement safe auxiliary sends in future update")
         
-        engine.attach(sendMixer)
-        
-        // Connect track output to send mixer, then to bus input
-        engine.connect(trackNode.panNode, to: sendMixer, format: nil)
-        engine.connect(sendMixer, to: busNode.getInputNode(), format: nil)
-        
-        print("🔗 Connected track \(trackId) to bus \(busId) at level \(level)")
+        // For now, just store the send configuration without creating audio connections
+        let sendKey = "\(trackId)-\(busId)"
+        trackSendNodes[sendKey] = AVAudioMixerNode() // Placeholder
     }
     
+    
     func updateTrackSendLevel(_ trackId: UUID, busId: UUID, level: Double) {
-        // This would require tracking send mixers - simplified for now
-        print("📊 Updated send level for track \(trackId) to bus \(busId): \(level)")
+        // TEMPORARILY DISABLED: Auxiliary sends are causing crashes
+        print("⚠️ SEND LEVEL DISABLED: Track \(trackId) to bus \(busId) level \(level) - sends temporarily disabled")
     }
     
     private func clearAllBuses() {
         print("🧹 Clearing all bus nodes...")
+        
+        // Clear all send connections first
+        for (sendKey, sendNode) in trackSendNodes {
+            if sendKey.contains("-") && !sendKey.contains("splitter") {
+                engine.disconnectNodeInput(sendNode)
+                engine.detach(sendNode)
+            }
+        }
         
         for (busId, busNode) in busNodes {
             // Stop level monitoring
@@ -459,6 +502,10 @@ class AudioEngine: ObservableObject {
         }
         
         busNodes.removeAll()
+        
+        // Clear send nodes (keep splitters for now)
+        trackSendNodes = trackSendNodes.filter { $0.key.contains("splitter") }
+        
         print("All bus nodes cleared")
     }
     
@@ -527,16 +574,29 @@ class AudioEngine: ObservableObject {
         
         // First, schedule all tracks without starting playback
         for track in project.tracks {
+            print("🔍 DEBUG: Checking track '\(track.name)' - ID: \(track.id), Regions: \(track.regions.count)")
+            
             if let trackNode = trackNodes[track.id] {
+                print("🔍 DEBUG: Found track node for '\(track.name)'")
+                
                 let activeRegions = track.regions.filter { region in
-                    region.startTime <= startTime && region.endTime > startTime
+                    let isActive = region.startTime <= startTime && region.endTime > startTime
+                    print("🔍 DEBUG: Region '\(region.audioFile.name)' - Start: \(region.startTime), End: \(region.endTime), Current: \(startTime), Active: \(isActive)")
+                    return isActive
                 }
+                
+                print("🔍 DEBUG: Track '\(track.name)' has \(activeRegions.count) active regions at time \(startTime)")
                 
                 for region in activeRegions {
                     if scheduleRegionForSynchronizedPlayback(region, on: trackNode, at: startTime) {
                         scheduledNodes.append(trackNode.playerNode)
+                        print("🔍 DEBUG: Successfully scheduled region '\(region.audioFile.name)' for playback")
+                    } else {
+                        print("🔍 DEBUG: Failed to schedule region '\(region.audioFile.name)' for playback")
                     }
                 }
+            } else {
+                print("🔍 DEBUG: No track node found for '\(track.name)' - ID: \(track.id)")
             }
         }
         

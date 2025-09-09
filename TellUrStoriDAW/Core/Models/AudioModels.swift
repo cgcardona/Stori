@@ -420,6 +420,74 @@ enum EffectType: String, Codable, CaseIterable {
         case .modulation: return "Modulation"
         }
     }
+    
+    var defaultParameters: [String: Double] {
+        switch self {
+        case .reverb:
+            return [
+                "wetLevel": 30.0,
+                "dryLevel": 70.0,
+                "roomSize": 50.0,
+                "decayTime": 2.0,
+                "predelay": 0.0
+            ]
+        case .delay:
+            return [
+                "delayTime": 250.0,
+                "feedback": 25.0,
+                "lowCut": 100.0,
+                "highCut": 8000.0,
+                "dryLevel": 70.0,
+                "wetLevel": 30.0
+            ]
+        case .chorus:
+            return [
+                "rate": 2.0,
+                "depth": 50.0,
+                "voices": 4.0,
+                "spread": 180.0,
+                "dryLevel": 70.0,
+                "wetLevel": 30.0
+            ]
+        case .compressor:
+            return [
+                "threshold": -12.0,
+                "ratio": 4.0,
+                "attack": 10.0,
+                "release": 100.0,
+                "makeupGain": 0.0,
+                "knee": 2.0
+            ]
+        case .eq:
+            return [
+                "lowGain": 0.0,
+                "lowFreq": 100.0,
+                "lowMidGain": 0.0,
+                "highMidGain": 0.0,
+                "highGain": 0.0,
+                "highFreq": 10000.0
+            ]
+        case .distortion:
+            return [
+                "drive": 25.0,
+                "tone": 50.0,
+                "output": 0.0
+            ]
+        case .filter:
+            return [
+                "cutoff": 1000.0,
+                "resonance": 10.0,
+                "filterType": 0.0 // 0 = Low Pass, 1 = High Pass, 2 = Band Pass
+            ]
+        case .modulation:
+            return [
+                "rate": 1.0,
+                "depth": 25.0,
+                "feedback": 10.0,
+                "wetLevel": 30.0
+            ]
+        }
+    }
 }
 
 // Mixer Bus

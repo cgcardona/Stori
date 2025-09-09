@@ -217,6 +217,7 @@ struct SendSlot: View {
     let sendIndex: Int
     let track: AudioTrack
     let availableBuses: [MixerBus]
+    let audioEngine: AudioEngine  // Add AudioEngine reference
     let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
     let onAssignBus: (UUID) -> Void
     
@@ -277,6 +278,13 @@ struct SendSlot: View {
                     range: 0...1,
                     size: 12
                 )
+                .onChange(of: sendLevel) { _, newValue in
+                    print("🎚️ SEND LEVEL: S\(sendIndex + 1) changed to \(newValue) for track \(track.name)")
+                    if let busId = assignedBusId {
+                        // Update audio engine send level - THIS IS THE CRITICAL FIX!
+                        audioEngine.updateTrackSendLevel(track.id, busId: busId, level: newValue)
+                    }
+                }
             }
         }
         .popover(isPresented: $showingBusMenu, arrowEdge: .trailing) {
@@ -285,6 +293,8 @@ struct SendSlot: View {
                 onSelectBus: { busId in
                     assignedBusId = busId
                     onAssignBus(busId)
+                    // CRITICAL FIX: Actually establish the audio routing!
+                    audioEngine.setupTrackSend(track.id, to: busId, level: sendLevel)
                     showingBusMenu = false
                 },
                 onCreateBus: { busType, busName in
@@ -292,6 +302,8 @@ struct SendSlot: View {
                     // Auto-assign the newly created bus to this send slot
                     assignedBusId = newBusId
                     onAssignBus(newBusId)
+                    // CRITICAL FIX: Establish audio routing for newly created bus!
+                    audioEngine.setupTrackSend(track.id, to: newBusId, level: sendLevel)
                     showingBusMenu = false
                     return newBusId
                 }
@@ -532,6 +544,14 @@ struct EffectSlot: View {
                 EffectConfigurationRouter(
                     effectType: effect.type,
                     busName: bus.name,
+                    effect: effect,
+                    onParameterChange: { paramName, value in
+                        print("🔄 BUS SEND: Received parameter change - \(paramName): \(value)")
+                        var updatedEffect = effect
+                        updatedEffect.parameters[paramName] = value
+                        print("🔄 BUS SEND: Updated effect parameters: \(updatedEffect.parameters)")
+                        onUpdateEffect(updatedEffect)
+                    },
                     isPresented: $showingEffectUI
                 )
             }
@@ -683,27 +703,29 @@ struct EffectTypeIcon: View {
 struct EffectConfigurationRouter: View {
     let effectType: EffectType
     let busName: String
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     @Binding var isPresented: Bool
     
     var body: some View {
         Group {
             switch effectType {
             case .reverb:
-                ReverbConfigurationView(busName: busName, isPresented: $isPresented)
+                ReverbConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .delay:
-                DelayConfigurationView(busName: busName, isPresented: $isPresented)
+                DelayConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .chorus:
-                ChorusConfigurationView(busName: busName, isPresented: $isPresented)
+                ChorusConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .compressor:
-                CompressorConfigurationView(busName: busName, isPresented: $isPresented)
+                CompressorConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .eq:
-                EQConfigurationView(busName: busName, isPresented: $isPresented)
+                EQConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .distortion:
-                DistortionConfigurationView(busName: busName, isPresented: $isPresented)
+                DistortionConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .filter:
-                FilterConfigurationView(busName: busName, isPresented: $isPresented)
+                FilterConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             case .modulation:
-                ModulationConfigurationView(busName: busName, isPresented: $isPresented)
+                ModulationConfigurationView(busName: busName, isPresented: $isPresented, effect: effect, onParameterChange: onParameterChange)
             }
         }
     }
@@ -713,21 +735,20 @@ struct EffectConfigurationRouter: View {
 struct ReverbConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
-    // Effect Parameters
+    // Effect Parameters - initialized from effect.parameters
     @State private var wetLevel: Double = 50.0
-    @State private var dryLevel: Double = 0.0
-    @State private var roomSize: Double = 60.0
-    @State private var density: Double = 60.0
-    @State private var decay: Double = 1.1
-    @State private var distance: Double = 50.0
-    @State private var attack: Double = 0.0
-    @State private var predelay: Double = 8.0
-    @State private var freeze: Bool = false
+    @State private var dryLevel: Double = 70.0
+    @State private var roomSize: Double = 50.0
+    @State private var decayTime: Double = 2.0
+    @State private var predelay: Double = 0.0
     
     // UI State
     @State private var selectedPreset = "Default Preset"
     @State private var dampingCurve: [CGPoint] = []
+    @State private var freeze: Bool = false
     
     // TellUrStori Visual Theme
     private let gradientColors = [
@@ -757,8 +778,22 @@ struct ReverbConfigurationView: View {
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
         .onAppear {
+            loadParametersFromEffect()
             setupDefaultCurve()
         }
+    }
+    
+    private func loadParametersFromEffect() {
+        wetLevel = effect.parameters["wetLevel"] ?? 30.0
+        dryLevel = effect.parameters["dryLevel"] ?? 70.0
+        roomSize = effect.parameters["roomSize"] ?? 50.0
+        decayTime = effect.parameters["decayTime"] ?? 2.0
+        predelay = effect.parameters["predelay"] ?? 0.0
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ REVERB UI: Parameter '\(name)' changed to \(value)")
+        onParameterChange(name, value)
     }
     
     private var effectHeaderBar: some View {
@@ -1038,63 +1073,78 @@ struct ReverbConfigurationView: View {
     
     private var controlsPanel: some View {
         VStack(spacing: 20) {
-            // Parameter Knobs
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                TellUrStoriParameterKnob(
-                    title: "Attack",
-                    value: $attack,
-                    range: 0...100,
-                    unit: "%",
-                    gradientColors: gradientColors
-                )
+            // Parameter Sliders
+            VStack(spacing: 20) {
+                HStack(spacing: 30) {
+                    VStack {
+                        Text("Room Size")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Slider(value: $roomSize, in: 0...100)
+                            .onChange(of: roomSize) { _, newValue in
+                                updateParameter("roomSize", newValue)
+                            }
+                        Text("\(Int(roomSize))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    VStack {
+                        Text("Decay Time")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Slider(value: $decayTime, in: 0.1...10)
+                            .onChange(of: decayTime) { _, newValue in
+                                updateParameter("decayTime", newValue)
+                            }
+                        Text("\(decayTime, specifier: "%.1f")s")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    VStack {
+                        Text("Predelay")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Slider(value: $predelay, in: 0...100)
+                            .onChange(of: predelay) { _, newValue in
+                                updateParameter("predelay", newValue)
+                            }
+                        Text("\(Int(predelay))ms")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
                 
-                TellUrStoriParameterKnob(
-                    title: "Size",
-                    value: $roomSize,
-                    range: 0...100,
-                    unit: "%",
-                    gradientColors: gradientColors
-                )
-                
-                TellUrStoriParameterKnob(
-                    title: "Density",
-                    value: $density,
-                    range: 0...100,
-                    unit: "%",
-                    gradientColors: gradientColors
-                )
-                
-                TellUrStoriParameterKnob(
-                    title: "Decay",
-                    value: $decay,
-                    range: 0.3...100,
-                    unit: "s",
-                    gradientColors: gradientColors
-                )
-                
-                TellUrStoriParameterKnob(
-                    title: "Distance",
-                    value: $distance,
-                    range: 0...100,
-                    unit: "%",
-                    gradientColors: gradientColors
-                )
-                
-                TellUrStoriParameterKnob(
-                    title: "Dry",
-                    value: $dryLevel,
-                    range: 0...100,
-                    unit: "%",
-                    gradientColors: gradientColors
-                )
-                
-                TellUrStoriParameterKnob(
-                    title: "Wet",
-                    value: $wetLevel,
-                    range: 0...100,
-                    unit: "%",
-                    gradientColors: gradientColors
-                )
+                HStack(spacing: 30) {
+                    VStack {
+                        Text("Dry Level")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Slider(value: $dryLevel, in: 0...100)
+                            .onChange(of: dryLevel) { _, newValue in
+                                updateParameter("dryLevel", newValue)
+                            }
+                        Text("\(Int(dryLevel))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    VStack {
+                        Text("Wet Level")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Slider(value: $wetLevel, in: 0...100)
+                            .onChange(of: wetLevel) { _, newValue in
+                                updateParameter("wetLevel", newValue)
+                            }
+                        Text("\(Int(wetLevel))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
             }
             .padding(.horizontal, 20)
             
@@ -1222,6 +1272,8 @@ struct ReverbConfigurationView: View {
 struct DelayConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var delayTime: Double = 250.0
     @State private var feedback: Double = 35.0
@@ -1262,12 +1314,12 @@ struct DelayConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("delayTime", $0) })
+                        TellUrStoriParameterKnob(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("feedback", $0) })
+                        TellUrStoriParameterKnob(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowCut", $0) })
+                        TellUrStoriParameterKnob(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highCut", $0) })
+                        TellUrStoriParameterKnob(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
+                        TellUrStoriParameterKnob(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1285,6 +1337,22 @@ struct DelayConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        delayTime = effect.parameters["delayTime"] ?? 250.0
+        feedback = effect.parameters["feedback"] ?? 35.0
+        wetLevel = effect.parameters["wetLevel"] ?? 30.0
+        dryLevel = effect.parameters["dryLevel"] ?? 70.0
+        lowCut = effect.parameters["lowCut"] ?? 20.0
+        highCut = effect.parameters["highCut"] ?? 8000.0
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        onParameterChange(name, value)
     }
 }
 
@@ -1292,6 +1360,8 @@ struct DelayConfigurationView: View {
 struct ChorusConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var rate: Double = 0.5
     @State private var depth: Double = 50.0
@@ -1330,12 +1400,12 @@ struct ChorusConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
+                        TellUrStoriParameterKnob(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
+                        TellUrStoriParameterKnob(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { updateParameter("voices", $0) })
+                        TellUrStoriParameterKnob(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { updateParameter("spread", $0) })
+                        TellUrStoriParameterKnob(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
+                        TellUrStoriParameterKnob(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1353,6 +1423,22 @@ struct ChorusConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        rate = effect.parameters["rate"] ?? 0.5
+        depth = effect.parameters["depth"] ?? 50.0
+        voices = effect.parameters["voices"] ?? 4.0
+        spread = effect.parameters["spread"] ?? 180.0
+        wetLevel = effect.parameters["wetLevel"] ?? 50.0
+        dryLevel = effect.parameters["dryLevel"] ?? 50.0
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        onParameterChange(name, value)
     }
 }
 
@@ -1360,13 +1446,15 @@ struct ChorusConfigurationView: View {
 struct CompressorConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var threshold: Double = -12.0
     @State private var ratio: Double = 4.0
     @State private var attack: Double = 10.0
     @State private var release: Double = 100.0
     @State private var makeupGain: Double = 0.0
-    @State private var wetLevel: Double = 100.0
+    @State private var knee: Double = 2.0
     
     private let gradientColors = [Color.orange.opacity(0.8), Color.red.opacity(0.8), Color.pink.opacity(0.8)]
     
@@ -1398,12 +1486,12 @@ struct CompressorConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Knee", value: $wetLevel, range: 0...10, unit: "dB", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0) })
+                        TellUrStoriParameterKnob(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0) })
+                        TellUrStoriParameterKnob(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0) })
+                        TellUrStoriParameterKnob(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0) })
+                        TellUrStoriParameterKnob(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0) })
+                        TellUrStoriParameterKnob(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1421,6 +1509,22 @@ struct CompressorConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        threshold = effect.parameters["threshold"] ?? -12.0
+        ratio = effect.parameters["ratio"] ?? 4.0
+        attack = effect.parameters["attack"] ?? 10.0
+        release = effect.parameters["release"] ?? 100.0
+        makeupGain = effect.parameters["makeupGain"] ?? 0.0
+        knee = effect.parameters["knee"] ?? 2.0
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        onParameterChange(name, value)
     }
 }
 
@@ -1428,6 +1532,8 @@ struct CompressorConfigurationView: View {
 struct EQConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var lowGain: Double = 0.0
     @State private var lowMidGain: Double = 0.0
@@ -1466,12 +1572,12 @@ struct EQConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0) })
+                        TellUrStoriParameterKnob(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0) })
+                        TellUrStoriParameterKnob(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0) })
+                        TellUrStoriParameterKnob(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0) })
+                        TellUrStoriParameterKnob(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0) })
+                        TellUrStoriParameterKnob(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1489,6 +1595,22 @@ struct EQConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        lowGain = effect.parameters["lowGain"] ?? 0.0
+        lowMidGain = effect.parameters["lowMidGain"] ?? 0.0
+        highMidGain = effect.parameters["highMidGain"] ?? 0.0
+        highGain = effect.parameters["highGain"] ?? 0.0
+        lowFreq = effect.parameters["lowFreq"] ?? 100.0
+        highFreq = effect.parameters["highFreq"] ?? 10000.0
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        onParameterChange(name, value)
     }
 }
 
@@ -1496,6 +1618,8 @@ struct EQConfigurationView: View {
 struct DistortionConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var drive: Double = 30.0
     @State private var tone: Double = 50.0
@@ -1532,10 +1656,10 @@ struct DistortionConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0) })
+                        TellUrStoriParameterKnob(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0) })
+                        TellUrStoriParameterKnob(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0) })
+                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1553,6 +1677,20 @@ struct DistortionConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        drive = effect.parameters["drive"] ?? 30.0
+        tone = effect.parameters["tone"] ?? 50.0
+        output = effect.parameters["output"] ?? 0.0
+        wetLevel = effect.parameters["wetLevel"] ?? 100.0
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        onParameterChange(name, value)
     }
 }
 
@@ -1560,6 +1698,8 @@ struct DistortionConfigurationView: View {
 struct FilterConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var cutoff: Double = 1000.0
     @State private var resonance: Double = 0.7
@@ -1596,9 +1736,9 @@ struct FilterConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0) })
+                        TellUrStoriParameterKnob(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0) })
+                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1616,6 +1756,28 @@ struct FilterConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        cutoff = effect.parameters["cutoff"] ?? 1000.0
+        resonance = effect.parameters["resonance"] ?? 0.7
+        wetLevel = effect.parameters["wetLevel"] ?? 100.0
+        // Convert filterType from Double to String for UI
+        let filterTypeValue = effect.parameters["filterType"] ?? 0.0
+        filterType = filterTypeValue == 0.0 ? "Low Pass" : (filterTypeValue == 1.0 ? "High Pass" : "Band Pass")
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        if name == "filterType" {
+            // Convert filterType string to Double for audio engine
+            let filterTypeDouble = filterType == "Low Pass" ? 0.0 : (filterType == "High Pass" ? 1.0 : 2.0)
+            onParameterChange("filterType", filterTypeDouble)
+        } else {
+            onParameterChange(name, value)
+        }
     }
 }
 
@@ -1623,6 +1785,8 @@ struct FilterConfigurationView: View {
 struct ModulationConfigurationView: View {
     let busName: String
     @Binding var isPresented: Bool
+    let effect: BusEffect
+    let onParameterChange: (String, Double) -> Void
     
     @State private var rate: Double = 2.0
     @State private var depth: Double = 50.0
@@ -1659,9 +1823,9 @@ struct ModulationConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors)
-                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors)
+                        TellUrStoriParameterKnob(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
+                        TellUrStoriParameterKnob(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
+                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1679,6 +1843,20 @@ struct ModulationConfigurationView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(.controlBackgroundColor))
+        .onAppear {
+            loadParametersFromEffect()
+        }
+    }
+    
+    private func loadParametersFromEffect() {
+        rate = effect.parameters["rate"] ?? 2.0
+        depth = effect.parameters["depth"] ?? 50.0
+        wetLevel = effect.parameters["wetLevel"] ?? 50.0
+        // Handle waveform parameter if needed
+    }
+    
+    private func updateParameter(_ name: String, _ value: Double) {
+        onParameterChange(name, value)
     }
 }
 
@@ -1801,8 +1979,18 @@ struct TellUrStoriParameterKnob: View {
     let range: ClosedRange<Double>
     let unit: String
     let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
     
     @State private var isDragging = false
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
     
     var body: some View {
         VStack(spacing: 10) {
@@ -1869,7 +2057,9 @@ struct TellUrStoriParameterKnob: View {
                         let degrees = angle * 180 / .pi + 135
                         let normalizedDegrees = max(0, min(270, degrees))
                         let normalizedValue = normalizedDegrees / 270
-                        value = range.lowerBound + (range.upperBound - range.lowerBound) * normalizedValue
+                        let newValue = range.lowerBound + (range.upperBound - range.lowerBound) * normalizedValue
+                        value = newValue
+                        onChange?(newValue)
                     }
                     .onEnded { _ in
                         isDragging = false

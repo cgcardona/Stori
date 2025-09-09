@@ -227,6 +227,7 @@ struct TrackChannelStrip: View {
                     sendIndex: sendIndex,
                     track: track,
                     availableBuses: buses,
+                    audioEngine: audioEngine,  // Pass AudioEngine reference
                     onCreateBus: onCreateBus,
                     onAssignBus: { busId in
                         assignBusToSend(sendIndex: sendIndex, busId: busId)
@@ -449,8 +450,32 @@ struct BusChannelStrip: View {
     }
     
     private func addEffectToBus(effectIndex: Int, effectType: EffectType) {
-        // TODO: Add effect to bus at specific slot
-        print("Adding \(effectType) to bus \(bus.name) at slot \(effectIndex)")
+        print("🎛️ MIXER VIEW: Adding \(effectType) to bus \(bus.name) at slot \(effectIndex)")
+        
+        // Create new effect with default parameters
+        let newEffect = BusEffect(
+            name: effectType.rawValue.capitalized,
+            type: effectType,
+            parameters: effectType.defaultParameters,
+            presetName: "Default"
+        )
+        
+        // Add effect to project model
+        guard var currentProject = project,
+              let busIndex = currentProject.buses.firstIndex(where: { $0.id == bus.id }) else {
+            print("❌ MIXER VIEW: Failed to find bus in project")
+            return
+        }
+        
+        // Add effect to bus
+        currentProject.buses[busIndex].effects.append(newEffect)
+        currentProject.modifiedAt = Date()
+        projectManager.currentProject = currentProject
+        projectManager.saveCurrentProject()
+        
+        print("✅ MIXER VIEW: Added effect to project, calling audio engine...")
+        // Add effect to audio engine
+        audioEngine.addEffectToBus(bus.id, effect: newEffect)
     }
     
     private func toggleEffect(effectIndex: Int) {
@@ -459,16 +484,22 @@ struct BusChannelStrip: View {
     }
     
     private func updateBusEffect(_ effect: BusEffect) {
+        print("🎛️ MIXER VIEW: Updating bus effect - \(effect.type) with parameters: \(effect.parameters)")
+        
         // Update effect in project and audio engine
         guard var currentProject = project,
               let busIndex = currentProject.buses.firstIndex(where: { $0.id == bus.id }),
-              let effectIndex = currentProject.buses[busIndex].effects.firstIndex(where: { $0.id == effect.id }) else { return }
+              let effectIndex = currentProject.buses[busIndex].effects.firstIndex(where: { $0.id == effect.id }) else { 
+            print("❌ MIXER VIEW: Failed to find bus or effect in project")
+            return 
+        }
         
         currentProject.buses[busIndex].effects[effectIndex] = effect
         currentProject.modifiedAt = Date()
         projectManager.currentProject = currentProject
         projectManager.saveCurrentProject()
         
+        print("💾 MIXER VIEW: Saved effect to project, calling audio engine...")
         // Update in audio engine
         audioEngine.updateBusEffect(bus.id, effect: effect)
     }

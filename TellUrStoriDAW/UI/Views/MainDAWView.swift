@@ -189,10 +189,14 @@ struct MainDAWView: View {
         }
         .onChange(of: projectManager.currentProject) { oldValue, newValue in
             if let project = newValue {
-                // Only load project if it's a completely different project (different ID)
+                // Check if it's a completely different project (different ID)
                 if oldValue?.id != project.id {
                     print("Loading new project into audio engine: \(project.name)")
                     audioEngine.loadProject(project)
+                } else {
+                    // Same project but content changed - update the audio engine
+                    print("Updating audio engine with project changes: \(project.name)")
+                    audioEngine.updateCurrentProject(project)
                 }
             }
         }

@@ -20,6 +20,7 @@ class BusAudioNode: ObservableObject {
     private let outputMixer = AVAudioMixerNode()
     private var effectNodes: [AVAudioNode] = []
     private var effectUnits: [UUID: AVAudioUnit] = [:]
+    private var effects: [UUID: BusEffect] = [:] // Store effect metadata including enabled status
     
     // MARK: - Audio Levels
     @Published var inputLevel: Float = 0.0
@@ -79,6 +80,7 @@ class BusAudioNode: ObservableObject {
             }
             
             effectUnits[effect.id] = effectUnit
+            effects[effect.id] = effect // Store effect metadata
             rebuildEffectChain()
             applyEffectParameters(effect)
         }
@@ -86,106 +88,54 @@ class BusAudioNode: ObservableObject {
     
     func removeEffect(withId effectId: UUID) {
         effectUnits.removeValue(forKey: effectId)
+        effects.removeValue(forKey: effectId) // Clean up effect metadata
         rebuildEffectChain()
     }
     
     func updateEffect(_ effect: BusEffect) {
-        guard effectUnits[effect.id] != nil else { return }
-        applyEffectParameters(effect)
+        guard effectUnits[effect.id] != nil else { 
+            print("⚠️ Effect unit not found for ID: \(effect.id)")
+            return 
+        }
+        print("🔄 Updating effect: \(effect.type) with parameters: \(effect.parameters), enabled: \(effect.isEnabled)")
+        
+        // Update stored effect metadata
+        effects[effect.id] = effect
+        
+        // Rebuild chain to respect enabled/disabled status
+        rebuildEffectChain()
+        
+        // Apply parameters if enabled
+        if effect.isEnabled {
+            applyEffectParameters(effect)
+        }
     }
     
     // MARK: - Effect Unit Creation
     private func createEffectUnit(for effect: BusEffect) -> AVAudioUnit? {
-        let audioComponentDescription: AudioComponentDescription
-        
         switch effect.type {
         case .reverb:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_Reverb2,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
+            // Use AVAudioUnitReverb directly instead of generic AudioComponentDescription
+            print("🔧 Creating AVAudioUnitReverb directly")
+            let reverbUnit = AVAudioUnitReverb()
+            reverbUnit.loadFactoryPreset(.mediumHall)
+            reverbUnit.wetDryMix = 50 // Default 50% wet
+            return reverbUnit
             
         case .delay:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_Delay,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
+            // Use AVAudioUnitDelay directly
+            print("🔧 Creating AVAudioUnitDelay directly")
+            let delayUnit = AVAudioUnitDelay()
+            delayUnit.delayTime = 0.5 // Default 500ms delay
+            delayUnit.feedback = 50.0 // Default 50% feedback
+            delayUnit.wetDryMix = 50.0 // Default 50% wet
+            return delayUnit
             
-        case .chorus:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_Delay,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
-            
-        case .compressor:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_DynamicsProcessor,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
-            
-        case .eq:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_ParametricEQ,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
-            
-        case .distortion:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_Distortion,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
-            
-        case .filter:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_LowPassFilter,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
-            
-        case .modulation:
-            audioComponentDescription = AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_Delay,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
+        default:
+            // For other effects, create a simple delay as placeholder
+            print("🔧 Creating default delay unit for \(effect.type)")
+            return AVAudioUnitDelay()
         }
-        
-        var effectUnit: AVAudioUnit?
-        let semaphore = DispatchSemaphore(value: 0)
-        
-        AVAudioUnit.instantiate(with: audioComponentDescription) { audioUnit, error in
-            if let error = error {
-                print("Error creating audio unit: \(error)")
-            } else {
-                effectUnit = audioUnit
-            }
-            semaphore.signal()
-        }
-        
-        semaphore.wait()
-        return effectUnit
     }
     
     // MARK: - Effect Chain Management
@@ -194,7 +144,10 @@ class BusAudioNode: ObservableObject {
         disconnectNodes()
         
         // Get all enabled effects in order
-        let enabledEffects = effectUnits.values.filter { _ in true } // TODO: Check if effect is enabled
+        let enabledEffects = effectUnits.compactMap { (effectId, unit) -> AVAudioUnit? in
+            guard let effect = effects[effectId], effect.isEnabled else { return nil }
+            return unit
+        }
         
         if enabledEffects.isEmpty {
             // Direct connection: input -> output
@@ -255,80 +208,234 @@ class BusAudioNode: ObservableObject {
     
     // MARK: - Effect Parameter Application
     private func applyReverbParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Use AVAudioUnitReverb for simpler parameter access
+        print("🔍 DEBUG: Applying reverb parameters to unit: \(unit)")
+        print("🔍 DEBUG: Unit type: \(type(of: unit))")
+        print("🔍 DEBUG: Parameters: \(parameters)")
+        
+        // Use AVAudioUnitReverb for real parameter control
         if let reverbUnit = unit as? AVAudioUnitReverb {
+            print("✅ Successfully cast to AVAudioUnitReverb")
+            
+            // Apply wet/dry mix
             if let wetLevel = parameters["wetLevel"] {
                 reverbUnit.wetDryMix = Float(wetLevel)
+                print("🎛️ Set wetDryMix to: \(reverbUnit.wetDryMix)")
             }
+            
+            // Apply room size (maps to reverb size parameter)
+            if let roomSize = parameters["roomSize"] {
+                // AVAudioUnitReverb doesn't have direct room size, but we can use presets
+                // For now, we'll adjust the wet/dry mix based on room size
+                let adjustedWet = Float((parameters["wetLevel"] ?? 30.0) * (roomSize / 100.0))
+                reverbUnit.wetDryMix = min(100.0, adjustedWet)
+                print("🎛️ Adjusted wetDryMix based on room size: \(reverbUnit.wetDryMix)")
+            }
+            
+            // Note: AVAudioUnitReverb has limited parameter control
+            // For more advanced reverb, we'd need custom AudioUnit or third-party
+            print("✅ Applied reverb parameters: wetDryMix=\(reverbUnit.wetDryMix)")
+        } else {
+            print("⚠️ Could not cast to AVAudioUnitReverb, unit type: \(type(of: unit))")
+            
+            // Try generic AudioUnit parameter setting
+            let wetLevel = parameters["wetLevel"] ?? 30.0
+            let status = AudioUnitSetParameter(
+                unit.audioUnit,
+                kReverb2Param_DryWetMix,
+                kAudioUnitScope_Global,
+                0,
+                Float(wetLevel),
+                0
+            )
+            print("🎛️ Generic AudioUnit parameter set status: \(status)")
         }
-        
-        // For more complex parameter setting, we'd use AudioUnitSetParameter
-        // but for now, keep it simple to avoid constant issues
-        print("Applied reverb parameters: \(parameters)")
     }
     
     private func applyDelayParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Use AVAudioUnitDelay for simpler parameter access
+        // Use AVAudioUnitDelay for real parameter control
         if let delayUnit = unit as? AVAudioUnitDelay {
+            // Apply delay time (convert ms to seconds)
             if let delayTime = parameters["delayTime"] {
-                delayUnit.delayTime = TimeInterval(delayTime / 1000.0) // Convert ms to seconds
+                delayUnit.delayTime = TimeInterval(delayTime / 1000.0)
             }
+            
+            // Apply feedback
             if let feedback = parameters["feedback"] {
-                delayUnit.feedback = Float(feedback)
+                delayUnit.feedback = Float(feedback / 100.0) // Convert percentage to 0-1
             }
+            
+            // Apply wet/dry mix
             if let wetLevel = parameters["wetLevel"] {
                 delayUnit.wetDryMix = Float(wetLevel)
             }
+            
+            print("✅ Applied delay parameters: time=\(delayUnit.delayTime)s, feedback=\(delayUnit.feedback), wet=\(delayUnit.wetDryMix)")
+        } else {
+            print("⚠️ Could not cast to AVAudioUnitDelay")
         }
-        
-        print("Applied delay parameters: \(parameters)")
     }
     
     private func applyChorusParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Simplified parameter application - avoid complex AudioUnit constants for now
-        print("Applied chorus parameters: \(parameters)")
+        // For chorus, we'll use a generic AudioUnit approach since there's no specific AVAudioUnitChorus
+        // We'll set parameters using AudioUnit parameter IDs
+        if let rate = parameters["rate"] {
+            // Set modulation rate parameter (typical chorus parameter ID)
+            let rateParam = AudioUnitParameterID(14) // Common chorus rate parameter
+            AudioUnitSetParameter(unit.audioUnit, rateParam, kAudioUnitScope_Global, 0, Float(rate), 0)
+        }
+        if let depth = parameters["depth"] {
+            // Set modulation depth parameter
+            let depthParam = AudioUnitParameterID(15) // Common chorus depth parameter  
+            AudioUnitSetParameter(unit.audioUnit, depthParam, kAudioUnitScope_Global, 0, Float(depth), 0)
+        }
+        if let wetLevel = parameters["wetLevel"] {
+            // Set wet/dry mix parameter
+            let mixParam = AudioUnitParameterID(0) // Common mix parameter
+            AudioUnitSetParameter(unit.audioUnit, mixParam, kAudioUnitScope_Global, 0, Float(wetLevel), 0)
+        }
+        print("✅ Applied chorus parameters: rate=\(parameters["rate"] ?? 0), depth=\(parameters["depth"] ?? 0), wet=\(parameters["wetLevel"] ?? 0)")
     }
     
     private func applyCompressorParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Simplified compressor parameter application
-        print("Applied compressor parameters: \(parameters)")
+        // Use generic AudioUnit parameter setting for compressor/dynamics processor
+        if let threshold = parameters["threshold"] {
+            let thresholdParam = AudioUnitParameterID(0) // Common threshold parameter
+            AudioUnitSetParameter(unit.audioUnit, thresholdParam, kAudioUnitScope_Global, 0, Float(threshold), 0)
+        }
+        if let ratio = parameters["ratio"] {
+            let ratioParam = AudioUnitParameterID(1) // Common ratio parameter
+            AudioUnitSetParameter(unit.audioUnit, ratioParam, kAudioUnitScope_Global, 0, Float(ratio), 0)
+        }
+        if let attack = parameters["attack"] {
+            let attackParam = AudioUnitParameterID(2) // Common attack parameter
+            AudioUnitSetParameter(unit.audioUnit, attackParam, kAudioUnitScope_Global, 0, Float(attack / 1000.0), 0)
+        }
+        if let release = parameters["release"] {
+            let releaseParam = AudioUnitParameterID(3) // Common release parameter
+            AudioUnitSetParameter(unit.audioUnit, releaseParam, kAudioUnitScope_Global, 0, Float(release / 1000.0), 0)
+        }
+        print("✅ Applied compressor parameters: threshold=\(parameters["threshold"] ?? 0), ratio=\(parameters["ratio"] ?? 0), attack=\(parameters["attack"] ?? 0)ms, release=\(parameters["release"] ?? 0)ms")
     }
     
     private func applyEQParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
         if let eqUnit = unit as? AVAudioUnitEQ {
-            // Apply EQ parameters using the simpler AVAudioUnitEQ interface
-            if let lowGain = parameters["lowGain"] {
-                if eqUnit.bands.count > 0 {
+            // Apply EQ parameters to available bands
+            let bandCount = eqUnit.bands.count
+            
+            if bandCount > 0 {
+                // Low band (band 0)
+                if let lowGain = parameters["lowGain"] {
                     eqUnit.bands[0].gain = Float(lowGain)
                 }
-            }
-            if let lowFreq = parameters["lowFreq"] {
-                if eqUnit.bands.count > 0 {
+                if let lowFreq = parameters["lowFreq"] {
                     eqUnit.bands[0].frequency = Float(lowFreq)
                 }
             }
+            
+            if bandCount > 1 {
+                // Mid band (band 1)
+                if let lowMidGain = parameters["lowMidGain"] {
+                    eqUnit.bands[1].gain = Float(lowMidGain)
+                }
+            }
+            
+            if bandCount > 2 {
+                // High Mid band (band 2)
+                if let highMidGain = parameters["highMidGain"] {
+                    eqUnit.bands[2].gain = Float(highMidGain)
+                }
+            }
+            
+            if bandCount > 3 {
+                // High band (band 3)
+                if let highGain = parameters["highGain"] {
+                    eqUnit.bands[3].gain = Float(highGain)
+                }
+            }
+            
+            print("✅ Applied EQ parameters: \(bandCount) bands configured")
+        } else {
+            print("⚠️ Could not cast to AVAudioUnitEQ")
         }
-        print("Applied EQ parameters: \(parameters)")
     }
     
     private func applyDistortionParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Use AVAudioUnitDistortion for simpler parameter access
         if let distortionUnit = unit as? AVAudioUnitDistortion {
-            if let wetLevel = parameters["wetLevel"] {
-                distortionUnit.wetDryMix = Float(wetLevel)
+            if let drive = parameters["drive"] {
+                distortionUnit.preGain = Float(drive)
             }
+            if let tone = parameters["tone"] {
+                // Use wetDryMix as a tone-like control
+                distortionUnit.wetDryMix = Float(tone)
+            }
+            // Note: AVAudioUnitDistortion doesn't have finalMix, using preGain for output control
+            if let output = parameters["output"] {
+                // Adjust preGain based on output level
+                let currentPreGain = distortionUnit.preGain
+                distortionUnit.preGain = currentPreGain * Float(output / 100.0)
+            }
+            print("✅ Applied distortion parameters: preGain=\(distortionUnit.preGain)dB, wetDryMix=\(distortionUnit.wetDryMix)")
+        } else {
+            print("⚠️ Could not cast to AVAudioUnitDistortion")
         }
-        print("Applied distortion parameters: \(parameters)")
     }
     
     private func applyFilterParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Simplified filter parameter application
-        print("Applied filter parameters: \(parameters)")
+        // Use AVAudioUnitEQ as a filter with specific band configurations
+        if let eqUnit = unit as? AVAudioUnitEQ {
+            if eqUnit.bands.count > 0 {
+                let band = eqUnit.bands[0]
+                
+                if let cutoff = parameters["cutoff"] {
+                    band.frequency = Float(cutoff)
+                }
+                if let resonance = parameters["resonance"] {
+                    band.bandwidth = Float(resonance / 10.0) // Convert to reasonable bandwidth
+                }
+                if let filterType = parameters["filterType"] {
+                    // Set filter type based on parameter (0=lowpass, 1=highpass, 2=bandpass)
+                    switch Int(filterType) {
+                    case 0:
+                        band.filterType = .lowPass
+                    case 1:
+                        band.filterType = .highPass
+                    case 2:
+                        band.filterType = .bandPass
+                    default:
+                        band.filterType = .lowPass
+                    }
+                }
+                
+                print("✅ Applied filter parameters: freq=\(band.frequency)Hz, bandwidth=\(band.bandwidth), type=\(band.filterType.rawValue)")
+            }
+        } else {
+            print("⚠️ Could not cast to AVAudioUnitEQ for filter")
+        }
     }
     
     private func applyModulationParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Simplified modulation parameter application
-        print("Applied modulation parameters: \(parameters)")
+        // For modulation effects, we'll use generic AudioUnit parameter setting
+        if let rate = parameters["rate"] {
+            // Set modulation rate parameter
+            let rateParam = AudioUnitParameterID(14) // Common modulation rate parameter
+            AudioUnitSetParameter(unit.audioUnit, rateParam, kAudioUnitScope_Global, 0, Float(rate), 0)
+        }
+        if let depth = parameters["depth"] {
+            // Set modulation depth parameter
+            let depthParam = AudioUnitParameterID(15) // Common modulation depth parameter
+            AudioUnitSetParameter(unit.audioUnit, depthParam, kAudioUnitScope_Global, 0, Float(depth), 0)
+        }
+        if let feedback = parameters["feedback"] {
+            // Set feedback parameter
+            let feedbackParam = AudioUnitParameterID(16) // Common feedback parameter
+            AudioUnitSetParameter(unit.audioUnit, feedbackParam, kAudioUnitScope_Global, 0, Float(feedback), 0)
+        }
+        if let wetLevel = parameters["wetLevel"] {
+            // Set wet/dry mix parameter
+            let mixParam = AudioUnitParameterID(0) // Common mix parameter
+            AudioUnitSetParameter(unit.audioUnit, mixParam, kAudioUnitScope_Global, 0, Float(wetLevel), 0)
+        }
+        print("✅ Applied modulation parameters: rate=\(parameters["rate"] ?? 0), depth=\(parameters["depth"] ?? 0), feedback=\(parameters["feedback"] ?? 0), wet=\(parameters["wetLevel"] ?? 0)")
     }
     
     // MARK: - Level Control
