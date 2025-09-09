@@ -10,15 +10,15 @@ import SwiftUI
 struct DAWControlBar: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
+    @Binding var showingMixer: Bool
+    @Binding var showingLibrary: Bool
+    @Binding var showingInspector: Bool
     
     // MARK: - State
     @State private var showingTempoEditor = false
     @State private var showingKeySignatureEditor = false
     @State private var showingTimeSignatureEditor = false
     @State private var masterVolume: Double = 0.8
-    @State private var showingMixer = false
-    @State private var showingLibrary = false
-    @State private var showingInspector = false
     
     var body: some View {
         HStack(spacing: 0) {
@@ -454,7 +454,10 @@ struct DAWControlBar: View {
 #Preview {
     DAWControlBar(
         audioEngine: AudioEngine(),
-        projectManager: ProjectManager()
+        projectManager: ProjectManager(),
+        showingMixer: .constant(false),
+        showingLibrary: .constant(false),
+        showingInspector: .constant(false)
     )
     .frame(width: 800)
 }

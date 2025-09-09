@@ -105,4 +105,7 @@ extension Notification.Name {
     static let record = Notification.Name("record")
     static let skipToBeginning = Notification.Name("skipToBeginning")
     static let skipToEnd = Notification.Name("skipToEnd")
+    static let toggleMixer = Notification.Name("toggleMixer")
+    static let toggleLibrary = Notification.Name("toggleLibrary")
+    static let toggleInspector = Notification.Name("toggleInspector")
 }

@@ -7,6 +7,24 @@
 
 import SwiftUI
 
+enum MainTab: String, CaseIterable {
+    case daw = "DAW"
+    case marketplace = "Marketplace"
+    
+    var title: String {
+        return self.rawValue
+    }
+    
+    var iconName: String {
+        switch self {
+        case .daw:
+            return "waveform"
+        case .marketplace:
+            return "cart"
+        }
+    }
+}
+
 struct MainDAWView: View {
     @StateObject private var audioEngine = AudioEngine()
     @StateObject private var projectManager = ProjectManager()
@@ -18,6 +36,11 @@ struct MainDAWView: View {
     // MARK: - Zoom Controls
     @State private var horizontalZoom: Double = 1.0 // 0.1x to 10x zoom
     @State private var verticalZoom: Double = 1.0   // 0.5x to 3x zoom
+    
+    // MARK: - Panel Visibility State
+    @State private var showingLibrary = false
+    @State private var showingInspector = false
+    @State private var showingMixer = false
     
     // MARK: - Track Management
     private func addTrack(name: String? = nil) {
@@ -99,6 +122,21 @@ struct MainDAWView: View {
         .sheet(isPresented: $showingProjectBrowser) {
             ProjectBrowserView(projectManager: projectManager)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleMixer)) { _ in
+            if selectedMainTab == .daw {
+                showingMixer.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleLibrary)) { _ in
+            if selectedMainTab == .daw {
+                showingLibrary.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleInspector)) { _ in
+            if selectedMainTab == .daw {
+                showingInspector.toggle()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
             showingNewProjectSheet = true
         }
@@ -147,12 +185,9 @@ struct MainDAWView: View {
         .onChange(of: projectManager.currentProject) { oldValue, newValue in
             if let project = newValue {
                 // Only load project if it's a completely different project (different ID)
-                // Don't reload for simple track updates
-                if oldValue?.id != newValue?.id {
+                if oldValue?.id != project.id {
+                    print("Loading new project into audio engine: \(project.name)")
                     audioEngine.loadProject(project)
-                } else {
-                    // Just update the current project reference without stopping playback
-                    audioEngine.updateCurrentProject(project)
                 }
             }
         }
@@ -160,8 +195,17 @@ struct MainDAWView: View {
     
     private func dawContentView(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Main content area
+            // Main content area with professional panel layout
             HStack(spacing: 0) {
+                // Left Panel: Library (when visible)
+                if showingLibrary {
+                    DAWLibraryPanel()
+                        .frame(width: 250)
+                        .transition(.move(edge: .leading))
+                }
+                
+                // Center: Main DAW Content
+                VStack(spacing: 0) {
                     // Timeline and tracks area
                     VStack(spacing: 0) {
                         // Zoom controls toolbar (only show when project exists)
@@ -202,103 +246,123 @@ struct MainDAWView: View {
                             }
                         }
                         
-                        // Professional DAW Timeline
-                        DAWTimelineView(
+                        // Working Timeline with track creation
+                        ScrollView(.horizontal) {
+                            TimelineView(
+                                project: projectManager.currentProject,
+                                audioEngine: audioEngine,
+                                projectManager: projectManager,
+                                selectedTrackId: $selectedTrackId,
+                                horizontalZoom: horizontalZoom,
+                                verticalZoom: verticalZoom,
+                                onAddTrack: { addTrack() },
+                                onCreateProject: { showingNewProjectSheet = true },
+                                onOpenProject: { showingProjectBrowser = true }
+                            )
+                        }
+                    }
+                    
+                    // Bottom area: Mixer panel (when visible)
+                    if showingMixer {
+                        MixerView(
                             project: projectManager.currentProject,
                             audioEngine: audioEngine,
                             projectManager: projectManager,
-                            selectedTrackId: $selectedTrackId,
-                            horizontalZoom: horizontalZoom,
-                            verticalZoom: verticalZoom,
-                            onAddTrack: { addTrack() },
-                            onCreateProject: { showingNewProjectSheet = true },
-                            onOpenProject: { showingProjectBrowser = true }
+                            selectedTrackId: $selectedTrackId
                         )
+                        .frame(height: 300)
+                        .transition(.move(edge: .bottom))
                     }
-                    
-                    // Mixer panel
-                    MixerView(
+                }
+                
+                // Right Panel: Inspector (when visible)
+                if showingInspector {
+                    DAWInspectorPanel(
+                        selectedTrackId: $selectedTrackId,
                         project: projectManager.currentProject,
-                        audioEngine: audioEngine,
-                        projectManager: projectManager,
-                        selectedTrackId: $selectedTrackId
+                        audioEngine: audioEngine
                     )
-                    .frame(width: 300)
+                    .frame(width: 250)
+                    .transition(.move(edge: .trailing))
                 }
-                
-                // Professional DAW Control Bar - Pinned to Bottom
-                DAWControlBar(
-                    audioEngine: audioEngine,
-                    projectManager: projectManager
-                )
-            }
-        }
-    }
-
-// MARK: - Toolbar View
-struct ToolbarView: View {
-    @ObservedObject var projectManager: ProjectManager
-    @ObservedObject var audioEngine: AudioEngine
-    let onNewProject: () -> Void
-    let onOpenProject: () -> Void
-    
-    var body: some View {
-        HStack {
-            // Project controls
-            HStack(spacing: 12) {
-                Button("New", action: onNewProject)
-                    .keyboardShortcut("n", modifiers: .command)
-                
-                Button("Open", action: onOpenProject)
-                    .keyboardShortcut("o", modifiers: .command)
-                
-                Button("Save") {
-                    projectManager.saveCurrentProject()
-                }
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(projectManager.currentProject == nil)
-                
-                Divider()
-                    .frame(height: 20)
             }
             
-            // Project info
-            if let project = projectManager.currentProject {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.headline)
-                    Text("\(project.trackCount) tracks • \(Int(project.tempo)) BPM")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                Text("No Project")
-                    .font(.headline)
+            // Professional DAW Control Bar - Pinned to Bottom
+            DAWControlBar(
+                audioEngine: audioEngine,
+                projectManager: projectManager,
+                showingMixer: $showingMixer,
+                showingLibrary: $showingLibrary,
+                showingInspector: $showingInspector
+            )
+        }
+        .animation(.easeInOut(duration: 0.3), value: showingLibrary)
+        .animation(.easeInOut(duration: 0.3), value: showingInspector)
+        .animation(.easeInOut(duration: 0.3), value: showingMixer)
+    }
+}
+
+// MARK: - Zoom Controls View
+struct ZoomControlsView: View {
+    @Binding var horizontalZoom: Double
+    @Binding var verticalZoom: Double
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Spacer to align with track headers
+            Color.clear
+                .frame(width: 280)
+            
+            // Horizontal zoom control
+            HStack(spacing: 4) {
+                Image(systemName: "minus.magnifyingglass")
                     .foregroundColor(.secondary)
+                    .font(.caption2)
+                
+                Slider(value: $horizontalZoom, in: 0.1...10.0, step: 0.1)
+                    .frame(width: 80)
+                    .accentColor(.blue)
+                
+                Image(systemName: "plus.magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                
+                Text("\(String(format: "%.1f", horizontalZoom))x")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 25, alignment: .leading)
+            }
+            
+            Divider()
+                .frame(height: 16)
+            
+            // Vertical zoom control
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.and.down.text.horizontal")
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                
+                Slider(value: $verticalZoom, in: 0.5...3.0, step: 0.1)
+                    .frame(width: 70)
+                    .accentColor(.green)
+                
+                Text("\(String(format: "%.1f", verticalZoom))x")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 25, alignment: .leading)
             }
             
             Spacer()
-            
-            // Performance indicators
-            HStack(spacing: 16) {
-                // CPU usage
-                HStack(spacing: 4) {
-                    Text("CPU:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(Int(audioEngine.cpuUsage * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundColor(audioEngine.cpuUsage > 0.8 ? .red : .primary)
-                }
-                
-                // Audio status
-                Circle()
-                    .fill(audioEngine.isPlaying ? .green : .gray)
-                    .frame(width: 8, height: 8)
-            }
         }
-        .padding(.horizontal, 16)
-        .background(Color(.controlBackgroundColor))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(NSColor.controlBackgroundColor))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(NSColor.separatorColor)),
+            alignment: .bottom
+        )
     }
 }
 
@@ -369,7 +433,40 @@ struct TimelineRulerView: View {
     }
 }
 
-// MARK: - New Project View
+// MARK: - Cycle Overlay View
+struct CycleOverlayView: View {
+    let cycleStartTime: TimeInterval
+    let cycleEndTime: TimeInterval
+    let horizontalZoom: Double
+    let onCycleRegionChanged: (TimeInterval, TimeInterval) -> Void
+    
+    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
+    
+    var body: some View {
+        let startX = CGFloat(cycleStartTime) * pixelsPerSecond
+        let endX = CGFloat(cycleEndTime) * pixelsPerSecond
+        let width = endX - startX
+        
+        HStack(spacing: 0) {
+            // Cycle region background and handles
+            Rectangle()
+                .fill(Color.yellow.opacity(0.3))
+                .frame(width: width, height: 40)
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.yellow, lineWidth: 2)
+                        .frame(width: width, height: 40)
+                )
+                .offset(x: startX)
+            
+            Spacer()
+        }
+        .frame(height: 40)
+        .clipped()
+    }
+}
+
+// MARK: - Supporting Views
 struct NewProjectView: View {
     @ObservedObject var projectManager: ProjectManager
     @Environment(\.dismiss) private var dismiss
@@ -598,7 +695,6 @@ struct NewProjectView: View {
     }
 }
 
-// MARK: - Project Browser View
 struct ProjectBrowserView: View {
     @ObservedObject var projectManager: ProjectManager
     @Environment(\.dismiss) private var dismiss
@@ -794,177 +890,5 @@ struct ProjectRowView: View {
         } else {
             return "Just now"
         }
-    }
-}
-
-// MARK: - Main Tab Enum
-
-enum MainTab: String, CaseIterable {
-    case daw = "daw"
-    case marketplace = "marketplace"
-    
-    var title: String {
-        switch self {
-        case .daw: return "DAW"
-        case .marketplace: return "Marketplace"
-        }
-    }
-    
-    var iconName: String {
-        switch self {
-        case .daw: return "waveform"
-        case .marketplace: return "music.note.list"
-        }
-    }
-}
-
-// MARK: - Cycle Overlay View
-struct CycleOverlayView: View {
-    let cycleStartTime: TimeInterval
-    let cycleEndTime: TimeInterval
-    let horizontalZoom: Double
-    let onCycleRegionChanged: (TimeInterval, TimeInterval) -> Void
-    
-    @State private var dragOffset: CGFloat = 0
-    @State private var isDragging = false
-    @State private var dragType: DragType = .none
-    
-    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
-    
-    enum DragType {
-        case none
-        case start
-        case end
-        case region
-    }
-    
-    var body: some View {
-        let startX = CGFloat(cycleStartTime) * pixelsPerSecond
-        let endX = CGFloat(cycleEndTime) * pixelsPerSecond
-        let width = endX - startX
-        
-        HStack(spacing: 0) {
-            // Cycle region background and handles
-            Rectangle()
-                .fill(Color.yellow.opacity(0.3))
-                .frame(width: width, height: 40) // Match timeline ruler height
-                .overlay(
-                    // Cycle region border
-                    Rectangle()
-                        .stroke(Color.yellow, lineWidth: 2)
-                        .frame(width: width, height: 40)
-                )
-                .overlay(
-                    // Start handle
-                    HStack {
-                        Rectangle()
-                            .fill(Color.yellow)
-                            .frame(width: 6, height: 40)
-                            .gesture(
-                                DragGesture()
-                                    .onChanged { value in
-                                        let newStartTime = max(0, cycleStartTime + Double(value.translation.width / pixelsPerSecond))
-                                        if newStartTime < cycleEndTime - 0.1 {
-                                            onCycleRegionChanged(newStartTime, cycleEndTime)
-                                        }
-                                    }
-                            )
-                        
-                        Spacer()
-                        
-                        // End handle
-                        Rectangle()
-                            .fill(Color.yellow)
-                            .frame(width: 6, height: 40)
-                            .gesture(
-                                DragGesture()
-                                    .onChanged { value in
-                                        let newEndTime = max(cycleStartTime + 0.1, cycleEndTime + Double(value.translation.width / pixelsPerSecond))
-                                        onCycleRegionChanged(cycleStartTime, newEndTime)
-                                    }
-                            )
-                    }
-                )
-                .gesture(
-                    // Region drag area (middle)
-                    DragGesture()
-                        .onChanged { value in
-                            let deltaTime = Double(value.translation.width / pixelsPerSecond)
-                            let newStartTime = max(0, cycleStartTime + deltaTime)
-                            let cycleDuration = cycleEndTime - cycleStartTime
-                            let newEndTime = newStartTime + cycleDuration
-                            onCycleRegionChanged(newStartTime, newEndTime)
-                        }
-                )
-                .offset(x: startX)
-            
-            Spacer()
-        }
-        .frame(height: 40)
-        .clipped()
-    }
-}
-
-// MARK: - Zoom Controls View
-struct ZoomControlsView: View {
-    @Binding var horizontalZoom: Double
-    @Binding var verticalZoom: Double
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Spacer to align with track headers
-            Color.clear
-                .frame(width: 280)
-            
-            // Horizontal zoom control
-            HStack(spacing: 4) {
-                Image(systemName: "minus.magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.caption2)
-                
-                Slider(value: $horizontalZoom, in: 0.1...10.0, step: 0.1)
-                    .frame(width: 80)
-                    .accentColor(.blue)
-                
-                Image(systemName: "plus.magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.caption2)
-                
-                Text("\(String(format: "%.1f", horizontalZoom))x")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(width: 25, alignment: .leading)
-            }
-            
-            Divider()
-                .frame(height: 16)
-            
-            // Vertical zoom control
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up.and.down.text.horizontal")
-                    .foregroundColor(.secondary)
-                    .font(.caption2)
-                
-                Slider(value: $verticalZoom, in: 0.5...3.0, step: 0.1)
-                    .frame(width: 70)
-                    .accentColor(.green)
-                
-                Text("\(String(format: "%.1f", verticalZoom))x")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(width: 25, alignment: .leading)
-            }
-            
-            Spacer()
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color(NSColor.controlBackgroundColor))
-        .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color(NSColor.separatorColor)),
-            alignment: .bottom
-        )
     }
 }
