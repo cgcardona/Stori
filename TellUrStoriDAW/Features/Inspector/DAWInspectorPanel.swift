@@ -189,7 +189,6 @@ struct DAWInspectorPanel: View {
                 
                 InspectorSection(title: "Performance") {
                     VStack(spacing: 12) {
-                        InspectorField(label: "CPU Usage", value: "\(Int(audioEngine.cpuUsage * 100))%")
                         InspectorField(label: "Buffer Size", value: "\(project.bufferSize) samples")
                     }
                 }

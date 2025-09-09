@@ -17,7 +17,6 @@ class AudioEngine: ObservableObject {
     @Published var transportState: TransportState = .stopped
     @Published var currentPosition: PlaybackPosition = PlaybackPosition()
     @Published var isRecording: Bool = false
-    @Published var cpuUsage: Double = 0.0
     @Published var audioLevels: [Float] = []
     @Published var isCycleEnabled: Bool = false
     @Published var cycleStartTime: TimeInterval = 0.0
@@ -127,14 +126,7 @@ class AudioEngine: ObservableObject {
         // Check for cycle loop
         checkCycleLoop()
         
-        // Update CPU usage (simplified)
-        updateCPUUsage()
-    }
-    
-    private func updateCPUUsage() {
-        // This is a simplified CPU usage calculation
-        // In a real implementation, you'd measure actual audio processing load
-        cpuUsage = Double.random(in: 0.05...0.25) // Simulated 5-25% usage
+        // Position timer update complete
     }
     
     // MARK: - Project Management

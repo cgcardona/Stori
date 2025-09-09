@@ -310,17 +310,6 @@ struct DAWControlBar: View {
                     .frame(width: 1, height: 32)
                     .padding(.horizontal, 6)
                 
-                // CPU Usage
-                VStack(spacing: 1) {
-                    Text("\(Int(audioEngine.cpuUsage * 100))%")
-                        .font(.system(.caption, design: .monospaced))
-                        .fontWeight(.medium)
-                        .foregroundColor(cpuColor)
-                    Text("CPU")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .help("CPU Usage: \(Int(audioEngine.cpuUsage * 100))%")
                 
                 // More View Toggles
                 HStack(spacing: 6) {
@@ -367,17 +356,6 @@ struct DAWControlBar: View {
         )
     }
     
-    // MARK: - CPU Color
-    private var cpuColor: Color {
-        let usage = audioEngine.cpuUsage
-        if usage > 0.8 {
-            return .red
-        } else if usage > 0.6 {
-            return .orange
-        } else {
-            return .green
-        }
-    }
     
     // MARK: - Helper Methods
     private func setTempo(_ tempo: Double) {

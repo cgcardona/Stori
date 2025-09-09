@@ -42,6 +42,11 @@ struct MainDAWView: View {
     @State private var showingInspector = false
     @State private var showingMixer = false
     
+    // MARK: - Panel Size State
+    @State private var libraryWidth: CGFloat = 250
+    @State private var inspectorWidth: CGFloat = 300
+    @State private var mixerHeight: CGFloat = 200
+    
     // MARK: - Track Management
     private func addTrack(name: String? = nil) {
         let trackNumber = (projectManager.currentProject?.tracks.count ?? 0) + 1
@@ -199,9 +204,19 @@ struct MainDAWView: View {
             HStack(spacing: 0) {
                 // Left Panel: Library (when visible)
                 if showingLibrary {
-                    DAWLibraryPanel()
-                        .frame(width: 250)
-                        .transition(.move(edge: .leading))
+                    HStack(spacing: 0) {
+                        DAWLibraryPanel()
+                            .frame(width: libraryWidth)
+                        
+                        // Resize Handle
+                        ResizeHandle(
+                            orientation: .vertical,
+                            onDrag: { delta in
+                                libraryWidth = max(200, min(400, libraryWidth + delta))
+                            }
+                        )
+                    }
+                    .transition(.move(edge: .leading))
                 }
                 
                 // Center: Main DAW Content
@@ -264,25 +279,45 @@ struct MainDAWView: View {
                     
                     // Bottom area: Mixer panel (when visible)
                     if showingMixer {
-                        MixerView(
-                            project: projectManager.currentProject,
-                            audioEngine: audioEngine,
-                            projectManager: projectManager,
-                            selectedTrackId: $selectedTrackId
-                        )
-                        .frame(height: 300)
+                        VStack(spacing: 0) {
+                            // Resize Handle
+                            ResizeHandle(
+                                orientation: .horizontal,
+                                onDrag: { delta in
+                                    mixerHeight = max(150, min(400, mixerHeight - delta))
+                                }
+                            )
+                            
+                            MixerView(
+                                project: projectManager.currentProject,
+                                audioEngine: audioEngine,
+                                projectManager: projectManager,
+                                selectedTrackId: $selectedTrackId
+                            )
+                            .frame(height: mixerHeight)
+                        }
                         .transition(.move(edge: .bottom))
                     }
                 }
                 
                 // Right Panel: Inspector (when visible)
                 if showingInspector {
-                    DAWInspectorPanel(
-                        selectedTrackId: $selectedTrackId,
-                        project: projectManager.currentProject,
-                        audioEngine: audioEngine
-                    )
-                    .frame(width: 250)
+                    HStack(spacing: 0) {
+                        // Resize Handle
+                        ResizeHandle(
+                            orientation: .vertical,
+                            onDrag: { delta in
+                                inspectorWidth = max(250, min(500, inspectorWidth - delta))
+                            }
+                        )
+                        
+                        DAWInspectorPanel(
+                            selectedTrackId: $selectedTrackId,
+                            project: projectManager.currentProject,
+                            audioEngine: audioEngine
+                        )
+                        .frame(width: inspectorWidth)
+                    }
                     .transition(.move(edge: .trailing))
                 }
             }
@@ -889,6 +924,72 @@ struct ProjectRowView: View {
             return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
         } else {
             return "Just now"
+        }
+    }
+}
+
+// MARK: - Resizable Panel Handle
+struct ResizeHandle: View {
+    enum Orientation {
+        case horizontal, vertical
+    }
+    
+    let orientation: Orientation
+    let onDrag: (CGFloat) -> Void
+    
+    @State private var isHovered = false
+    @State private var isDragging = false
+    
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .background(
+                Rectangle()
+                    .fill(isHovered || isDragging ? Color.accentColor.opacity(0.6) : Color.clear)
+                    .animation(.easeInOut(duration: 0.15), value: isHovered)
+            )
+            .overlay(
+                Rectangle()
+                    .fill(isHovered || isDragging ? Color.white.opacity(0.8) : Color.clear)
+                    .frame(
+                        width: orientation == .vertical ? 2 : nil,
+                        height: orientation == .horizontal ? 2 : nil
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isHovered)
+            )
+            .frame(
+                width: orientation == .vertical ? 8 : nil,
+                height: orientation == .horizontal ? 8 : nil
+            )
+            .cursor(orientation == .vertical ? .resizeLeftRight : .resizeUpDown)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if !isDragging {
+                            isDragging = true
+                        }
+                        let delta = orientation == .vertical ? value.translation.width : value.translation.height
+                        onDrag(delta)
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+    }
+}
+
+// MARK: - Cursor Extension for Resize Handles
+extension View {
+    func cursor(_ cursor: NSCursor) -> some View {
+        self.onHover { isHovered in
+            if isHovered {
+                cursor.push()
+            } else {
+                NSCursor.pop()
+            }
         }
     }
 }
