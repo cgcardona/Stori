@@ -19,6 +19,9 @@ class TrackAudioNode {
     let eqNode: AVAudioUnitEQ
     let effectsChain: [AVAudioNode] = []
     
+    // MARK: - Professional Channel Strip
+    var channelStrip: ChannelStripNode?
+    
     // MARK: - Audio State
     private(set) var volume: Float
     private(set) var pan: Float
@@ -228,7 +231,32 @@ class TrackAudioNode {
     // MARK: - Playback Control
     func play() {
         if !playerNode.isPlaying {
+            // CRITICAL DIAGNOSTIC: Check connection state before playing
+            print("🔍 PLAYER PLAY ATTEMPT: Track \(id)")
+            print("   - Player node attached to engine: \(playerNode.engine != nil)")
+            
+            // Check OUTPUT connections (not inputs) - players are sources
+            guard let engine = playerNode.engine else {
+                print("   ❌ CRITICAL: Player node has NO ENGINE!")
+                return
+            }
+            
+            print("   - Engine running: \(engine.isRunning)")
+            print("   - Player attached to this engine: \(engine.attachedNodes.contains(playerNode))")
+            
+            // ChatGPT Fix: Check output connection points before play()
+            let outputConnections = engine.outputConnectionPoints(for: playerNode, outputBus: 0)
+            print("   - Player output connections: \(outputConnections.count)")
+            
+            guard !outputConnections.isEmpty else {
+                print("   ❌ CRITICAL: Player has NO OUTPUT CONNECTIONS - cannot play!")
+                print("   🔧 This indicates the audio graph was broken during a reconnection")
+                return
+            }
+            
+            // Safe to play - we have verified output connections exist
             playerNode.play()
+            print("   ✅ Player started successfully with \(outputConnections.count) output(s)")
         }
     }
     
