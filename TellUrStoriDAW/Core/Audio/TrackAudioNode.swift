@@ -19,8 +19,8 @@ class TrackAudioNode {
     let eqNode: AVAudioUnitEQ
     let effectsChain: [AVAudioNode] = []
     
-    // MARK: - Professional Channel Strip
-    var channelStrip: ChannelStripNode?
+    // MARK: - Professional Channel Strip (deprecated - using AVAudioConnectionPoint approach)
+    // var channelStrip: ChannelStripNode? // Removed - replaced by AVAudioConnectionPoint multi-destination
     
     // MARK: - Audio State
     private(set) var volume: Float

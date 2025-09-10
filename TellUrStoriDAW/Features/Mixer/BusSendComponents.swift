@@ -106,30 +106,12 @@ struct BusCreationMenu: View {
     @Binding var isPresented: Bool
     let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
     
-    @State private var selectedType: BusType = .reverb
     @State private var busName: String = ""
     
     var body: some View {
         VStack(spacing: 16) {
             Text("Create New Bus")
                 .font(.headline)
-            
-            // Bus Type Selection
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Bus Type")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 8) {
-                    ForEach([BusType.reverb, .delay, .chorus, .custom], id: \.self) { type in
-                        BusTypeButton(
-                            type: type,
-                            isSelected: selectedType == type,
-                            action: { selectedType = type }
-                        )
-                    }
-                }
-            }
             
             // Bus Name Input
             VStack(alignment: .leading, spacing: 8) {
@@ -141,6 +123,11 @@ struct BusCreationMenu: View {
                     .textFieldStyle(.roundedBorder)
             }
             
+            Text("Effects can be added to the bus after creation")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            
             // Action Buttons
             HStack(spacing: 12) {
                 Button("Cancel") {
@@ -149,12 +136,11 @@ struct BusCreationMenu: View {
                 .buttonStyle(.bordered)
                 
                 Button("Create Bus") {
-                    let finalName = busName.isEmpty ? defaultBusName(for: selectedType) : busName
-                    let _ = onCreateBus(selectedType, finalName)
+                    let finalName = busName.isEmpty ? "Bus" : busName
+                    let _ = onCreateBus(.custom, finalName)  // Use .custom as default generic type
                     isPresented = false
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(busName.isEmpty && selectedType == .custom)
             }
         }
         .padding(20)
@@ -162,21 +148,7 @@ struct BusCreationMenu: View {
         .cornerRadius(12)
         .shadow(radius: 10)
         .onAppear {
-            busName = defaultBusName(for: selectedType)
-        }
-        .onChange(of: selectedType) { _, newType in
-            if busName == defaultBusName(for: selectedType) || busName.isEmpty {
-                busName = defaultBusName(for: newType)
-            }
-        }
-    }
-    
-    private func defaultBusName(for type: BusType) -> String {
-        switch type {
-        case .reverb: return "Reverb"
-        case .delay: return "Delay"
-        case .chorus: return "Chorus"
-        case .custom: return ""
+            busName = "Bus"  // Simple default name
         }
     }
 }

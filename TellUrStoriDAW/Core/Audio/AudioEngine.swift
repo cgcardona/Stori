@@ -408,11 +408,26 @@ class AudioEngine: ObservableObject {
         engine.connect(busNode.getOutputNode(), to: mixer, format: deviceFormat)
         print("🎯 BUS SETUP: Connected bus output to mixer with device format: \(deviceFormat)")
         
-        // Apply bus settings
+        // Apply bus settings with defensive defaults for audibility
         busNode.inputGain = Float(bus.inputLevel)
         busNode.outputGain = Float(bus.outputLevel)
         busNode.isMuted = bus.isMuted
         busNode.isSolo = bus.isSolo
+        
+        // STEP 1: Force sane audible defaults while debugging reverb
+        busNode.isMuted = false          // ensure return isn't killed by model defaults
+        busNode.outputGain = 1.0         // louder than 0.75 while debugging audibility
+        busNode.inputGain = 1.0          // keep the send bus hot
+        print("🔊 BUS AUDIBILITY: Forced unmuted with input=1.0, output=1.0 for debugging")
+        
+        // STEP 2: Enable level monitoring to prove signal flow
+        busNode.startLevelMonitoring()
+        print("📊 BUS MONITORING: Level monitoring enabled for debugging")
+        
+        // Quick debug check after a moment
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            print("🔎 BUS LEVELS — in:\(busNode.inputLevel)  out:\(busNode.outputLevel)")
+        }
         
         print("🎛️ Created bus node: \(bus.name) (\(bus.type.displayName))")
         return busNode
@@ -427,6 +442,21 @@ class AudioEngine: ObservableObject {
         // Setup effects
         for effect in bus.effects {
             busNode.addEffect(effect)
+        }
+        
+        // STEP 1: Force sane audible defaults while debugging reverb
+        busNode.isMuted = false          // ensure return isn't killed by model defaults
+        busNode.outputGain = 1.0         // louder than 0.75 while debugging audibility
+        busNode.inputGain = 1.0          // keep the send bus hot
+        print("🔊 BUS AUDIBILITY: Forced unmuted with input=1.0, output=1.0 for debugging")
+        
+        // STEP 2: Enable level monitoring to prove signal flow
+        busNode.startLevelMonitoring()
+        print("📊 BUS MONITORING: Level monitoring enabled for debugging")
+        
+        // Quick debug check after a moment
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            print("🔎 BUS LEVELS — in:\(busNode.inputLevel)  out:\(busNode.outputLevel)")
         }
         
         // Wire the bus chain: input → effects → output
@@ -1451,6 +1481,48 @@ extension AudioEngine {
         }
         
         print("❄️ Track \(project.tracks[trackIndex].name) freeze: \(isFrozen)")
+    }
+    
+    // MARK: - Wet-Solo Debug Helper
+    
+    /// STEP 3: Wet-Solo functionality for instant audibility check
+    func enableWetSolo(trackId: UUID, enabled: Bool) {
+        guard let trackNode = trackNodes[trackId] else {
+            print("❌ WET-SOLO: Track node not found for ID: \(trackId)")
+            return
+        }
+        
+        // Get the main mixer destination for this track's pan node
+        guard let mixing = trackNode.panNode as? AVAudioMixing,
+              let mainDest = mixing.destination(forMixer: mixer, bus: 0) else {
+            print("❌ WET-SOLO: Could not get main destination for track \(trackId)")
+            return
+        }
+        
+        if enabled {
+            // Wet-solo ON: kill the dry branch for this track
+            mainDest.volume = 0.0
+            print("🔇 WET-SOLO ON: Muted dry signal for track \(trackId)")
+        } else {
+            // Wet-solo OFF: restore the dry branch for this track
+            mainDest.volume = 1.0
+            print("🔊 WET-SOLO OFF: Restored dry signal for track \(trackId)")
+        }
+    }
+    
+    /// Debug helper to check bus levels
+    func debugBusLevels(busId: UUID) {
+        guard let busNode = busNodes[busId] else {
+            print("❌ BUS DEBUG: Bus node not found for ID: \(busId)")
+            return
+        }
+        
+        print("🔎 BUS LEVELS DEBUG — Bus: \(busId)")
+        print("   Input Level: \(busNode.inputLevel)")
+        print("   Output Level: \(busNode.outputLevel)")
+        print("   Input Gain: \(busNode.inputGain)")
+        print("   Output Gain: \(busNode.outputGain)")
+        print("   Is Muted: \(busNode.isMuted)")
     }
     
     // MARK: - Transport Safe Jump

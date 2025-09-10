@@ -125,8 +125,10 @@ class BusAudioNode: ObservableObject {
             // Use AVAudioUnitReverb directly instead of generic AudioComponentDescription
             print("🔧 Creating AVAudioUnitReverb directly")
             let reverbUnit = AVAudioUnitReverb()
-            reverbUnit.loadFactoryPreset(.mediumHall)
-            reverbUnit.wetDryMix = 50 // Default 50% wet
+            // STEP 4: Use louder, more audible preset for testing
+            reverbUnit.loadFactoryPreset(.cathedral)  // More dramatic than mediumHall
+            reverbUnit.wetDryMix = 50 // Default 50% wet (will be overridden to 100% in applyReverbParameters)
+            print("🏰 REVERB PRESET: Using Cathedral preset for maximum audibility")
             return reverbUnit
             
         case .delay:
@@ -457,24 +459,44 @@ class BusAudioNode: ObservableObject {
     }
     
     // MARK: - Level Monitoring
+    private var inputTapInstalled = false
+    private var outputTapInstalled = false
+    
     func startLevelMonitoring() {
-        // Install taps for level monitoring
-        inputMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            Task { @MainActor in
-                self?.inputLevel = self?.calculateRMSLevel(buffer: buffer) ?? 0.0
+        // Install taps for level monitoring - check if already installed
+        if !inputTapInstalled {
+            inputMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+                Task { @MainActor in
+                    self?.inputLevel = self?.calculateRMSLevel(buffer: buffer) ?? 0.0
+                }
             }
+            inputTapInstalled = true
+            print("📊 INPUT TAP: Installed on bus input mixer")
         }
         
-        outputMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            Task { @MainActor in
-                self?.outputLevel = self?.calculateRMSLevel(buffer: buffer) ?? 0.0
+        if !outputTapInstalled {
+            outputMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+                Task { @MainActor in
+                    self?.outputLevel = self?.calculateRMSLevel(buffer: buffer) ?? 0.0
+                }
             }
+            outputTapInstalled = true
+            print("📊 OUTPUT TAP: Installed on bus output mixer")
         }
     }
     
     func stopLevelMonitoring() {
-        inputMixer.removeTap(onBus: 0)
-        outputMixer.removeTap(onBus: 0)
+        if inputTapInstalled {
+            inputMixer.removeTap(onBus: 0)
+            inputTapInstalled = false
+            print("📊 INPUT TAP: Removed from bus input mixer")
+        }
+        
+        if outputTapInstalled {
+            outputMixer.removeTap(onBus: 0)
+            outputTapInstalled = false
+            print("📊 OUTPUT TAP: Removed from bus output mixer")
+        }
     }
     
     private func calculateRMSLevel(buffer: AVAudioPCMBuffer) -> Float {
