@@ -18,7 +18,9 @@ struct BusSendControl: View {
     var body: some View {
         HStack(spacing: 4) {
             // Bus Type Icon
-            BusTypeIcon(type: bus.type)
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.blue)
                 .frame(width: 16, height: 16)
             
             // Send Level Knob
@@ -63,124 +65,165 @@ struct BusSendControl: View {
     }
     
     private var busTypeColor: Color {
-        switch bus.type {
-        case .reverb: return .blue
-        case .delay: return .green
-        case .chorus: return .purple
-        case .custom: return .orange
-        }
+        // Use a generic blue color for all buses since types are removed
+        return .blue
     }
 }
 
 // MARK: - Bus Type Icon Component
-struct BusTypeIcon: View {
-    let type: BusType
-    
-    var body: some View {
-        Image(systemName: iconName)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(iconColor)
-    }
-    
-    private var iconName: String {
-        switch type {
-        case .reverb: return "waveform.path.ecg"
-        case .delay: return "arrow.triangle.2.circlepath"
-        case .chorus: return "waveform.path.badge.plus"
-        case .custom: return "slider.horizontal.3"
-        }
-    }
-    
-    private var iconColor: Color {
-        switch type {
-        case .reverb: return .blue
-        case .delay: return .green
-        case .chorus: return .purple
-        case .custom: return .orange
-        }
-    }
-}
+// BusTypeIcon removed - using generic bus icon instead
 
-// MARK: - Bus Creation Menu Component
-struct BusCreationMenu: View {
+// MARK: - Professional Bus Creation Dialog
+struct ProfessionalBusCreationDialog: View {
     @Binding var isPresented: Bool
-    let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
+    let onCreateBus: (String) -> UUID
     
     @State private var busName: String = ""
+    @State private var isHovered = false
     
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Create New Bus")
-                .font(.headline)
+        VStack(spacing: 24) {
+            headerSection
             
-            // Bus Name Input
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Bus Name")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+            Divider()
+                .background(busGradient.opacity(0.3))
+            
+            configurationSection
+            
+            Divider()
+                .background(busGradient.opacity(0.3))
+            
+            actionButtonsSection
+        }
+        .padding(28)
+        .frame(width: 480)
+        .background(dialogBackground)
+        .onAppear {
+            busName = ""
+        }
+    }
+    
+    private var headerSection: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.title2)
+                    .foregroundStyle(busGradient)
                 
-                TextField("Enter bus name", text: $busName)
-                    .textFieldStyle(.roundedBorder)
+                Text("Create New Bus")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                Spacer()
             }
+            
+            Text("Add a new audio bus for effects processing and routing")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    
+    private var configurationSection: some View {
+        VStack(spacing: 20) {
+            busNameInput
             
             Text("Effects can be added to the bus after creation")
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            // Action Buttons
-            HStack(spacing: 12) {
-                Button("Cancel") {
-                    isPresented = false
-                }
-                .buttonStyle(.bordered)
-                
-                Button("Create Bus") {
-                    let finalName = busName.isEmpty ? "Bus" : busName
-                    let _ = onCreateBus(.custom, finalName)  // Use .custom as default generic type
-                    isPresented = false
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(20)
-        .background(Color(.controlBackgroundColor))
-        .cornerRadius(12)
-        .shadow(radius: 10)
-        .onAppear {
-            busName = "Bus"  // Simple default name
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-}
-
-// MARK: - Bus Type Button Component
-struct BusTypeButton: View {
-    let type: BusType
-    let isSelected: Bool
-    let action: () -> Void
     
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                BusTypeIcon(type: type)
-                    .frame(width: 24, height: 24)
-                
-                Text(type.displayName)
-                    .font(.caption)
-                    .fontWeight(.medium)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
-                    .stroke(
-                        isSelected ? Color.accentColor : Color.gray.opacity(0.3),
-                        lineWidth: isSelected ? 2 : 1
-                    )
-            )
+    private var busNameInput: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Bus Name")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.primary)
+            
+            TextField("Enter bus name", text: $busName)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.controlBackgroundColor))
+                        .stroke(busGradient.opacity(0.3), lineWidth: 1)
+                )
+                .font(.body)
+        }
+    }
+    
+    // busTypeSelection removed - buses are now generic
+    
+    private var actionButtonsSection: some View {
+        HStack(spacing: 16) {
+            cancelButton
+            createButton
+        }
+    }
+    
+    private var cancelButton: some View {
+        Button("Cancel") {
+            isPresented = false
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(.controlBackgroundColor))
+                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+        )
+        .foregroundColor(.secondary)
+    }
+    
+    private var createButton: some View {
+        Button(action: {
+            let finalName = busName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let busName = finalName.isEmpty ? "Bus" : finalName
+            let _ = onCreateBus(busName)
+            isPresented = false
+        }) {
+            Text("Create Bus")
+                .foregroundColor(.white)
+                .fontWeight(.medium)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(busGradient)
+                .shadow(color: Color.blue.opacity(0.3), radius: isHovered ? 6 : 3)
+        )
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovered = hovering
+            }
+        }
+    }
+    
+    private var dialogBackground: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .fill(Color(.windowBackgroundColor))
+            .stroke(busGradient.opacity(0.2), lineWidth: 1)
+            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 8)
+    }
+    
+    private var busGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.blue.opacity(0.8),
+                Color.purple.opacity(0.8),
+                Color.pink.opacity(0.8)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
@@ -190,7 +233,7 @@ struct SendSlot: View {
     let track: AudioTrack
     let availableBuses: [MixerBus]
     let audioEngine: AudioEngine  // Add AudioEngine reference
-    let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
+    let onCreateBus: (String) -> UUID  // Returns the created bus ID
     let onAssignBus: (UUID) -> Void
     
     @State private var showingBusMenu = false
@@ -218,7 +261,9 @@ struct SendSlot: View {
                     if let busId = assignedBusId,
                        let bus = availableBuses.first(where: { $0.id == busId }) {
                         // Show assigned bus
-                        BusTypeIcon(type: bus.type)
+                        Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.blue)
                             .frame(width: 8, height: 8)
                         
                         Text(bus.name)
@@ -269,8 +314,8 @@ struct SendSlot: View {
                     audioEngine.setupTrackSend(track.id, to: busId, level: sendLevel)
                     showingBusMenu = false
                 },
-                onCreateBus: { busType, busName in
-                    let newBusId = onCreateBus(busType, busName)
+                onCreateBus: { busName in
+                    let newBusId = onCreateBus(busName)
                     // Auto-assign the newly created bus to this send slot
                     assignedBusId = newBusId
                     onAssignBus(newBusId)
@@ -289,7 +334,7 @@ struct SendSlot: View {
 struct SendBusSelectionMenu: View {
     let availableBuses: [MixerBus]
     let onSelectBus: (UUID) -> Void
-    let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
+    let onCreateBus: (String) -> UUID  // Returns the created bus ID
     
     @State private var showingCreateBus = false
     
@@ -311,7 +356,9 @@ struct SendBusSelectionMenu: View {
                 ForEach(availableBuses) { bus in
                     Button(action: { onSelectBus(bus.id) }) {
                         HStack(spacing: 8) {
-                            BusTypeIcon(type: bus.type)
+                            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.blue)
                                 .frame(width: 16, height: 16)
                             
                             Text(bus.name)
@@ -355,15 +402,12 @@ struct SendBusSelectionMenu: View {
         .frame(minWidth: 200)
         .padding(.vertical, 8)
         .sheet(isPresented: $showingCreateBus) {
-            BusCreationMenu(
+            ProfessionalBusCreationDialog(
                 isPresented: $showingCreateBus,
-                onCreateBus: { busType, busName in
-                    let newBusId = onCreateBus(busType, busName)
-                    showingCreateBus = false
-                    return newBusId
+                onCreateBus: { busName in
+                    return onCreateBus(busName)
                 }
             )
-            .frame(minWidth: 400, minHeight: 300)
             .presentationDetents([.medium])
         }
     }
@@ -764,7 +808,7 @@ struct ReverbConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
-        print("🎛️ REVERB UI: Parameter '\(name)' changed to \(value)")
+        print("🎛️ REVERB UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
     
@@ -1286,12 +1330,12 @@ struct DelayConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("delayTime", $0) })
-                        TellUrStoriParameterKnob(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("feedback", $0) })
-                        TellUrStoriParameterKnob(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowCut", $0) })
-                        TellUrStoriParameterKnob(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highCut", $0) })
-                        TellUrStoriParameterKnob(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
-                        TellUrStoriParameterKnob(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("delayTime", $0) })
+                        TellUrStoriParameterSlider(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("feedback", $0) })
+                        TellUrStoriParameterSlider(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowCut", $0) })
+                        TellUrStoriParameterSlider(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highCut", $0) })
+                        TellUrStoriParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1324,6 +1368,7 @@ struct DelayConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ DELAY UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
 }
@@ -1372,12 +1417,12 @@ struct ChorusConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
-                        TellUrStoriParameterKnob(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
-                        TellUrStoriParameterKnob(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { updateParameter("voices", $0) })
-                        TellUrStoriParameterKnob(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { updateParameter("spread", $0) })
-                        TellUrStoriParameterKnob(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
-                        TellUrStoriParameterKnob(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
+                        TellUrStoriParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
+                        TellUrStoriParameterSlider(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { updateParameter("voices", $0) })
+                        TellUrStoriParameterSlider(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { updateParameter("spread", $0) })
+                        TellUrStoriParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1410,6 +1455,7 @@ struct ChorusConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ CHORUS UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
 }
@@ -1458,12 +1504,12 @@ struct CompressorConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0) })
-                        TellUrStoriParameterKnob(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0) })
-                        TellUrStoriParameterKnob(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0) })
-                        TellUrStoriParameterKnob(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0) })
-                        TellUrStoriParameterKnob(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0) })
-                        TellUrStoriParameterKnob(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0) })
+                        TellUrStoriParameterSlider(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0) })
+                        TellUrStoriParameterSlider(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0) })
+                        TellUrStoriParameterSlider(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0) })
+                        TellUrStoriParameterSlider(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0) })
+                        TellUrStoriParameterSlider(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0) })
+                        TellUrStoriParameterSlider(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1496,6 +1542,7 @@ struct CompressorConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ COMPRESSOR UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
 }
@@ -1544,12 +1591,12 @@ struct EQConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0) })
-                        TellUrStoriParameterKnob(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0) })
-                        TellUrStoriParameterKnob(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0) })
-                        TellUrStoriParameterKnob(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0) })
-                        TellUrStoriParameterKnob(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0) })
-                        TellUrStoriParameterKnob(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0) })
+                        TellUrStoriParameterSlider(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0) })
+                        TellUrStoriParameterSlider(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0) })
+                        TellUrStoriParameterSlider(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0) })
+                        TellUrStoriParameterSlider(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0) })
+                        TellUrStoriParameterSlider(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0) })
+                        TellUrStoriParameterSlider(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1582,6 +1629,7 @@ struct EQConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ EQ UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
 }
@@ -1628,10 +1676,10 @@ struct DistortionConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0) })
-                        TellUrStoriParameterKnob(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0) })
-                        TellUrStoriParameterKnob(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0) })
-                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0) })
+                        TellUrStoriParameterSlider(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0) })
+                        TellUrStoriParameterSlider(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0) })
+                        TellUrStoriParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1662,6 +1710,7 @@ struct DistortionConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ DISTORTION UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
 }
@@ -1708,9 +1757,9 @@ struct FilterConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0) })
-                        TellUrStoriParameterKnob(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0) })
-                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0) })
+                        TellUrStoriParameterSlider(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0) })
+                        TellUrStoriParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1746,8 +1795,10 @@ struct FilterConfigurationView: View {
         if name == "filterType" {
             // Convert filterType string to Double for audio engine
             let filterTypeDouble = filterType == "Low Pass" ? 0.0 : (filterType == "High Pass" ? 1.0 : 2.0)
+            print("🎛️ FILTER UPDATE: \(name) = \(filterType) (\(filterTypeDouble)) on bus '\(busName)' (effect ID: \(effect.id))")
             onParameterChange("filterType", filterTypeDouble)
         } else {
+            print("🎛️ FILTER UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
             onParameterChange(name, value)
         }
     }
@@ -1795,9 +1846,9 @@ struct ModulationConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterKnob(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
-                        TellUrStoriParameterKnob(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
-                        TellUrStoriParameterKnob(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        TellUrStoriParameterSlider(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
+                        TellUrStoriParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
+                        TellUrStoriParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1828,6 +1879,7 @@ struct ModulationConfigurationView: View {
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
+        print("🎛️ MODULATION UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
     }
 }
@@ -1944,16 +1996,14 @@ struct EffectHeaderBar: View {
     }
 }
 
-// MARK: - TellUrStori Parameter Knob Component
-struct TellUrStoriParameterKnob: View {
+// MARK: - TellUrStori Parameter Slider Component (Replaces Custom Knobs)
+struct TellUrStoriParameterSlider: View {
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
     let unit: String
     let gradientColors: [Color]
     let onChange: ((Double) -> Void)?
-    
-    @State private var isDragging = false
     
     init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
         self.title = title
@@ -1965,94 +2015,54 @@ struct TellUrStoriParameterKnob: View {
     }
     
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
+            // Parameter Title
             Text(title)
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
             
-            ZStack {
-                // Knob Background with Gradient Border
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            colors: gradientColors.map { $0.opacity(0.3) },
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 2
-                    )
-                    .frame(width: 60, height: 60)
+            // Stock Slider with Custom Styling
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ EFFECT PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ EFFECT PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        // Log parameter change when user finishes editing
+                        print("🎛️ EFFECT PARAM: \(title) = \(formatValue(value))\(unit) (range: \(range.lowerBound)-\(range.upperBound))")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .blue)
+                .frame(height: 20)
                 
-                // Knob Value Arc with Gradient
-                Circle()
-                    .trim(from: 0, to: CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound)) * 0.75)
-                    .stroke(
+                // Value Display
+                Text(formatValue(value) + unit)
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundStyle(
                         LinearGradient(
                             colors: gradientColors,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                    )
-                    .frame(width: 60, height: 60)
-                    .rotationEffect(.degrees(-135))
-                    .shadow(color: gradientColors[1].opacity(0.5), radius: isDragging ? 4 : 2)
-                
-                // Knob Indicator with Gradient
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: gradientColors,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
                     )
-                    .frame(width: 8, height: 8)
-                    .offset(y: -25)
-                    .rotationEffect(.degrees(-135 + (value - range.lowerBound) / (range.upperBound - range.lowerBound) * 270))
-                    .shadow(color: .black.opacity(0.3), radius: 2)
-                
-                // Center Dot
-                Circle()
-                    .fill(Color.primary)
-                    .frame(width: 6, height: 6)
-            }
-            .scaleEffect(isDragging ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDragging)
-            .gesture(
-                DragGesture()
-                    .onChanged { gesture in
-                        if !isDragging { isDragging = true }
-                        let center = CGPoint(x: 30, y: 30)
-                        let angle = atan2(gesture.location.y - center.y, gesture.location.x - center.x)
-                        let degrees = angle * 180 / .pi + 135
-                        let normalizedDegrees = max(0, min(270, degrees))
-                        let normalizedValue = normalizedDegrees / 270
-                        let newValue = range.lowerBound + (range.upperBound - range.lowerBound) * normalizedValue
-                        value = newValue
-                        onChange?(newValue)
-                    }
-                    .onEnded { _ in
-                        isDragging = false
-                    }
-            )
-            
-            Text(formatValue(value) + unit)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: gradientColors,
-                        startPoint: .leading,
-                        endPoint: .trailing
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.black.opacity(0.1))
                     )
-                )
+            }
         }
+        .frame(minWidth: 80)
     }
     
     private func formatValue(_ value: Double) -> String {
         if unit == "s" {
+            return String(format: "%.1f", value)
+        } else if unit == "ms" && value < 10 {
             return String(format: "%.1f", value)
         } else {
             return String(format: "%.0f", value)
@@ -2167,5 +2177,3 @@ struct TellUrStoriToggleStyle: ToggleStyle {
         }
     }
 }
-
-// MARK: - BusType Extension (displayName now defined in AudioModels.swift)

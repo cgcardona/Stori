@@ -360,42 +360,7 @@ struct PlaybackPosition: Codable {
     }
 }
 
-// MARK: - Bus and Effects Models
-
-// Bus Type
-enum BusType: String, Codable, CaseIterable {
-    case reverb = "reverb"
-    case delay = "delay"
-    case chorus = "chorus"
-    case custom = "custom"
-    
-    var displayName: String {
-        switch self {
-        case .reverb: return "Reverb"
-        case .delay: return "Delay"
-        case .chorus: return "Chorus"
-        case .custom: return "Custom"
-        }
-    }
-    
-    var iconName: String {
-        switch self {
-        case .reverb: return "waveform.path.ecg"
-        case .delay: return "arrow.triangle.2.circlepath"
-        case .chorus: return "waveform.path.badge.plus"
-        case .custom: return "slider.horizontal.3"
-        }
-    }
-    
-    var color: Color {
-        switch self {
-        case .reverb: return .blue
-        case .delay: return .green
-        case .chorus: return .purple
-        case .custom: return .gray
-        }
-    }
-}
+// MARK: - Effects Models
 
 // Effect Type
 enum EffectType: String, Codable, CaseIterable {
@@ -494,7 +459,6 @@ enum EffectType: String, Codable, CaseIterable {
 struct MixerBus: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
-    let type: BusType
     var inputLevel: Double
     var outputLevel: Double
     var effects: [BusEffect]
@@ -504,13 +468,11 @@ struct MixerBus: Identifiable, Codable, Equatable {
     
     init(
         name: String,
-        type: BusType,
         inputLevel: Double = 0.0,
         outputLevel: Double = 0.75
     ) {
         self.id = UUID()
         self.name = name
-        self.type = type
         self.inputLevel = inputLevel
         self.outputLevel = outputLevel
         self.effects = []

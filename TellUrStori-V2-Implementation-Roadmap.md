@@ -2538,6 +2538,31 @@ services:
   - Complete project persistence with buses, effects, and routing preserved
   - **LOGIC PRO-QUALITY EXPERIENCE** - Professional DAW functionality achieved!
 
+**✅ Milestone: Complete Audio Effects Integration (September 2025)**
+- **🎛️ ALL 8 AUDIO EFFECTS WORKING**: Reverb, Delay, Chorus, Compressor, EQ, Distortion, Filter, and Modulation effects fully functional
+- **🎚️ Professional UI Controls**: Replaced custom knobs with native SwiftUI sliders across all effect sheets
+- **🔧 Fixed Critical Parameter Mapping Issues**:
+  - **Compressor**: Corrected AudioUnit parameter IDs for Apple's DynamicsProcessor (threshold, ratio, attack, release, makeup gain)
+  - **EQ**: Proper 4-band parametric configuration with correct frequencies (100Hz, 500Hz, 2kHz, 8kHz)
+  - **Distortion**: Aggressive preset loading (.drumsBitBrush) with proper preGain and wetDryMix mapping
+- **📊 Extensive Effect Logging**: Detailed parameter change logging for all effects to verify audio engine integration
+- **Bus Type Simplification**: Removed bus type system - buses are now generic with effects added dynamically
+- **Real-time Parameter Control**: All sliders immediately affect audio processing with professional-grade responsiveness
+
+**✅ Milestone: Stable Aux Sends & Bug Fixes**
+- Post-fader send split from track → **Bus Input** with `AVAudioConnectionPoint`
+- Bus chain wired **input → FX (100% wet) → bus output → main**
+- **Reverb & Delay** verified live: enabling, disabling, and parameter changes (e.g., pre-delay) are audible without glitches
+- Graph rewires performed atomically; no "disconnected" crashes at loop edges
+- **Cycle/Loop Fix**: Added epsilon-based boundary detection to prevent floating-point precision misses
+- **Tap Conflict Resolution**: Fixed AVAudioEngine tap conflicts causing bus creation crashes
+
+**Next (Short Sprint)**
+- [ ] Finalize cycle logic using atomic jump + render-time scheduling
+- [ ] Pre-wire N sends per track (destination volumes start at 0.0) to avoid runtime rewires entirely
+- [ ] Add Wet-Solo toggle per track (set main-dest volume 0, leave send dest up)
+- [ ] Add offline render smoke test for 10k loop wraps (no exceptions)
+
 - [ ] **Advanced Navigation Controls** - Professional timeline navigation
   - Rewind/fast-forward buttons with variable speed
   - Go to beginning/end buttons

@@ -38,8 +38,8 @@ struct MixerView: View {
                                 audioEngine: audioEngine,
                                 projectManager: projectManager,
                                 onSelect: { selectedTrackId = track.id },
-                                onCreateBus: { type, name in
-                                    createBus(type: type, name: name)
+                                onCreateBus: { name in
+                                    createBus(name: name)
                                 },
                                 onRemoveBus: { busId in
                                     removeBus(busId)
@@ -80,9 +80,12 @@ struct MixerView: View {
             // Level monitoring cleanup handled by individual channel strips
         }
         .sheet(isPresented: $showingBusCreation) {
-            BusCreationView { busName, busType in
-                createBus(type: busType, name: busName)
-            }
+            ProfessionalBusCreationDialog(
+                isPresented: $showingBusCreation,
+                onCreateBus: { busName in
+                    return createBus(name: busName)
+                }
+            )
         }
     }
     
@@ -105,8 +108,8 @@ struct MixerView: View {
         )
     }
     
-    private func createBus(type: BusType, name: String) -> UUID {
-        let newBus = MixerBus(name: name, type: type)
+    private func createBus(name: String) -> UUID {
+        let newBus = MixerBus(name: name)
         
         // Add to project and save
         if var currentProject = project {
@@ -146,7 +149,7 @@ struct TrackChannelStrip: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
-    let onCreateBus: (BusType, String) -> UUID  // Returns the created bus ID
+    let onCreateBus: (String) -> UUID  // Returns the created bus ID
     let onRemoveBus: (UUID) -> Void
     
     @State private var showingSends = false
@@ -247,7 +250,7 @@ struct TrackChannelStrip: View {
     private func showBusCreationMenu() {
         // For now, create a default reverb bus
         // TODO: Show proper bus creation menu
-        onCreateBus(.reverb, "Reverb \(buses.count + 1)")
+        onCreateBus("Bus \(buses.count + 1)")
     }
     
     private func removeBusSend(_ busId: UUID) {
@@ -392,10 +395,10 @@ struct BusChannelStrip: View {
         VStack(spacing: 4) {
             // Bus Icon
             RoundedRectangle(cornerRadius: 4)
-                .fill(bus.type.color)
+                .fill(Color.blue)
                 .frame(width: 20, height: 20)
                 .overlay(
-                    Image(systemName: bus.type.iconName)
+                    Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 8))
                         .foregroundColor(.white)
                 )
@@ -807,62 +810,6 @@ struct VerticalFader: View {
     }
 }
 
-// Bus Creation View
-struct BusCreationView: View {
-    @Environment(\.dismiss) private var dismiss
-    let onCreate: (String, BusType) -> Void
-    
-    @State private var busName = ""
-    @State private var selectedBusType: BusType = .reverb
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Create New Bus")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Bus Name")
-                    .font(.headline)
-                
-                TextField("Enter bus name", text: $busName)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Bus Type")
-                    .font(.headline)
-                
-                Picker("Bus Type", selection: $selectedBusType) {
-                    ForEach(BusType.allCases, id: \.self) { type in
-                        HStack {
-                            Image(systemName: type.iconName)
-                            Text(type.displayName)
-                        }
-                        .tag(type)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-            
-            HStack(spacing: 16) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .buttonStyle(.bordered)
-                
-                Button("Create Bus") {
-                    onCreate(busName.isEmpty ? selectedBusType.displayName : busName, selectedBusType)
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(busName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(24)
-        .frame(width: 400)
-    }
-}
 
 // MARK: - Supporting Models
 // MixerBus, BusEffect, BusType and EffectType are now defined in AudioModels.swift

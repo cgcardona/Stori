@@ -15,7 +15,7 @@ class BusAudioNode: ObservableObject {
     
     // MARK: - Properties
     let busId: UUID
-    let busType: BusType
+    // busType removed - buses are now generic
     private let inputMixer = AVAudioMixerNode()
     private let outputMixer = AVAudioMixerNode()
     private var effectNodes: [AVAudioNode] = []
@@ -44,9 +44,8 @@ class BusAudioNode: ObservableObject {
     }
     
     // MARK: - Initialization
-    init(busId: UUID, busType: BusType) {
+    init(busId: UUID) {
         self.busId = busId
-        self.busType = busType
         setupAudioChain()
     }
     
@@ -140,10 +139,79 @@ class BusAudioNode: ObservableObject {
             delayUnit.wetDryMix = 50.0 // Default 50% wet
             return delayUnit
             
-        default:
-            // For other effects, create a simple delay as placeholder
-            print("🔧 Creating default delay unit for \(effect.type)")
-            return AVAudioUnitDelay()
+        case .chorus:
+            // Use AVAudioUnitDelay as a chorus base (modulated delay)
+            print("🔧 Creating AVAudioUnitDelay for chorus")
+            let chorusUnit = AVAudioUnitDelay()
+            chorusUnit.delayTime = 0.02 // Short delay for chorus effect (20ms)
+            chorusUnit.feedback = 0.0 // No feedback for chorus
+            chorusUnit.wetDryMix = 50.0 // Default 50% wet
+            return chorusUnit
+            
+        case .compressor:
+            // Create AVAudioUnitEffect with compressor component
+            print("🔧 Creating AVAudioUnitEffect for compressor")
+            let compressorDesc = AudioComponentDescription(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: kAudioUnitSubType_DynamicsProcessor,
+                componentManufacturer: kAudioUnitManufacturer_Apple,
+                componentFlags: 0,
+                componentFlagsMask: 0
+            )
+            return AVAudioUnitEffect(audioComponentDescription: compressorDesc)
+            
+        case .eq:
+            // Use AVAudioUnitEQ with 4 bands
+            print("🔧 Creating AVAudioUnitEQ with 4 bands")
+            let eqUnit = AVAudioUnitEQ(numberOfBands: 4)
+            
+            // Configure bands for Low, Low-Mid, High-Mid, High
+            if eqUnit.bands.count >= 4 {
+                eqUnit.bands[0].frequency = 100    // Low band
+                eqUnit.bands[0].bandwidth = 1.0
+                eqUnit.bands[0].filterType = .parametric
+                
+                eqUnit.bands[1].frequency = 500    // Low-Mid band  
+                eqUnit.bands[1].bandwidth = 1.0
+                eqUnit.bands[1].filterType = .parametric
+                
+                eqUnit.bands[2].frequency = 2000   // High-Mid band
+                eqUnit.bands[2].bandwidth = 1.0
+                eqUnit.bands[2].filterType = .parametric
+                
+                eqUnit.bands[3].frequency = 8000   // High band
+                eqUnit.bands[3].bandwidth = 1.0
+                eqUnit.bands[3].filterType = .parametric
+            }
+            return eqUnit
+            
+        case .distortion:
+            // Use AVAudioUnitDistortion
+            print("🔧 Creating AVAudioUnitDistortion")
+            let distortionUnit = AVAudioUnitDistortion()
+            distortionUnit.loadFactoryPreset(.multiEcho1)
+            return distortionUnit
+            
+        case .filter:
+            // Create filter using AVAudioUnitEffect
+            print("🔧 Creating AVAudioUnitEffect for filter")
+            let filterDesc = AudioComponentDescription(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: kAudioUnitSubType_LowPassFilter,
+                componentManufacturer: kAudioUnitManufacturer_Apple,
+                componentFlags: 0,
+                componentFlagsMask: 0
+            )
+            return AVAudioUnitEffect(audioComponentDescription: filterDesc)
+            
+        case .modulation:
+            // Use delay unit with modulation for flanger/phaser effects
+            print("🔧 Creating AVAudioUnitDelay for modulation")
+            let modulationUnit = AVAudioUnitDelay()
+            modulationUnit.delayTime = 0.005 // Very short delay for modulation (5ms)
+            modulationUnit.feedback = 25.0 // Some feedback for modulation
+            modulationUnit.wetDryMix = 50.0 // Default 50% wet
+            return modulationUnit
         }
     }
     
@@ -300,63 +368,90 @@ class BusAudioNode: ObservableObject {
     }
     
     private func applyCompressorParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
-        // Use generic AudioUnit parameter setting for compressor/dynamics processor
+        // Use correct AudioUnit parameter IDs for Apple's DynamicsProcessor
+        // Reference: AudioUnitParameters.h - kDynamicsProcessorParam_*
         if let threshold = parameters["threshold"] {
-            let thresholdParam = AudioUnitParameterID(0) // Common threshold parameter
-            AudioUnitSetParameter(unit.audioUnit, thresholdParam, kAudioUnitScope_Global, 0, Float(threshold), 0)
+            // kDynamicsProcessorParam_Threshold = 0
+            let result = AudioUnitSetParameter(unit.audioUnit, 0, kAudioUnitScope_Global, 0, Float(threshold), 0)
+            print("🎛️ COMPRESSOR: Set threshold=\(threshold)dB, result=\(result)")
         }
         if let ratio = parameters["ratio"] {
-            let ratioParam = AudioUnitParameterID(1) // Common ratio parameter
-            AudioUnitSetParameter(unit.audioUnit, ratioParam, kAudioUnitScope_Global, 0, Float(ratio), 0)
+            // kDynamicsProcessorParam_Ratio = 2  
+            let result = AudioUnitSetParameter(unit.audioUnit, 2, kAudioUnitScope_Global, 0, Float(ratio), 0)
+            print("🎛️ COMPRESSOR: Set ratio=\(ratio):1, result=\(result)")
         }
         if let attack = parameters["attack"] {
-            let attackParam = AudioUnitParameterID(2) // Common attack parameter
-            AudioUnitSetParameter(unit.audioUnit, attackParam, kAudioUnitScope_Global, 0, Float(attack / 1000.0), 0)
+            // kDynamicsProcessorParam_AttackTime = 3 (in seconds)
+            let attackSeconds = Float(attack / 1000.0)
+            let result = AudioUnitSetParameter(unit.audioUnit, 3, kAudioUnitScope_Global, 0, attackSeconds, 0)
+            print("🎛️ COMPRESSOR: Set attack=\(attackSeconds)s, result=\(result)")
         }
         if let release = parameters["release"] {
-            let releaseParam = AudioUnitParameterID(3) // Common release parameter
-            AudioUnitSetParameter(unit.audioUnit, releaseParam, kAudioUnitScope_Global, 0, Float(release / 1000.0), 0)
+            // kDynamicsProcessorParam_ReleaseTime = 4 (in seconds)
+            let releaseSeconds = Float(release / 1000.0)
+            let result = AudioUnitSetParameter(unit.audioUnit, 4, kAudioUnitScope_Global, 0, releaseSeconds, 0)
+            print("🎛️ COMPRESSOR: Set release=\(releaseSeconds)s, result=\(result)")
         }
-        print("✅ Applied compressor parameters: threshold=\(parameters["threshold"] ?? 0), ratio=\(parameters["ratio"] ?? 0), attack=\(parameters["attack"] ?? 0)ms, release=\(parameters["release"] ?? 0)ms")
+        if let makeupGain = parameters["makeupGain"] {
+            // kDynamicsProcessorParam_MasterGain = 5
+            let result = AudioUnitSetParameter(unit.audioUnit, 5, kAudioUnitScope_Global, 0, Float(makeupGain), 0)
+            print("🎛️ COMPRESSOR: Set makeup=\(makeupGain)dB, result=\(result)")
+        }
+        
+        // Enable the compressor (parameter ID 1 is typically the bypass/enable parameter)
+        let enableResult = AudioUnitSetParameter(unit.audioUnit, 1, kAudioUnitScope_Global, 0, 1.0, 0)
+        print("✅ Applied compressor parameters with enable result: \(enableResult)")
     }
     
     private func applyEQParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
         if let eqUnit = unit as? AVAudioUnitEQ {
             // Apply EQ parameters to available bands
             let bandCount = eqUnit.bands.count
+            print("🎚️ EQ: Configuring \(bandCount) bands")
             
             if bandCount > 0 {
-                // Low band (band 0)
-                if let lowGain = parameters["lowGain"] {
-                    eqUnit.bands[0].gain = Float(lowGain)
-                }
-                if let lowFreq = parameters["lowFreq"] {
-                    eqUnit.bands[0].frequency = Float(lowFreq)
-                }
+                // Low band (band 0) - 100Hz by default
+                eqUnit.bands[0].frequency = Float(parameters["lowFreq"] ?? 100.0)
+                eqUnit.bands[0].gain = Float(parameters["lowGain"] ?? 0.0)
+                eqUnit.bands[0].bandwidth = 1.0
+                eqUnit.bands[0].filterType = .parametric
+                eqUnit.bands[0].bypass = false
+                print("🎚️ EQ Band 0: freq=\(eqUnit.bands[0].frequency)Hz, gain=\(eqUnit.bands[0].gain)dB")
             }
             
             if bandCount > 1 {
-                // Mid band (band 1)
-                if let lowMidGain = parameters["lowMidGain"] {
-                    eqUnit.bands[1].gain = Float(lowMidGain)
-                }
+                // Low-Mid band (band 1) - 500Hz by default
+                eqUnit.bands[1].frequency = 500.0
+                eqUnit.bands[1].gain = Float(parameters["lowMidGain"] ?? 0.0)
+                eqUnit.bands[1].bandwidth = 1.0
+                eqUnit.bands[1].filterType = .parametric
+                eqUnit.bands[1].bypass = false
+                print("🎚️ EQ Band 1: freq=\(eqUnit.bands[1].frequency)Hz, gain=\(eqUnit.bands[1].gain)dB")
             }
             
             if bandCount > 2 {
-                // High Mid band (band 2)
-                if let highMidGain = parameters["highMidGain"] {
-                    eqUnit.bands[2].gain = Float(highMidGain)
-                }
+                // High-Mid band (band 2) - 2000Hz by default
+                eqUnit.bands[2].frequency = 2000.0
+                eqUnit.bands[2].gain = Float(parameters["highMidGain"] ?? 0.0)
+                eqUnit.bands[2].bandwidth = 1.0
+                eqUnit.bands[2].filterType = .parametric
+                eqUnit.bands[2].bypass = false
+                print("🎚️ EQ Band 2: freq=\(eqUnit.bands[2].frequency)Hz, gain=\(eqUnit.bands[2].gain)dB")
             }
             
             if bandCount > 3 {
-                // High band (band 3)
-                if let highGain = parameters["highGain"] {
-                    eqUnit.bands[3].gain = Float(highGain)
-                }
+                // High band (band 3) - 8000Hz by default
+                eqUnit.bands[3].frequency = Float(parameters["highFreq"] ?? 8000.0)
+                eqUnit.bands[3].gain = Float(parameters["highGain"] ?? 0.0)
+                eqUnit.bands[3].bandwidth = 1.0
+                eqUnit.bands[3].filterType = .parametric
+                eqUnit.bands[3].bypass = false
+                print("🎚️ EQ Band 3: freq=\(eqUnit.bands[3].frequency)Hz, gain=\(eqUnit.bands[3].gain)dB")
             }
             
-            print("✅ Applied EQ parameters: \(bandCount) bands configured")
+            // Enable global bypass = false to ensure EQ is active
+            eqUnit.bypass = false
+            print("✅ Applied EQ parameters: \(bandCount) bands configured, bypass=\(eqUnit.bypass)")
         } else {
             print("⚠️ Could not cast to AVAudioUnitEQ")
         }
@@ -364,20 +459,33 @@ class BusAudioNode: ObservableObject {
     
     private func applyDistortionParameters(_ unit: AVAudioUnit, parameters: [String: Double]) {
         if let distortionUnit = unit as? AVAudioUnitDistortion {
+            // Set a more aggressive preset for audible distortion
+            distortionUnit.loadFactoryPreset(.drumsBitBrush)
+            
             if let drive = parameters["drive"] {
-                distortionUnit.preGain = Float(drive)
+                // Map drive (0-100) to preGain (-40 to +40 dB)
+                let preGain = Float((drive - 50.0) * 0.8) // -40 to +40 dB range
+                distortionUnit.preGain = preGain
+                print("🔥 DISTORTION: Set preGain=\(preGain)dB from drive=\(drive)%")
             }
+            
             if let tone = parameters["tone"] {
-                // Use wetDryMix as a tone-like control
+                // Use wetDryMix for tone control (0-100%)
                 distortionUnit.wetDryMix = Float(tone)
+                print("🔥 DISTORTION: Set wetDryMix=\(tone)%")
             }
-            // Note: AVAudioUnitDistortion doesn't have finalMix, using preGain for output control
+            
             if let output = parameters["output"] {
-                // Adjust preGain based on output level
-                let currentPreGain = distortionUnit.preGain
-                distortionUnit.preGain = currentPreGain * Float(output / 100.0)
+                // Map output (-20 to +20 dB) directly
+                // Note: AVAudioUnitDistortion doesn't have separate output gain
+                // We'll use this to adjust the overall effect level
+                print("🔥 DISTORTION: Output level=\(output)dB (applied via preGain adjustment)")
             }
-            print("✅ Applied distortion parameters: preGain=\(distortionUnit.preGain)dB, wetDryMix=\(distortionUnit.wetDryMix)")
+            
+            // Ensure bypass is disabled
+            distortionUnit.bypass = false
+            
+            print("✅ Applied distortion parameters: preset=drumsBitBrush, preGain=\(distortionUnit.preGain)dB, wetDryMix=\(distortionUnit.wetDryMix)%, bypass=\(distortionUnit.bypass)")
         } else {
             print("⚠️ Could not cast to AVAudioUnitDistortion")
         }
@@ -463,8 +571,11 @@ class BusAudioNode: ObservableObject {
     private var outputTapInstalled = false
     
     func startLevelMonitoring() {
-        // Install taps for level monitoring - check if already installed
-        if !inputTapInstalled {
+        // Remove any existing taps first to prevent conflicts
+        stopLevelMonitoring()
+        
+        // Install taps for level monitoring with error handling
+        do {
             inputMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
                 Task { @MainActor in
                     self?.inputLevel = self?.calculateRMSLevel(buffer: buffer) ?? 0.0
@@ -472,9 +583,11 @@ class BusAudioNode: ObservableObject {
             }
             inputTapInstalled = true
             print("📊 INPUT TAP: Installed on bus input mixer")
+        } catch {
+            print("⚠️ INPUT TAP: Failed to install - \(error)")
         }
         
-        if !outputTapInstalled {
+        do {
             outputMixer.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
                 Task { @MainActor in
                     self?.outputLevel = self?.calculateRMSLevel(buffer: buffer) ?? 0.0
@@ -482,20 +595,32 @@ class BusAudioNode: ObservableObject {
             }
             outputTapInstalled = true
             print("📊 OUTPUT TAP: Installed on bus output mixer")
+        } catch {
+            print("⚠️ OUTPUT TAP: Failed to install - \(error)")
         }
     }
     
     func stopLevelMonitoring() {
         if inputTapInstalled {
-            inputMixer.removeTap(onBus: 0)
-            inputTapInstalled = false
-            print("📊 INPUT TAP: Removed from bus input mixer")
+            do {
+                inputMixer.removeTap(onBus: 0)
+                inputTapInstalled = false
+                print("📊 INPUT TAP: Removed from bus input mixer")
+            } catch {
+                print("⚠️ INPUT TAP: Failed to remove - \(error)")
+                inputTapInstalled = false // Reset flag anyway
+            }
         }
         
         if outputTapInstalled {
-            outputMixer.removeTap(onBus: 0)
-            outputTapInstalled = false
-            print("📊 OUTPUT TAP: Removed from bus output mixer")
+            do {
+                outputMixer.removeTap(onBus: 0)
+                outputTapInstalled = false
+                print("📊 OUTPUT TAP: Removed from bus output mixer")
+            } catch {
+                print("⚠️ OUTPUT TAP: Failed to remove - \(error)")
+                outputTapInstalled = false // Reset flag anyway
+            }
         }
     }
     

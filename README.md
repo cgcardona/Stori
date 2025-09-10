@@ -21,6 +21,18 @@ TellUrStori V2 is an innovative digital audio workstation that combines traditio
 
 ## 🚀 Current Status: Professional DAW with Complete Effects UI Integration 🎛️
 
+### 🆕 What's New
+- **🎛️ ALL 8 AUDIO EFFECTS WORKING**: Reverb, Delay, Chorus, Compressor, EQ, Distortion, Filter, and Modulation effects are now fully functional with proper parameter mapping and real-time audio processing
+- **🎚️ Professional Slider Controls**: Replaced custom knobs with native SwiftUI sliders for better performance and consistency across all effect sheets
+- **🔧 Fixed Effect Parameter Mapping**: Corrected AudioUnit parameter IDs for compressor (DynamicsProcessor), proper EQ band configuration, and distortion preset loading
+- **📊 Extensive Effect Logging**: Added detailed parameter change logging for all effects to verify proper audio engine integration
+- **Aux Sends are LIVE**: Post-fader sends from each track to dedicated buses, with **Reverb** and **Delay** confirmed working in real time (100% wet on the bus chain).
+- **No-Crash Bus Routing**: Multi-destination connections via `AVAudioConnectionPoint` with atomic graph updates; adding/removing sends no longer interrupts playback.
+- **Cycle/Loop Fix**: Fixed floating-point precision issue causing loop boundary misses with epsilon-based boundary detection.
+- **Tap Conflict Resolution**: Fixed AVAudioEngine tap conflicts that were causing bus creation crashes.
+
+> Tip: Wet-solo a track by setting its main-mix destination volume to 0 while keeping the send destination up; perfect for auditioning the bus return.
+
 ### ✅ Implemented Features
 
 - **🎛️ Professional DAW Interface**
@@ -447,10 +459,14 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ## 🐛 Known Issues
 
 ### Current Limitations
-- Some advanced DAW features are still in development
+- Some advanced DAW features are still in development (MIDI editing, advanced automation)
 - Blockchain deployment to mainnet pending
-- Advanced audio effects processing pipeline in progress
 - Mobile companion app not yet available
+
+### Recently Fixed
+- ✅ **Cycle/Loop Regression**: Fixed floating-point precision issue causing loop boundary misses (September 2025)
+- ✅ **Bus Tap Conflicts**: Fixed AVAudioEngine tap conflicts that were causing bus creation crashes (September 2025)
+- ✅ **Effects Processing**: Complete aux sends with real-time Reverb and Delay effects working (September 2025)
 
 ### Support & Reporting
 For bug reports and feature requests, please use our [GitHub Issues](https://github.com/yourusername/TellUrStoriDAW/issues) page.

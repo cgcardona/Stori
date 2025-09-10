@@ -38,6 +38,11 @@ class AudioEngine: ObservableObject {
     private var positionTimer: Timer?
     private var transportFrozen: Bool = false
     
+    // MARK: - Cycle Loop Constants
+    private let cycleEpsilon: TimeInterval = 0.002 // ~2ms safety for floating-point drift
+    private var lastCycleJumpTime: TimeInterval = 0 // Prevent rapid cycle re-triggering
+    private let cycleCooldown: TimeInterval = 0.1 // 100ms cooldown between cycle jumps
+    
     // MARK: - Initialization
     init() {
         setupAudioEngine()
@@ -390,7 +395,7 @@ class AudioEngine: ObservableObject {
     }
     
     private func createBusNode(for bus: MixerBus) -> BusAudioNode {
-        let busNode = BusAudioNode(busId: bus.id, busType: bus.type)
+        let busNode = BusAudioNode(busId: bus.id)
         
         // Ensure engine is running before attaching nodes
         if !engine.isRunning {
@@ -429,7 +434,7 @@ class AudioEngine: ObservableObject {
             print("🔎 BUS LEVELS — in:\(busNode.inputLevel)  out:\(busNode.outputLevel)")
         }
         
-        print("🎛️ Created bus node: \(bus.name) (\(bus.type.displayName))")
+        print("🎛️ Created bus node: \(bus.name)")
         return busNode
     }
     
@@ -1404,11 +1409,17 @@ class AudioEngine: ObservableObject {
         }
         
         let currentTime = currentPosition.timeInterval
+        let currentSystemTime = CACurrentMediaTime()
         
-        // Check if we've reached the cycle end point
+        // Prevent rapid re-triggering with cooldown
+        if currentSystemTime - lastCycleJumpTime < cycleCooldown {
+            return
+        }
         
-        if currentTime >= cycleEndTime {
-            print("🔄 LOOPING! Cycling back to start: \(cycleStartTime)s")
+        // Check if we've reached the cycle end point with epsilon for floating-point safety
+        if currentTime >= (cycleEndTime - cycleEpsilon) {
+            print("🔄 LOOPING! Cycling back to start: \(cycleStartTime)s (current: \(currentTime)s, end: \(cycleEndTime)s)")
+            lastCycleJumpTime = currentSystemTime
             transportSafeJump(to: cycleStartTime)
         }
     }
@@ -1548,7 +1559,10 @@ extension AudioEngine {
         }
         print("🚀 SAFE JUMP: All players stopped and reset")
         
-        // 3) (Re)compute currentPosition and schedule
+        // 3) Reset timing variables and recompute currentPosition
+        self.startTime = CACurrentMediaTime() // Reset start time to now
+        self.pausedTime = startTime // Set paused time to the jump target
+        
         currentPosition = PlaybackPosition(
             timeInterval: startTime,
             tempo: currentProject?.tempo ?? 120,
