@@ -72,6 +72,13 @@ class BusAudioNode: ObservableObject {
     }
     
     // MARK: - Effect Management
+    func getEnabledEffectUnits() -> [AVAudioUnit] {
+        return effectUnits.compactMap { (effectId, unit) -> AVAudioUnit? in
+            guard let effect = effects[effectId], effect.isEnabled else { return nil }
+            return unit
+        }
+    }
+    
     func addEffect(_ effect: BusEffect) {
         Task { @MainActor in
             guard let effectUnit = createEffectUnit(for: effect) else {
@@ -216,20 +223,14 @@ class BusAudioNode: ObservableObject {
         if let reverbUnit = unit as? AVAudioUnitReverb {
             print("✅ Successfully cast to AVAudioUnitReverb")
             
-            // Apply wet/dry mix
-            if let wetLevel = parameters["wetLevel"] {
-                reverbUnit.wetDryMix = Float(wetLevel)
-                print("🎛️ Set wetDryMix to: \(reverbUnit.wetDryMix)")
-            }
+            // ChatGPT Fix: Aux sends should be 100% wet - control send amount via destination volume
+            reverbUnit.wetDryMix = 100.0
+            print("🎛️ CHATGPT FIX: Set reverb to 100% wet (aux sends should have no dry signal)")
+            print("🎚️ Send amount controlled by AVAudioMixingDestination.volume, not wetDryMix")
             
-            // Apply room size (maps to reverb size parameter)
-            if let roomSize = parameters["roomSize"] {
-                // AVAudioUnitReverb doesn't have direct room size, but we can use presets
-                // For now, we'll adjust the wet/dry mix based on room size
-                let adjustedWet = Float((parameters["wetLevel"] ?? 30.0) * (roomSize / 100.0))
-                reverbUnit.wetDryMix = min(100.0, adjustedWet)
-                print("🎛️ Adjusted wetDryMix based on room size: \(reverbUnit.wetDryMix)")
-            }
+            // Apply other reverb parameters (room size, decay time, etc.)
+            // Note: AVAudioUnitReverb has limited parameter control
+            // The wet/dry balance is now controlled by the send level, not the reverb unit
             
             // Note: AVAudioUnitReverb has limited parameter control
             // For more advanced reverb, we'd need custom AudioUnit or third-party

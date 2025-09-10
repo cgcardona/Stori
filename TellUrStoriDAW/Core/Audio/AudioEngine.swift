@@ -36,6 +36,7 @@ class AudioEngine: ObservableObject {
     
     // MARK: - Timer for position updates
     private var positionTimer: Timer?
+    private var transportFrozen: Bool = false
     
     // MARK: - Initialization
     init() {
@@ -51,9 +52,11 @@ class AudioEngine: ObservableObject {
     
     // MARK: - Audio Engine Setup
     private func setupAudioEngine() {
-        // Connect mixer to output
+        // Connect mixer to output with explicit device format
         engine.attach(mixer)
-        engine.connect(mixer, to: engine.outputNode, format: nil)
+        let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
+        engine.connect(mixer, to: engine.outputNode, format: deviceFormat)
+        print("🎯 MASTER SETUP: Using device format: \(deviceFormat)")
         
         // Set default master volume to 60%
         mixer.outputVolume = 0.6
@@ -106,8 +109,8 @@ class AudioEngine: ObservableObject {
     }
     
     private func updatePosition() {
-        guard transportState.isPlaying else { 
-            // print("⏸️ Not playing, skipping position update")
+        guard transportState.isPlaying, !transportFrozen else { 
+            // print("⏸️ Not playing or transport frozen, skipping position update")
             return 
         }
         
@@ -278,10 +281,18 @@ class AudioEngine: ObservableObject {
         
         // Connect the audio chain: player -> EQ -> volume -> pan -> main mixer
         do {
+            // ChatGPT Fix: Use format negotiation inside graph, device format only at boundaries
+            let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
+            print("🎯 TRACK SETUP: Using format negotiation (nil) inside graph, device format at boundary")
+            print("   Device format: \(deviceFormat)")
+            
+            // Let AVAudioEngine negotiate formats inside the graph
             engine.connect(playerNode, to: eqNode, format: nil)
             engine.connect(eqNode, to: volumeNode, format: nil)
             engine.connect(volumeNode, to: panNode, format: nil)
-            engine.connect(panNode, to: mixer, format: nil)
+            
+            // Only constrain the final hop to device format
+            engine.connect(panNode, to: mixer, format: deviceFormat)
             print("Successfully created and connected track node with EQ for: \(track.name)")
         } catch {
             print("Failed to connect audio nodes: \(error)")
@@ -392,8 +403,10 @@ class AudioEngine: ObservableObject {
         engine.attach(busNode.getInputNode())
         engine.attach(busNode.getOutputNode())
         
-        // Connect bus output to main mixer
-        engine.connect(busNode.getOutputNode(), to: mixer, format: nil)
+        // Connect bus output to main mixer with device format
+        let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
+        engine.connect(busNode.getOutputNode(), to: mixer, format: deviceFormat)
+        print("🎯 BUS SETUP: Connected bus output to mixer with device format: \(deviceFormat)")
         
         // Apply bus settings
         busNode.inputGain = Float(bus.inputLevel)
@@ -415,6 +428,9 @@ class AudioEngine: ObservableObject {
         for effect in bus.effects {
             busNode.addEffect(effect)
         }
+        
+        // Wire the bus chain: input → effects → output
+        rebuildBusChain(busNode)
     }
     
     func removeBus(withId busId: UUID) {
@@ -440,47 +456,247 @@ class AudioEngine: ObservableObject {
         }
         print("✅ AUDIO ENGINE: Found bus node, calling updateEffect...")
         busNode.updateEffect(effect)
+        
+        // Rebuild the bus chain after effect update
+        rebuildBusChain(busNode)
     }
     
     func addEffectToBus(_ busId: UUID, effect: BusEffect) {
         guard let busNode = busNodes[busId] else { return }
         busNode.addEffect(effect)
+        
+        // Rebuild the bus chain after adding effect
+        rebuildBusChain(busNode)
     }
     
     func removeEffectFromBus(_ busId: UUID, effectId: UUID) {
         guard let busNode = busNodes[busId] else { return }
         busNode.removeEffect(withId: effectId)
+        
+        // Rebuild the bus chain after removing effect
+        rebuildBusChain(busNode)
     }
     
     // MARK: - Track Send Management
-    private var trackSendNodes: [String: AVAudioMixerNode] = [:]  // Key: "trackId-busId"
+    private var trackSendIds: [String: UUID] = [:]  // Key: "trackId-busId" -> sendId
+    
+    // MARK: - Safe Graph Mutation (ChatGPT's Critical Section Pattern)
+    private func modifyGraphSafely(_ work: () throws -> Void) rethrows {
+        // ChatGPT Fix: Suspend all timers and transport during graph mutation
+        print("🛡️ SAFE MUTATION: Freezing transport and timers...")
+        
+        let wasRunning = engine.isRunning
+        let wasPlaying = transportState.isPlaying
+        
+        // 1) Freeze transport callbacks - prevent position updates and cycle checks
+        transportFrozen = true
+        positionTimer?.invalidate()
+        
+        // 2) Pause engine + stop all players
+        if wasRunning {
+            engine.pause()
+            print("🛡️ SAFE MUTATION: Engine paused")
+        }
+        
+        // Stop all player nodes to prevent scheduling conflicts
+        for node in engine.attachedNodes {
+            if let playerNode = node as? AVAudioPlayerNode, playerNode.isPlaying {
+                playerNode.stop()
+            }
+        }
+        
+        // 3) Perform the graph mutation atomically
+        try work()
+        
+        // 4) Prepare and restart engine
+        engine.prepare()
+        if wasRunning {
+            do {
+                try engine.start()
+                print("🛡️ SAFE MUTATION: Engine restarted successfully")
+            } catch {
+                print("❌ SAFE MUTATION: Failed to restart engine: \(error)")
+            }
+        }
+        
+        // 5) Reschedule all active regions and restart transport
+        if wasPlaying {
+            print("🛡️ SAFE MUTATION: Rescheduling active regions after graph change...")
+            // Restart playback immediately - the engine is already prepared
+            playFromPosition(currentPosition.timeInterval)
+        }
+        
+        // 6) Restart position timer and unfreeze transport
+        setupPositionTimer()
+        transportFrozen = false
+        print("🛡️ SAFE MUTATION: Transport and timers restored")
+    }
     
     func setupTrackSend(_ trackId: UUID, to busId: UUID, level: Double) {
-        // TEMPORARILY DISABLED: Auxiliary sends are causing crashes
-        // Focus on getting basic audio playback working first
+        print("🚀 CONNECTION POINTS: Setting up track \(trackId) to bus \(busId) at level \(level)")
         
-        print("⚠️ SEND DISABLED: Track \(trackId) to bus \(busId) - sends temporarily disabled to prevent crashes")
-        print("🔧 TODO: Implement safe auxiliary sends in future update")
+        guard let trackNode = trackNodes[trackId],
+              let busNode = busNodes[busId] else { 
+            print("❌ Track or bus node not found: track=\(trackId), bus=\(busId)")
+            return 
+        }
         
-        // For now, just store the send configuration without creating audio connections
         let sendKey = "\(trackId)-\(busId)"
-        trackSendNodes[sendKey] = AVAudioMixerNode() // Placeholder
+        
+        // Use ChatGPT's safe graph mutation pattern
+        modifyGraphSafely {
+            // Get the device format for consistency (same as master and tracks)
+            let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
+            print("🎯 SEND SETUP: Using device format: \(deviceFormat)")
+            
+            // Get the send mixer (create if needed)
+            let sendMixer = busNode.getInputNode()
+            
+            // CHATGPT'S BREAKTHROUGH: Use AVAudioConnectionPoint for multi-destination
+            let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: 0)
+            let sendConnectionPoint = AVAudioConnectionPoint(node: sendMixer, bus: 0)
+            
+            print("🔗 NATIVE MULTI-DESTINATION: Creating connection points...")
+            print("   - Main: \(mixer) bus 0")
+            print("   - Send: \(sendMixer) bus 0")
+            
+            // Disconnect current output (this is safe because we reconnect atomically)
+            engine.disconnectNodeOutput(trackNode.panNode)
+            print("   ⚡ Disconnected pan node output")
+            
+            // ATOMIC RECONNECTION: Connect to multiple destinations simultaneously
+            // ChatGPT Fix: Pin the split to device format to prevent 44.1k islands
+            engine.connect(
+                trackNode.panNode, 
+                to: [mainConnectionPoint, sendConnectionPoint], 
+                fromBus: 0, 
+                format: deviceFormat
+            )
+            print("   ✅ ATOMIC MULTI-CONNECT: Pan → [Main + Send] completed!")
+            
+            // CHATGPT'S SEND LEVEL CONTROL: Use AVAudioMixingDestination
+            if let mixing = trackNode.panNode as? AVAudioMixing,
+               let destination = mixing.destination(forMixer: sendMixer, bus: 0) {
+                destination.volume = Float(level)
+                print("   🎚️ MIXING DESTINATION: Set send level to \(level)")
+            } else {
+                print("   ⚠️ Could not set mixing destination volume")
+            }
+            
+            // Store send for future updates
+            trackSendIds[sendKey] = UUID() // Generate a unique ID for this send
+        }
+        
+        print("🎉 CHATGPT SOLUTION COMPLETE:")
+        print("   - Method: Native AVAudioConnectionPoint multi-destination")
+        print("   - Send Control: AVAudioMixingDestination volume")
+        print("   - Safety: Atomic reconnection with engine pause/resume")
+        print("   - Format: Consistent device format (\(engine.outputNode.inputFormat(forBus: 0).sampleRate)Hz)")
+        print("🚀 MAKE IT SO! ✨")
+        
     }
     
     
     func updateTrackSendLevel(_ trackId: UUID, busId: UUID, level: Double) {
-        // TEMPORARILY DISABLED: Auxiliary sends are causing crashes
-        print("⚠️ SEND LEVEL DISABLED: Track \(trackId) to bus \(busId) level \(level) - sends temporarily disabled")
+        let sendKey = "\(trackId)-\(busId)"
+        guard let _ = trackSendIds[sendKey],
+              let trackNode = trackNodes[trackId],
+              let busNode = busNodes[busId] else {
+            print("❌ CONNECTION POINTS: Send not found for update")
+            return
+        }
+        
+        // CHATGPT'S SEND LEVEL CONTROL: Use AVAudioMixingDestination
+        let sendMixer = busNode.getInputNode()
+        
+        if let mixing = trackNode.panNode as? AVAudioMixing,
+           let destination = mixing.destination(forMixer: sendMixer, bus: 0) {
+            destination.volume = Float(level)
+            print("🎚️ MIXING DESTINATION: Updated send level to \(level)")
+        } else {
+            print("⚠️ Could not update mixing destination volume")
+        }
+    }
+    
+    func removeTrackSend(_ trackId: UUID, from busId: UUID) {
+        let sendKey = "\(trackId)-\(busId)"
+        
+        guard let _ = trackSendIds[sendKey],
+              let trackNode = trackNodes[trackId] else {
+            print("❌ CONNECTION POINTS: Send not found for removal")
+            return
+        }
+        
+        // Use safe graph mutation for removal
+        modifyGraphSafely {
+            let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
+            
+            // Reconnect to main mixer only (removes the send connection)
+            let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: 0)
+            
+            engine.disconnectNodeOutput(trackNode.panNode)
+            engine.connect(
+                trackNode.panNode,
+                to: [mainConnectionPoint],
+                fromBus: 0,
+                format: deviceFormat
+            )
+        }
+        
+        trackSendIds.removeValue(forKey: sendKey)
+        print("🗑️ CONNECTION POINTS: Removed send from track \(trackId) to bus \(busId)")
+    }
+    
+    private func rebuildBusChain(_ bus: BusAudioNode) {
+        print("🔧 REBUILD BUS CHAIN: Wiring input → effects → output for bus")
+        
+        let inNode = bus.getInputNode()
+        let outNode = bus.getOutputNode()
+        let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
+        
+        // Get enabled effect units from the bus
+        let enabledUnits = bus.getEnabledEffectUnits()
+        
+        // Disconnect input node first
+        engine.disconnectNodeOutput(inNode)
+        
+        if enabledUnits.isEmpty {
+            // Direct connection: input → output
+            engine.connect(inNode, to: outNode, format: deviceFormat)
+            print("🔧 BUS CHAIN: Direct input → output (no effects)")
+        } else {
+            // Attach any units not yet in the engine
+            for unit in enabledUnits where unit.engine == nil {
+                engine.attach(unit)
+            }
+            
+            // Chain connection: input → effect1 → effect2 → ... → output
+            engine.connect(inNode, to: enabledUnits[0], format: deviceFormat)
+            
+            // Connect effects in sequence
+            for i in 0..<(enabledUnits.count - 1) {
+                engine.disconnectNodeOutput(enabledUnits[i])
+                engine.connect(enabledUnits[i], to: enabledUnits[i + 1], format: deviceFormat)
+            }
+            
+            // Connect last effect to output
+            engine.disconnectNodeOutput(enabledUnits.last!)
+            engine.connect(enabledUnits.last!, to: outNode, format: deviceFormat)
+            
+            print("🔧 BUS CHAIN: input → \(enabledUnits.count) effects → output")
+        }
     }
     
     private func clearAllBuses() {
         print("🧹 Clearing all bus nodes...")
         
-        // Clear all send connections first
-        for (sendKey, sendNode) in trackSendNodes {
-            if sendKey.contains("-") && !sendKey.contains("splitter") {
-                engine.disconnectNodeInput(sendNode)
-                engine.detach(sendNode)
+        // Clear all send connections first (professional channel strips handle this)
+        for (sendKey, _) in trackSendIds {
+            let components = sendKey.split(separator: "-")
+            if components.count == 2,
+               let trackId = UUID(uuidString: String(components[0])),
+               let busId = UUID(uuidString: String(components[1])) {
+                removeTrackSend(trackId, from: busId)
             }
         }
         
@@ -503,8 +719,8 @@ class AudioEngine: ObservableObject {
         
         busNodes.removeAll()
         
-        // Clear send nodes (keep splitters for now)
-        trackSendNodes = trackSendNodes.filter { $0.key.contains("splitter") }
+        // Clear send IDs (professional channel strips handle cleanup)
+        trackSendIds.removeAll()
         
         print("All bus nodes cleared")
     }
@@ -602,7 +818,7 @@ class AudioEngine: ObservableObject {
         
         // Now start all scheduled nodes simultaneously for perfect sync
         for playerNode in scheduledNodes {
-            playerNode.play() // Start immediately
+            safePlay(playerNode) // Use ChatGPT's safe play guard
         }
         
         print("🎵 Started \(scheduledNodes.count) tracks simultaneously")
@@ -661,7 +877,7 @@ class AudioEngine: ObservableObject {
                 )
                 
                 // Start playback on this specific track's player node
-                playerNode.play()
+                safePlay(playerNode)
                 
                 print("🎵 Scheduled region '\(region.displayName)' on track '\(trackNode.id)' from \(offsetInFile)s")
             }
@@ -1045,25 +1261,17 @@ class AudioEngine: ObservableObject {
         
         print("🎯 Seeking to position: \(String(format: "%.2f", newTime))s, wasPlaying=\(wasPlaying)")
         
-        // Stop all current playback
         if wasPlaying {
-            pause()
-        }
-        
-        // Update position
-        currentPosition = PlaybackPosition(
-            timeInterval: newTime,
-            tempo: currentProject?.tempo ?? 120,
-            timeSignature: currentProject?.timeSignature ?? .fourFour
-        )
-        
-        // Update timer tracking variables to keep position calculation in sync
-        pausedTime = newTime
-        startTime = CACurrentMediaTime()
-        
-        // If we were playing, resume playback from the new position
-        if wasPlaying {
-            playFromPosition(newTime)
+            // Use transport-safe jump for atomic seek during playback
+            transportSafeJump(to: newTime)
+        } else {
+            // Simple position update when paused
+            pausedTime = newTime
+            currentPosition = PlaybackPosition(
+                timeInterval: newTime,
+                tempo: currentProject?.tempo ?? 120,
+                timeSignature: currentProject?.timeSignature ?? .fourFour
+            )
         }
         
         print("🎵 Seeked to position: \(currentTimeString)")
@@ -1160,13 +1368,18 @@ class AudioEngine: ObservableObject {
             return 
         }
         
+        guard !transportFrozen else {
+            // print("🔄 Transport frozen, skipping cycle check")
+            return
+        }
+        
         let currentTime = currentPosition.timeInterval
         
         // Check if we've reached the cycle end point
         
         if currentTime >= cycleEndTime {
             print("🔄 LOOPING! Cycling back to start: \(cycleStartTime)s")
-            seekToPosition(cycleStartTime)
+            transportSafeJump(to: cycleStartTime)
         }
     }
 }
@@ -1238,5 +1451,111 @@ extension AudioEngine {
         }
         
         print("❄️ Track \(project.tracks[trackIndex].name) freeze: \(isFrozen)")
+    }
+    
+    // MARK: - Transport Safe Jump
+    
+    /// ChatGPT's transport-safe jump for atomic cycle transitions
+    private func transportSafeJump(to startTime: TimeInterval) {
+        print("🚀 TRANSPORT SAFE JUMP: Jumping to \(startTime)s")
+        
+        // 1) Freeze callbacks
+        transportFrozen = true
+        positionTimer?.invalidate()
+        
+        let wasRunning = engine.isRunning
+        engine.pause()
+        print("🚀 SAFE JUMP: Engine paused for atomic jump")
+        
+        // 2) Stop & reset players so they're clean for re-schedule
+        for node in engine.attachedNodes {
+            if let p = node as? AVAudioPlayerNode {
+                p.stop()
+                p.reset() // <-- important at loop edges
+            }
+        }
+        print("🚀 SAFE JUMP: All players stopped and reset")
+        
+        // 3) (Re)compute currentPosition and schedule
+        currentPosition = PlaybackPosition(
+            timeInterval: startTime,
+            tempo: currentProject?.tempo ?? 120,
+            timeSignature: currentProject?.timeSignature ?? .fourFour
+        )
+        
+        engine.prepare()
+        if wasRunning { 
+            do {
+                try engine.start()
+                print("🚀 SAFE JUMP: Engine restarted")
+            } catch {
+                print("❌ SAFE JUMP: Failed to restart engine: \(error)")
+            }
+        }
+        
+        // 4) Start everyone at next render tick (avoid mid-cycle start)
+        // Slight host-time offset (~5ms) is enough to dodge the timing window
+        let hostStart = mach_absolute_time() + UInt64(5_000_000) // ~5 ms in ns
+        let hostTime = AVAudioTime(hostTime: hostStart)
+        
+        for track in currentProject?.tracks ?? [] {
+            guard let trackNode = trackNodes[track.id] else { continue }
+            do {
+                try trackNode.scheduleFromPosition(startTime, audioRegions: track.regions)
+                trackNode.playerNode.play(at: hostTime)
+                print("🚀 SAFE JUMP: Scheduled track \(track.name) at host time")
+            } catch {
+                print("❌ SAFE JUMP: Failed to schedule track \(track.name): \(error)")
+            }
+        }
+        
+        // 5) Unfreeze
+        setupPositionTimer()
+        transportFrozen = false
+        print("🚀 SAFE JUMP: Transport unfrozen, jump complete")
+    }
+    
+    // MARK: - Safe Play Guard
+    
+    /// ChatGPT's safe play guard - ensures player has output connections before playing
+    private func safePlay(_ player: AVAudioPlayerNode) {
+        // Check if player is attached to engine and engine is running
+        guard player.engine != nil else {
+            print("⛔️ SAFE PLAY: Player not attached to engine - cannot play!")
+            return
+        }
+        
+        guard engine.isRunning else {
+            print("⛔️ SAFE PLAY: Engine not running - cannot play!")
+            return
+        }
+        
+        // Additional check: verify the player is in our attached nodes
+        guard engine.attachedNodes.contains(player) else {
+            print("⛔️ SAFE PLAY: Player not in engine's attached nodes - cannot play!")
+            return
+        }
+        
+        // If we have active sends, add extra safety check
+        if !trackSendIds.isEmpty {
+            print("🔗 SAFE PLAY: Active sends detected, using extra caution...")
+            // Check if player has valid output connections before playing
+            let outputConnections = engine.outputConnectionPoints(for: player, outputBus: 0)
+            guard !outputConnections.isEmpty else {
+                print("❌ SAFE PLAY: Player has no output connections with sends active - cannot play!")
+                return
+            }
+            print("✅ SAFE PLAY: Player has \(outputConnections.count) output connections with sends - safe to play")
+        } else {
+            print("✅ SAFE PLAY: Player attached and engine running - safe to play")
+        }
+        
+        // Play immediately without async dispatch
+        do {
+            player.play()
+            print("✅ SAFE PLAY: Player started successfully")
+        } catch {
+            print("❌ SAFE PLAY: Failed to start player: \(error)")
+        }
     }
 }
