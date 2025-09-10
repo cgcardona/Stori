@@ -265,9 +265,9 @@ struct MainDAWView: View {
                             }
                         }
                         
-                        // Working Timeline with track creation
+                        // Professional Timeline with enhanced track headers and editor
                         ScrollView(.horizontal) {
-                            TimelineView(
+                            ProfessionalTimelineView(
                                 project: projectManager.currentProject,
                                 audioEngine: audioEngine,
                                 projectManager: projectManager,
