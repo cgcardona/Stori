@@ -40,7 +40,11 @@ struct ProfessionalTimelineView: View {
                     timelineEditorArea
                 }
             } else {
-                EmptyTimelineView(onCreateProject: onCreateProject, onOpenProject: onOpenProject)
+                EmptyTimelineView(
+                    onCreateProject: onCreateProject, 
+                    onOpenProject: onOpenProject, 
+                    projectManager: projectManager
+                )
             }
         }
         .frame(minHeight: 300)

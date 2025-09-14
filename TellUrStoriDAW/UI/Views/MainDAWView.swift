@@ -116,7 +116,7 @@ struct MainDAWView: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("TellUrStoriDAW")
+                Text(projectManager.currentProject?.name ?? "TellUrStoriDAW")
                     .font(.headline)
                     .foregroundColor(.primary)
             }
@@ -251,9 +251,9 @@ struct MainDAWView: View {
                             }
                             .frame(height: 40)
                             
-                            // Cycle overlay over timeline ruler
+                            // Interactive cycle overlay over timeline ruler
                             if audioEngine.isCycleEnabled {
-                                CycleOverlayView(
+                                InteractiveCycleOverlay(
                                     cycleStartTime: audioEngine.cycleStartTime,
                                     cycleEndTime: audioEngine.cycleEndTime,
                                     horizontalZoom: horizontalZoom,
@@ -489,38 +489,6 @@ struct TimelineRulerView: View {
     }
 }
 
-// MARK: - Cycle Overlay View
-struct CycleOverlayView: View {
-    let cycleStartTime: TimeInterval
-    let cycleEndTime: TimeInterval
-    let horizontalZoom: Double
-    let onCycleRegionChanged: (TimeInterval, TimeInterval) -> Void
-    
-    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
-    
-    var body: some View {
-        let startX = CGFloat(cycleStartTime) * pixelsPerSecond
-        let endX = CGFloat(cycleEndTime) * pixelsPerSecond
-        let width = endX - startX
-        
-        HStack(spacing: 0) {
-            // Cycle region background and handles
-            Rectangle()
-                .fill(Color.yellow.opacity(0.3))
-                .frame(width: width, height: 40)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.yellow, lineWidth: 2)
-                        .frame(width: width, height: 40)
-                )
-                .offset(x: startX)
-            
-            Spacer()
-        }
-        .frame(height: 40)
-        .clipped()
-    }
-}
 
 // MARK: - Supporting Views
 struct NewProjectView: View {
@@ -733,11 +701,24 @@ struct NewProjectView: View {
         
         // Add a small delay for better UX
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            projectManager.createNewProject(
-                name: projectName.trimmingCharacters(in: .whitespacesAndNewlines),
-                tempo: tempo
-            )
-            dismiss()
+            do {
+                try projectManager.createNewProject(
+                    name: projectName.trimmingCharacters(in: .whitespacesAndNewlines),
+                    tempo: tempo
+                )
+                dismiss()
+            } catch {
+                isCreating = false
+                // Show error message to user
+                if let projectError = error as? ProjectError {
+                    // You could show an alert here or set an error state
+                    print("Project creation error: \(projectError.localizedDescription)")
+                    // For now, we'll just print the error
+                    // In a production app, you'd want to show this to the user
+                } else {
+                    print("Unexpected error creating project: \(error)")
+                }
+            }
         }
     }
     
@@ -751,11 +732,111 @@ struct NewProjectView: View {
     }
 }
 
+// MARK: - Reusable Recent Projects List
+struct RecentProjectsListView: View {
+    @ObservedObject var projectManager: ProjectManager
+    let onProjectSelected: ((AudioProject) -> Void)?
+    let showHeader: Bool
+    let compactMode: Bool
+    
+    @State private var showingDeleteAlert = false
+    @State private var projectToDelete: AudioProject?
+    
+    init(
+        projectManager: ProjectManager, 
+        onProjectSelected: ((AudioProject) -> Void)? = nil,
+        showHeader: Bool = false,
+        compactMode: Bool = false
+    ) {
+        self.projectManager = projectManager
+        self.onProjectSelected = onProjectSelected
+        self.showHeader = showHeader
+        self.compactMode = compactMode
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            if showHeader {
+                // Header
+                HStack {
+                    Text("Recent Projects")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(Color(NSColor.windowBackgroundColor))
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(Color(NSColor.separatorColor)),
+                    alignment: .bottom
+                )
+            }
+            
+            // Projects List
+            if projectManager.recentProjects.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: compactMode ? "clock" : "folder.badge.plus")
+                        .font(.system(size: compactMode ? 32 : 48))
+                        .foregroundColor(.secondary)
+                    
+                    Text("No Recent Projects")
+                        .font(compactMode ? .title3 : .headline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                    
+                    Text(compactMode ? "Your recently opened projects will appear here" : "Create a new project to get started")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: compactMode ? 8 : 1) {
+                        ForEach(projectManager.recentProjects) { project in
+                            ProjectRowView(
+                                project: project,
+                                compactMode: compactMode,
+                                onSelect: {
+                                    onProjectSelected?(project)
+                                },
+                                onDelete: {
+                                    projectToDelete = project
+                                    showingDeleteAlert = true
+                                }
+                            )
+                        }
+                    }
+                    .padding(compactMode ? 16 : 0)
+                }
+                .background(Color(compactMode ? .clear : NSColor.controlBackgroundColor))
+            }
+        }
+        .onAppear {
+            projectManager.loadRecentProjects()
+        }
+        .alert("Delete Project", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let project = projectToDelete {
+                    projectManager.deleteProject(project)
+                }
+            }
+        } message: {
+            if let project = projectToDelete {
+                Text("Are you sure you want to delete \"\(project.name)\"? This action cannot be undone.")
+            }
+        }
+    }
+}
+
 struct ProjectBrowserView: View {
     @ObservedObject var projectManager: ProjectManager
     @Environment(\.dismiss) private var dismiss
-    @State private var showingDeleteAlert = false
-    @State private var projectToDelete: AudioProject?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -783,102 +864,71 @@ struct ProjectBrowserView: View {
                 alignment: .bottom
             )
             
-            // Projects List
-            if projectManager.recentProjects.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    
-                    Text("No Recent Projects")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                    
-                    Text("Create a new project to get started")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(projectManager.recentProjects) { project in
-                            ProjectRowView(
-                                project: project,
-                                onSelect: {
-                                    projectManager.loadProject(project)
-                                    dismiss()
-                                },
-                                onDelete: {
-                                    projectToDelete = project
-                                    showingDeleteAlert = true
-                                }
-                            )
-                        }
-                    }
-                }
-                .background(Color(NSColor.controlBackgroundColor))
-            }
+            // Use the reusable component
+            RecentProjectsListView(
+                projectManager: projectManager,
+                onProjectSelected: { project in
+                    projectManager.loadProject(project)
+                    dismiss()
+                },
+                showHeader: false,
+                compactMode: false
+            )
         }
         .frame(width: 600, height: 350)
         .background(Color(NSColor.windowBackgroundColor))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
-        .onAppear {
-            projectManager.loadRecentProjects()
-        }
-        .alert("Delete Project", isPresented: $showingDeleteAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                if let project = projectToDelete {
-                    projectManager.deleteProject(project)
-                }
-            }
-        } message: {
-            if let project = projectToDelete {
-                Text("Are you sure you want to delete \"\(project.name)\"? This action cannot be undone.")
-            }
-        }
     }
 }
 
 // MARK: - Project Row View
 struct ProjectRowView: View {
     let project: AudioProject
+    let compactMode: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
     
     @State private var isHovered = false
     
+    init(project: AudioProject, compactMode: Bool = false, onSelect: @escaping () -> Void, onDelete: @escaping () -> Void) {
+        self.project = project
+        self.compactMode = compactMode
+        self.onSelect = onSelect
+        self.onDelete = onDelete
+    }
+    
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: compactMode ? 12 : 16) {
             // Project Icon
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: compactMode ? 6 : 8)
                 .fill(LinearGradient(
                     colors: [Color.blue.opacity(0.7), Color.purple.opacity(0.7)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ))
-                .frame(width: 48, height: 48)
+                .frame(width: compactMode ? 40 : 48, height: compactMode ? 40 : 48)
                 .overlay(
                     Image(systemName: "music.note")
-                        .font(.system(size: 20, weight: .medium))
+                        .font(.system(size: compactMode ? 16 : 20, weight: .medium))
                         .foregroundColor(.white)
                 )
             
             // Project Info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: compactMode ? 2 : 4) {
                 Text(project.name)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: compactMode ? 14 : 16, weight: .semibold))
                     .foregroundColor(.primary)
                 
                 Text("\(project.trackCount) tracks • \(Int(project.tempo)) BPM")
-                    .font(.system(size: 13))
+                    .font(.system(size: compactMode ? 12 : 13))
                     .foregroundColor(.secondary)
                 
-                Text("Modified: \(relativeTimeString(from: project.modifiedAt))")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                if !compactMode {
+                    Text("Modified: \(relativeTimeString(from: project.modifiedAt))")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
             }
             
             Spacer()

@@ -95,7 +95,11 @@ struct DAWTimelineView: View {
                 .coordinateSpace(name: "timeline")
                 
             } else {
-                EmptyTimelineView(onCreateProject: onCreateProject, onOpenProject: onOpenProject)
+                EmptyTimelineView(
+                    onCreateProject: onCreateProject, 
+                    onOpenProject: onOpenProject, 
+                    projectManager: projectManager
+                )
             }
         }
         .background(Color(.windowBackgroundColor))

@@ -20,7 +20,7 @@ class AudioEngine: ObservableObject {
     @Published var audioLevels: [Float] = []
     @Published var isCycleEnabled: Bool = false
     @Published var cycleStartTime: TimeInterval = 0.0
-    @Published var cycleEndTime: TimeInterval = 8.0
+    @Published var cycleEndTime: TimeInterval = 4.0
     
     // MARK: - Private Properties
     private let engine = AVAudioEngine()
@@ -64,8 +64,7 @@ class AudioEngine: ObservableObject {
         print("🎯 MASTER SETUP: Using device format: \(deviceFormat)")
         
         // Set default master volume to 60%
-        mixer.outputVolume = 0.6
-        
+       
         // Start the engine
         startAudioEngine()
     }

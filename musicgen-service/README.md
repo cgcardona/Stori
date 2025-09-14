@@ -28,21 +28,7 @@ AI-powered music generation backend using Meta's AudioCraft MusicGen for the Tel
 
 ## 🛠️ Installation
 
-### Option 1: Docker (Recommended)
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd musicgen-service
-
-# Start with Docker Compose
-docker-compose up -d
-
-# Check service health
-curl http://localhost:8000/health
-```
-
-### Option 2: Local Development
+### Option 2: Local Development (Recommended)
 
 ```bash
 # Create virtual environment
@@ -58,6 +44,21 @@ redis-server
 # Run the service
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+### Option 2: Docker
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd musicgen-service
+
+# Start with Docker Compose
+docker-compose up -d
+
+# Check service health
+curl http://localhost:8000/health
+```
+
 
 ## 🎯 API Usage
 

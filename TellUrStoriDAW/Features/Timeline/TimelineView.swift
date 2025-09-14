@@ -47,7 +47,11 @@ struct TimelineView: View {
                 Spacer()
                 
             } else {
-                EmptyTimelineView(onCreateProject: onCreateProject, onOpenProject: onOpenProject)
+                EmptyTimelineView(
+                    onCreateProject: onCreateProject, 
+                    onOpenProject: onOpenProject, 
+                    projectManager: projectManager
+                )
             }
         }
         .frame(minHeight: 300)
@@ -581,6 +585,7 @@ struct AddTrackButton: View {
 struct EmptyTimelineView: View {
     let onCreateProject: () -> Void
     let onOpenProject: () -> Void
+    @ObservedObject var projectManager: ProjectManager
     @State private var selectedCategory: ProjectCategory = .newProject
     
     var body: some View {
@@ -726,24 +731,14 @@ struct EmptyTimelineView: View {
     }
     
     private var recentProjectsContent: some View {
-        VStack {
-            if true { // Replace with actual recent projects check
-                VStack(spacing: 16) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    
-                    Text("No Recent Projects")
-                        .font(.title3)
-                        .fontWeight(.medium)
-                    
-                    Text("Your recently opened projects will appear here")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        RecentProjectsListView(
+            projectManager: projectManager,
+            onProjectSelected: { project in
+                projectManager.loadProject(project)
+            },
+            showHeader: false,
+            compactMode: true
+        )
     }
     
 

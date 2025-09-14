@@ -573,3 +573,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Regions/Clips** = Audio or MIDI segments on tracks
 - **Fader** = Volume slider
 - **Knob/Pot** = Rotary control (EQ, Pan)
+
+
+## Potential Dead Code
+
+- CycleOverlayView
+- ProfessionalCycleOverlayView
+- TimelineView

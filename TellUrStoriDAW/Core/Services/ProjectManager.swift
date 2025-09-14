@@ -9,6 +9,33 @@ import Foundation
 import SwiftUI
 import Combine
 
+// MARK: - Project Errors
+enum ProjectError: LocalizedError {
+    case projectAlreadyExists(name: String)
+    case projectNotFound(name: String)
+    case invalidProjectName
+    case noCurrentProject
+    case invalidProjectFile
+    case exportFailed(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .projectAlreadyExists(let name):
+            return "A project named '\(name)' already exists. Please choose a different name."
+        case .projectNotFound(let name):
+            return "Project '\(name)' could not be found."
+        case .invalidProjectName:
+            return "Please enter a valid project name."
+        case .noCurrentProject:
+            return "No project is currently loaded"
+        case .invalidProjectFile:
+            return "The project file is invalid or corrupted"
+        case .exportFailed(let reason):
+            return "Export failed: \(reason)"
+        }
+    }
+}
+
 // MARK: - Project Manager
 @MainActor
 class ProjectManager: ObservableObject {
@@ -46,7 +73,12 @@ class ProjectManager: ObservableObject {
     }
     
     // MARK: - Project Creation
-    func createNewProject(name: String, tempo: Double = 120.0) {
+    func createNewProject(name: String, tempo: Double = 120.0) throws {
+        // Check if project with this name already exists
+        if projectExists(withName: name) {
+            throw ProjectError.projectAlreadyExists(name: name)
+        }
+        
         let project = AudioProject(name: name, tempo: tempo)
         currentProject = project
         
@@ -66,7 +98,7 @@ class ProjectManager: ObservableObject {
         Task {
             do {
                 // Load project data from file
-                let projectURL = projectURL(for: project.id)
+                let projectURL = projectURL(for: project)
                 let data = try Data(contentsOf: projectURL)
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
@@ -127,7 +159,7 @@ class ProjectManager: ObservableObject {
                 encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(project)
                 
-                let projectURL = projectURL(for: project.id)
+                let projectURL = projectURL(for: project)
                 try data.write(to: projectURL)
                 
                 await MainActor.run {
@@ -146,8 +178,13 @@ class ProjectManager: ObservableObject {
         }
     }
     
-    func saveProjectAs(name: String) {
+    func saveProjectAs(name: String) throws {
         guard var project = currentProject else { return }
+        
+        // Check if project with this name already exists
+        if projectExists(withName: name) {
+            throw ProjectError.projectAlreadyExists(name: name)
+        }
         
         // Create new project with new ID and name
         project = AudioProject(
@@ -165,7 +202,7 @@ class ProjectManager: ObservableObject {
     
     // MARK: - Project Management
     func deleteProject(_ project: AudioProject) {
-        let projectURL = projectURL(for: project.id)
+        let projectURL = projectURL(for: project)
         
         do {
             try fileManager.removeItem(at: projectURL)
@@ -291,8 +328,24 @@ class ProjectManager: ObservableObject {
     }
     
     // MARK: - Helper Methods
-    private func projectURL(for projectId: UUID) -> URL {
-        return projectsDirectory.appendingPathComponent("\(projectId.uuidString).tellur")
+    private func projectURL(for projectName: String) -> URL {
+        let sanitizedName = sanitizeFileName(projectName)
+        return projectsDirectory.appendingPathComponent("\(sanitizedName).tellur")
+    }
+    
+    private func projectURL(for project: AudioProject) -> URL {
+        return projectURL(for: project.name)
+    }
+    
+    private func sanitizeFileName(_ name: String) -> String {
+        // Remove or replace characters that aren't safe for file names
+        let invalidChars = CharacterSet(charactersIn: ":/\\?%*|\"<>")
+        return name.components(separatedBy: invalidChars).joined(separator: "_")
+    }
+    
+    private func projectExists(withName name: String) -> Bool {
+        let url = projectURL(for: name)
+        return fileManager.fileExists(atPath: url.path)
     }
     
     private func addToRecentProjects(_ project: AudioProject) {
@@ -411,20 +464,3 @@ enum ExportQuality {
     }
 }
 
-// MARK: - Project Errors
-enum ProjectError: LocalizedError {
-    case noCurrentProject
-    case invalidProjectFile
-    case exportFailed(String)
-    
-    var errorDescription: String? {
-        switch self {
-        case .noCurrentProject:
-            return "No project is currently loaded"
-        case .invalidProjectFile:
-            return "The project file is invalid or corrupted"
-        case .exportFailed(let reason):
-            return "Export failed: \(reason)"
-        }
-    }
-}
