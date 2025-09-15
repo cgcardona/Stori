@@ -200,6 +200,49 @@ class ProjectManager: ObservableObject {
         saveCurrentProject()
     }
     
+    func renameCurrentProject(to newName: String) throws {
+        guard var project = currentProject else {
+            throw ProjectError.noCurrentProject
+        }
+        
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Validate the new name
+        guard !trimmedName.isEmpty else {
+            throw ProjectError.invalidProjectName
+        }
+        
+        // Check if the name is actually different
+        guard trimmedName != project.name else {
+            return // No change needed
+        }
+        
+        // Check if a project with this name already exists
+        if projectExists(withName: trimmedName) {
+            throw ProjectError.projectAlreadyExists(name: trimmedName)
+        }
+        
+        // Delete the old project file
+        let oldProjectURL = projectURL(for: project)
+        do {
+            try fileManager.removeItem(at: oldProjectURL)
+        } catch {
+            print("Warning: Could not delete old project file: \(error)")
+            // Continue anyway - we'll save with the new name
+        }
+        
+        // Update the project name and save
+        project.name = trimmedName
+        project.modifiedAt = Date()
+        currentProject = project
+        
+        // Save with the new name
+        saveCurrentProject()
+        
+        // Update recent projects list
+        addToRecentProjects(project)
+    }
+    
     // MARK: - Project Management
     func deleteProject(_ project: AudioProject) {
         let projectURL = projectURL(for: project)

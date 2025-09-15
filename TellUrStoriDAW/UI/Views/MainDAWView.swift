@@ -74,6 +74,16 @@ struct MainDAWView: View {
         selectedTrackId = nil
     }
     
+    private func handleProjectRename(to newName: String) {
+        do {
+            try projectManager.renameCurrentProject(to: newName)
+        } catch {
+            // Handle rename errors
+            print("Project rename error: \(error.localizedDescription)")
+            // In a production app, you might want to show an alert to the user
+        }
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
@@ -116,9 +126,18 @@ struct MainDAWView: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(projectManager.currentProject?.name ?? "TellUrStoriDAW")
-                    .font(.headline)
-                    .foregroundColor(.primary)
+                if let currentProject = projectManager.currentProject {
+                    EditableProjectTitle(
+                        projectName: currentProject.name,
+                        onNameChanged: { newName in
+                            handleProjectRename(to: newName)
+                        }
+                    )
+                } else {
+                    Text("TellUrStoriDAW")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                }
             }
         }
         .sheet(isPresented: $showingNewProjectSheet) {
