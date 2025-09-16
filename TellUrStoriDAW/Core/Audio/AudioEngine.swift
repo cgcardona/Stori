@@ -130,10 +130,8 @@ class AudioEngine: ObservableObject {
         }   
         
         // Position updates happen at 60fps for smooth playback tracking
-        
         // Check for cycle loop
         checkCycleLoop()
-        
         // Position timer update complete
     }
     
