@@ -56,6 +56,9 @@ struct DAWTrackHeader: View {
                             .onSubmit {
                                 commitNameEdit()
                             }
+                            .onExitCommand {
+                                cancelNameEdit()
+                            }
                             .onAppear {
                                 editedName = track.name
                             }
@@ -192,6 +195,11 @@ struct DAWTrackHeader: View {
         if !editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             projectManager.updateTrackName(track.id, editedName)
         }
+        isEditingName = false
+    }
+    
+    private func cancelNameEdit() {
+        editedName = track.name
         isEditingName = false
     }
     

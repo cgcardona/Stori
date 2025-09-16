@@ -595,6 +595,10 @@ struct ProfessionalTrackHeaderDirect: View {
                                 projectManager.updateTrack(updatedTrack)
                                 isEditingName = false
                             }
+                            .onExitCommand {
+                                trackName = audioTrack.name
+                                isEditingName = false
+                            }
                     } else {
                         Text(audioTrack.name)
                             .font(.headline)

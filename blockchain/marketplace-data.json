@@ -1,0 +1,345 @@
+{
+  "timestamp": "2025-09-08T20:27:31.596Z",
+  "network": "TellUrStori L1",
+  "contract": "0x0938Ae5E07A7af37Bfb629AC94fA55B2eDA5E930",
+  "tokens": [
+    {
+      "tokenId": 1,
+      "name": "Epic Bass Drop",
+      "genre": "Electronic",
+      "supply": 16,
+      "price": "2.5",
+      "creator": "0x2345678901234567890123456789012345678901",
+      "tags": [
+        "bass",
+        "electronic"
+      ]
+    },
+    {
+      "tokenId": 2,
+      "name": "Synthwave Melody",
+      "genre": "Synthwave",
+      "supply": 12,
+      "price": "1.8",
+      "creator": "0x3456789012345678901234567890123456789012",
+      "tags": [
+        "melody",
+        "synthwave"
+      ]
+    },
+    {
+      "tokenId": 3,
+      "name": "Future Bass Lead",
+      "genre": "Electronic",
+      "supply": 11,
+      "price": "3.2",
+      "creator": "0x4567890123456789012345678901234567890123",
+      "tags": [
+        "future",
+        "bass",
+        "lead"
+      ]
+    },
+    {
+      "tokenId": 4,
+      "name": "Ambient Soundscape",
+      "genre": "Ambient",
+      "supply": 14,
+      "price": "2.0",
+      "creator": "0x5678901234567890123456789012345678901234",
+      "tags": [
+        "harmony",
+        "ambient"
+      ]
+    },
+    {
+      "tokenId": 5,
+      "name": "Trap Drums",
+      "genre": "Trap",
+      "supply": 11,
+      "price": "1.2",
+      "creator": "0x6789012345678901234567890123456789012345",
+      "tags": [
+        "drums",
+        "trap"
+      ]
+    },
+    {
+      "tokenId": 6,
+      "name": "Lo-Fi Hip Hop Beat",
+      "genre": "Hip Hop",
+      "supply": 17,
+      "price": "0.75",
+      "creator": "0x7890123456789012345678901234567890123456",
+      "tags": [
+        "drums",
+        "hip hop"
+      ]
+    },
+    {
+      "tokenId": 7,
+      "name": "Boom Bap Drums",
+      "genre": "Hip Hop",
+      "supply": 15,
+      "price": "1.5",
+      "creator": "0x8901234567890123456789012345678901234567",
+      "tags": [
+        "drums",
+        "boom bap"
+      ]
+    },
+    {
+      "tokenId": 8,
+      "name": "Jazz Hip Hop Loop",
+      "genre": "Hip Hop",
+      "supply": 16,
+      "price": "2.2",
+      "creator": "0x1234567890123456789012345678901234567890",
+      "tags": [
+        "jazz",
+        "loop"
+      ]
+    },
+    {
+      "tokenId": 9,
+      "name": "Rock Guitar Riff",
+      "genre": "Rock",
+      "supply": 10,
+      "price": "2.1",
+      "creator": "0x2345678901234567890123456789012345678901",
+      "tags": [
+        "melody",
+        "rock"
+      ]
+    },
+    {
+      "tokenId": 10,
+      "name": "Indie Guitar Melody",
+      "genre": "Alternative",
+      "supply": 13,
+      "price": "1.9",
+      "creator": "0x3456789012345678901234567890123456789012",
+      "tags": [
+        "guitar",
+        "indie"
+      ]
+    },
+    {
+      "tokenId": 11,
+      "name": "Punk Bass Line",
+      "genre": "Rock",
+      "supply": 12,
+      "price": "1.6",
+      "creator": "0x4567890123456789012345678901234567890123",
+      "tags": [
+        "bass",
+        "punk"
+      ]
+    },
+    {
+      "tokenId": 12,
+      "name": "Pop Vocal Harmony",
+      "genre": "Pop",
+      "supply": 19,
+      "price": "5.0",
+      "creator": "0x5678901234567890123456789012345678901234",
+      "tags": [
+        "vocals",
+        "harmony"
+      ]
+    },
+    {
+      "tokenId": 13,
+      "name": "Commercial Jingle",
+      "genre": "Pop",
+      "supply": 16,
+      "price": "8.0",
+      "creator": "0x6789012345678901234567890123456789012345",
+      "tags": [
+        "commercial",
+        "catchy"
+      ]
+    },
+    {
+      "tokenId": 14,
+      "name": "Radio Hook",
+      "genre": "Pop",
+      "supply": 17,
+      "price": "6.0",
+      "creator": "0x7890123456789012345678901234567890123456",
+      "tags": [
+        "hook",
+        "radio"
+      ]
+    },
+    {
+      "tokenId": 15,
+      "name": "Glitch Percussion",
+      "genre": "Experimental",
+      "supply": 12,
+      "price": "2.8",
+      "creator": "0x8901234567890123456789012345678901234567",
+      "tags": [
+        "glitch",
+        "percussion"
+      ]
+    },
+    {
+      "tokenId": 16,
+      "name": "Orchestral Strings",
+      "genre": "Classical",
+      "supply": 14,
+      "price": "4.2",
+      "creator": "0x1234567890123456789012345678901234567890",
+      "tags": [
+        "strings",
+        "orchestral"
+      ]
+    },
+    {
+      "tokenId": 17,
+      "name": "Ethnic Flute",
+      "genre": "World",
+      "supply": 16,
+      "price": "3.5",
+      "creator": "0x2345678901234567890123456789012345678901",
+      "tags": [
+        "flute",
+        "ethnic"
+      ]
+    },
+    {
+      "tokenId": 18,
+      "name": "Minimal Techno Loop",
+      "genre": "Electronic",
+      "supply": 12,
+      "price": "1.7",
+      "creator": "0x3456789012345678901234567890123456789012",
+      "tags": [
+        "minimal",
+        "techno"
+      ]
+    },
+    {
+      "tokenId": 19,
+      "name": "Reggae Guitar Skank",
+      "genre": "Reggae",
+      "supply": 18,
+      "price": "2.3",
+      "creator": "0x4567890123456789012345678901234567890123",
+      "tags": [
+        "guitar",
+        "reggae"
+      ]
+    },
+    {
+      "tokenId": 20,
+      "name": "Country Banjo",
+      "genre": "Country",
+      "supply": 17,
+      "price": "1.95",
+      "creator": "0x5678901234567890123456789012345678901234",
+      "tags": [
+        "banjo",
+        "country"
+      ]
+    },
+    {
+      "tokenId": 21,
+      "name": "Latin Percussion",
+      "genre": "Latin",
+      "supply": 11,
+      "price": "2.6",
+      "creator": "0x6789012345678901234567890123456789012345",
+      "tags": [
+        "percussion",
+        "latin"
+      ]
+    }
+  ],
+  "statistics": {
+    "totalTokens": 21,
+    "totalSupply": 299,
+    "avgPrice": 2.8000000000000003,
+    "totalVolume": 870.2999999999998,
+    "genres": [
+      "Electronic",
+      "Synthwave",
+      "Ambient",
+      "Trap",
+      "Hip Hop",
+      "Rock",
+      "Alternative",
+      "Pop",
+      "Experimental",
+      "Classical",
+      "World",
+      "Reggae",
+      "Country",
+      "Latin"
+    ],
+    "creators": 8
+  },
+  "sampleData": {
+    "recentActivity": [
+      {
+        "type": "mint",
+        "tokenName": "Epic Bass Drop",
+        "creator": "0x2345678901234567890123456789012345678901",
+        "amount": 16,
+        "timestamp": 1757167929509.763
+      },
+      {
+        "type": "mint",
+        "tokenName": "Synthwave Melody",
+        "creator": "0x3456789012345678901234567890123456789012",
+        "amount": 12,
+        "timestamp": 1756776225410.6145
+      },
+      {
+        "type": "mint",
+        "tokenName": "Future Bass Lead",
+        "creator": "0x4567890123456789012345678901234567890123",
+        "amount": 11,
+        "timestamp": 1757231993441.6812
+      },
+      {
+        "type": "mint",
+        "tokenName": "Ambient Soundscape",
+        "creator": "0x5678901234567890123456789012345678901234",
+        "amount": 14,
+        "timestamp": 1757316410693.8901
+      },
+      {
+        "type": "mint",
+        "tokenName": "Trap Drums",
+        "creator": "0x6789012345678901234567890123456789012345",
+        "amount": 11,
+        "timestamp": 1756794242824.9458
+      }
+    ],
+    "topGenres": [
+      "Electronic",
+      "Synthwave",
+      "Ambient",
+      "Trap",
+      "Hip Hop"
+    ],
+    "floorPrices": {
+      "Electronic": 1.7,
+      "Synthwave": 1.8,
+      "Ambient": 2,
+      "Trap": 1.2,
+      "Hip Hop": 0.75,
+      "Rock": 1.6,
+      "Alternative": 1.9,
+      "Pop": 5,
+      "Experimental": 2.8,
+      "Classical": 4.2,
+      "World": 3.5,
+      "Reggae": 2.3,
+      "Country": 1.95,
+      "Latin": 2.6
+    }
+  }
+}

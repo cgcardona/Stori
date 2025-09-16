@@ -169,6 +169,10 @@ struct TrackHeaderView: View {
                             projectManager.updateTrack(updatedTrack)
                             isEditingName = false
                         }
+                        .onExitCommand {
+                            trackName = track.name
+                            isEditingName = false
+                        }
                 } else {
                     Text(track.name)
                         .font(.headline)

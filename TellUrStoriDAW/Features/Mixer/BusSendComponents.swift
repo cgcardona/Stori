@@ -1351,12 +1351,12 @@ struct DelayConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("delayTime", $0) })
-                        TellUrStoriParameterSlider(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("feedback", $0) })
-                        TellUrStoriParameterSlider(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowCut", $0) })
-                        TellUrStoriParameterSlider(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highCut", $0) })
-                        TellUrStoriParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
-                        TellUrStoriParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableDelayParameterSlider(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("delayTime", $0) })
+                        EditableDelayParameterSlider(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("feedback", $0) })
+                        EditableDelayParameterSlider(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowCut", $0) })
+                        EditableDelayParameterSlider(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highCut", $0) })
+                        EditableDelayParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
+                        EditableDelayParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2195,6 +2195,128 @@ struct TellUrStoriToggleStyle: ToggleStyle {
                 .onTapGesture {
                     configuration.isOn.toggle()
                 }
+        }
+    }
+}
+
+// MARK: - Editable Delay Parameter Slider Component
+struct EditableDelayParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Parameter Title
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            // Stock Slider with Custom Styling
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ DELAY PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ DELAY PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .green)
+                .frame(height: 20)
+                
+                // Editable Value Display using EditableNumeric
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "ms":
+            EditableNumeric.milliseconds(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "%":
+            EditableNumeric.percentage(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "Hz":
+            EditableNumeric.frequency(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            // Fallback for other units
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getDefaultPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "s" {
+            return String(format: "%.1f", value)
+        } else if unit == "ms" && value < 10 {
+            return String(format: "%.1f", value)
+        } else if unit == "ms" {
+            return String(format: "%.0f", value)
+        } else if unit == "%" {
+            return String(format: "%.1f", value)
+        } else if unit == "Hz" && value >= 1000 {
+            return String(format: "%.1fk", value / 1000)
+        } else if unit == "Hz" {
+            return String(format: "%.0f", value)
+        } else if unit == "dB" {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getDefaultPrecision(for unit: String) -> Int {
+        switch unit {
+        case "ms": return 0  // Whole milliseconds
+        case "%": return 1   // One decimal for percentages
+        case "Hz": return 0  // Whole Hz
+        case "dB": return 1  // One decimal for dB
+        case "s": return 1   // One decimal for seconds
+        default: return 1
         }
     }
 }
