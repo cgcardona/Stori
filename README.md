@@ -23,11 +23,13 @@ TellUrStori V2 is an innovative digital audio workstation that combines traditio
 
 ### 🆕 What's New - Phase 3.6.5: Universal Editable UI System ✅ **REVOLUTIONARY UX**
 - **🎯 UNIVERSAL EDITABLE PARAMETERS**: Complete double-click editing system for all audio parameters
-  - **Reverb Effect**: All 5 parameters now editable (Room Size, Decay Time, Predelay, Dry Level, Wet Level)
+  - **5 of 8 Effects Complete**: Reverb, Delay, Chorus, Compressor, and EQ effects with full editable parameters
+  - **29 Editable Parameters**: All major effect parameters now support professional double-click editing
   - **EditableNumeric Component**: Type-safe numeric editing with parameter-specific precision and units
-  - **Professional UX Pattern**: Double-click → edit → Enter saves / Escape cancels consistently
-  - **Real-time Audio Integration**: All editable values immediately control actual audio processing
-  - **Parameter-Specific Formatting**: Percentages, seconds, milliseconds with appropriate decimal precision
+  - **Professional UX Pattern**: Double-click → edit → Enter saves / Escape cancels consistently across all parameters
+  - **Real-time Audio Integration**: All editable values immediately control actual AVAudioUnit processing
+  - **Parameter-Specific Formatting**: Percentages (%), seconds (s), milliseconds (ms), decibels (dB), frequencies (Hz), degrees (°), ratios (:1)
+  - **Custom Parameter Sliders**: Specialized components for each effect type with intelligent unit handling
 - **🎯 EDITABLE PROJECT TITLES**: Complete double-click editing system for project names
   - Professional EditableProjectTitle component with smooth animations and visual feedback
   - Double-click activation, Enter/Return saves, Escape cancels with full validation

@@ -127,7 +127,7 @@ class AudioEngine: ObservableObject {
                 tempo: project.tempo,
                 timeSignature: project.timeSignature
             )
-        }
+        }   
         
         // Position updates happen at 60fps for smooth playback tracking
         

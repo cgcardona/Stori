@@ -28,7 +28,7 @@ AI-powered music generation backend using Meta's AudioCraft MusicGen for the Tel
 
 ## 🛠️ Installation
 
-### Option 2: Local Development (Recommended)
+### Option 1: Local Development (Recommended)
 
 ```bash
 # Create virtual environment
@@ -36,7 +36,7 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements.txtd
 
 # Start Redis (required)
 redis-server

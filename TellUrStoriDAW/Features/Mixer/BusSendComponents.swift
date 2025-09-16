@@ -1612,12 +1612,12 @@ struct EQConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0) })
-                        TellUrStoriParameterSlider(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0) })
-                        TellUrStoriParameterSlider(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0) })
-                        TellUrStoriParameterSlider(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0) })
-                        TellUrStoriParameterSlider(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0) })
-                        TellUrStoriParameterSlider(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0) })
+                        EditableEQParameterSlider(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0) })
+                        EditableEQParameterSlider(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0) })
+                        EditableEQParameterSlider(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0) })
+                        EditableEQParameterSlider(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0) })
+                        EditableEQParameterSlider(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0) })
+                        EditableEQParameterSlider(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2572,6 +2572,107 @@ struct EditableCompressorParameterSlider: View {
         case "dB": return 1    // One decimal for dB
         case "ms": return 1    // One decimal for milliseconds
         case ":1": return 1    // One decimal for ratio
+        default: return 1
+        }
+    }
+}
+
+// MARK: - Editable EQ Parameter Slider Component
+struct EditableEQParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Parameter Title
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            // Stock Slider with Custom Styling
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎚️ EQ PARAM START: \(title) editing started")
+                    } else {
+                        print("🎚️ EQ PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .cyan)
+                .frame(height: 20)
+                
+                // Editable Value Display using EditableNumeric
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "dB":
+            EditableNumeric.decibels(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "Hz":
+            EditableNumeric.frequency(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            // Fallback for other units
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getEQPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "dB" {
+            return String(format: "%.1f", value)
+        } else if unit == "Hz" {
+            return String(format: "%.0f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getEQPrecision(for unit: String) -> Int {
+        switch unit {
+        case "dB": return 1    // One decimal for dB
+        case "Hz": return 0    // Whole Hz for frequency
         default: return 1
         }
     }
