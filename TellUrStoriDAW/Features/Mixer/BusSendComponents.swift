@@ -1438,12 +1438,12 @@ struct ChorusConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
-                        TellUrStoriParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
-                        TellUrStoriParameterSlider(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { updateParameter("voices", $0) })
-                        TellUrStoriParameterSlider(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { updateParameter("spread", $0) })
-                        TellUrStoriParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
-                        TellUrStoriParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableChorusParameterSlider(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
+                        EditableChorusParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
+                        EditableChorusParameterSlider(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { updateParameter("voices", $0) })
+                        EditableChorusParameterSlider(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { updateParameter("spread", $0) })
+                        EditableChorusParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
+                        EditableChorusParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2316,6 +2316,143 @@ struct EditableDelayParameterSlider: View {
         case "Hz": return 0  // Whole Hz
         case "dB": return 1  // One decimal for dB
         case "s": return 1   // One decimal for seconds
+        default: return 1
+        }
+    }
+}
+
+// MARK: - Editable Chorus Parameter Slider Component
+struct EditableChorusParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Parameter Title
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            // Stock Slider with Custom Styling
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ CHORUS PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ CHORUS PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .purple)
+                .frame(height: 20)
+                
+                // Editable Value Display using EditableNumeric
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "Hz":
+            EditableNumeric.frequency(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "%":
+            EditableNumeric.percentage(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "°":
+            // Degrees for stereo spread
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: 0, // Whole degrees
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "":
+            // Voices parameter (no unit, whole numbers)
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: nil,
+                precision: 0, // Whole numbers for voices
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            // Fallback for other units
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getChorusPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "Hz" {
+            return String(format: "%.1f", value)
+        } else if unit == "%" {
+            return String(format: "%.1f", value)
+        } else if unit == "°" {
+            return String(format: "%.0f", value)
+        } else if unit == "" {
+            return String(format: "%.0f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getChorusPrecision(for unit: String) -> Int {
+        switch unit {
+        case "Hz": return 1   // One decimal for frequency
+        case "%": return 1    // One decimal for percentages
+        case "°": return 0    // Whole degrees
+        case "": return 0     // Whole numbers (voices)
         default: return 1
         }
     }
