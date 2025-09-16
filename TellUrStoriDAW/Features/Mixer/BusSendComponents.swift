@@ -1697,10 +1697,10 @@ struct DistortionConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0) })
-                        TellUrStoriParameterSlider(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0) })
-                        TellUrStoriParameterSlider(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0) })
-                        TellUrStoriParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableDistortionParameterSlider(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0) })
+                        EditableDistortionParameterSlider(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0) })
+                        EditableDistortionParameterSlider(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0) })
+                        EditableDistortionParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1778,9 +1778,9 @@ struct FilterConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0) })
-                        TellUrStoriParameterSlider(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0) })
-                        TellUrStoriParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableFilterParameterSlider(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0) })
+                        EditableFilterParameterSlider(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0) })
+                        EditableFilterParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1867,9 +1867,9 @@ struct ModulationConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
-                        TellUrStoriParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
-                        TellUrStoriParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableModulationParameterSlider(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
+                        EditableModulationParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
+                        EditableModulationParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2673,6 +2673,314 @@ struct EditableEQParameterSlider: View {
         switch unit {
         case "dB": return 1    // One decimal for dB
         case "Hz": return 0    // Whole Hz for frequency
+        default: return 1
+        }
+    }
+}
+
+// MARK: - Editable Distortion Parameter Slider Component
+struct EditableDistortionParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ DISTORTION PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ DISTORTION PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .red)
+                .frame(height: 20)
+                
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "dB":
+            EditableNumeric.decibels(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "%":
+            EditableNumeric.percentage(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getDistortionPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "dB" {
+            return String(format: "%.1f", value)
+        } else if unit == "%" {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getDistortionPrecision(for unit: String) -> Int {
+        switch unit {
+        case "dB": return 1    // One decimal for dB
+        case "%": return 1     // One decimal for percentages
+        default: return 1
+        }
+    }
+}
+
+// MARK: - Editable Filter Parameter Slider Component
+struct EditableFilterParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ FILTER PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ FILTER PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .yellow)
+                .frame(height: 20)
+                
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "Hz":
+            EditableNumeric.frequency(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "%":
+            EditableNumeric.percentage(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "Q":
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: 1, // One decimal for Q factor
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getFilterPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "Hz" {
+            return String(format: "%.0f", value)
+        } else if unit == "%" {
+            return String(format: "%.1f", value)
+        } else if unit == "Q" {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getFilterPrecision(for unit: String) -> Int {
+        switch unit {
+        case "Hz": return 0    // Whole Hz for frequency
+        case "%": return 1     // One decimal for percentages
+        case "Q": return 1     // One decimal for Q factor
+        default: return 1
+        }
+    }
+}
+
+// MARK: - Editable Modulation Parameter Slider Component
+struct EditableModulationParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ MODULATION PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ MODULATION PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .pink)
+                .frame(height: 20)
+                
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "Hz":
+            EditableNumeric.frequency(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "%":
+            EditableNumeric.percentage(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getModulationPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "Hz" {
+            return String(format: "%.1f", value)
+        } else if unit == "%" {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getModulationPrecision(for unit: String) -> Int {
+        switch unit {
+        case "Hz": return 1    // One decimal for frequency
+        case "%": return 1     // One decimal for percentages
         default: return 1
         }
     }
