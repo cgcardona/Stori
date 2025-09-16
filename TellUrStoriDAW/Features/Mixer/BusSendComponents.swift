@@ -1100,9 +1100,14 @@ struct ReverbConfigurationView: View {
                             .onChange(of: roomSize) { _, newValue in
                                 updateParameter("roomSize", newValue)
                             }
-                        Text("\(Int(roomSize))%")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        EditableNumeric.percentage(
+                            value: roomSize,
+                            font: .caption
+                        ) { newValue in
+                            roomSize = newValue
+                            updateParameter("roomSize", newValue)
+                        }
+                        .foregroundColor(.secondary)
                     }
                     
                     VStack {
@@ -1113,9 +1118,17 @@ struct ReverbConfigurationView: View {
                             .onChange(of: decayTime) { _, newValue in
                                 updateParameter("decayTime", newValue)
                             }
-                        Text("\(decayTime, specifier: "%.1f")s")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        EditableNumeric(
+                            value: decayTime,
+                            range: 0.1...10.0,
+                            unit: "s",
+                            precision: 1,
+                            font: .caption
+                        ) { newValue in
+                            decayTime = newValue
+                            updateParameter("decayTime", newValue)
+                        }
+                        .foregroundColor(.secondary)
                     }
                     
                     VStack {
@@ -1126,9 +1139,15 @@ struct ReverbConfigurationView: View {
                             .onChange(of: predelay) { _, newValue in
                                 updateParameter("predelay", newValue)
                             }
-                        Text("\(Int(predelay))ms")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        EditableNumeric.milliseconds(
+                            value: predelay,
+                            range: 0.0...100.0,
+                            font: .caption
+                        ) { newValue in
+                            predelay = newValue
+                            updateParameter("predelay", newValue)
+                        }
+                        .foregroundColor(.secondary)
                     }
                 }
                 
@@ -1141,9 +1160,10 @@ struct ReverbConfigurationView: View {
                             .onChange(of: dryLevel) { _, newValue in
                                 updateParameter("dryLevel", newValue)
                             }
-                        Text("\(Int(dryLevel))%")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        EditableNumeric.percentage(value: dryLevel) { newValue in
+                            dryLevel = newValue
+                            updateParameter("dryLevel", newValue)
+                        }
                     }
                     
                     VStack {
@@ -1154,9 +1174,10 @@ struct ReverbConfigurationView: View {
                             .onChange(of: wetLevel) { _, newValue in
                                 updateParameter("wetLevel", newValue)
                             }
-                        Text("\(Int(wetLevel))%")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        EditableNumeric.percentage(value: wetLevel) { newValue in
+                            wetLevel = newValue
+                            updateParameter("wetLevel", newValue)
+                        }
                     }
                     
                     Spacer()
