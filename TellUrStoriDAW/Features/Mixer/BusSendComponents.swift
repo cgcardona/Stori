@@ -1525,12 +1525,12 @@ struct CompressorConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        TellUrStoriParameterSlider(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0) })
-                        TellUrStoriParameterSlider(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0) })
-                        TellUrStoriParameterSlider(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0) })
-                        TellUrStoriParameterSlider(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0) })
-                        TellUrStoriParameterSlider(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0) })
-                        TellUrStoriParameterSlider(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0) })
+                        EditableCompressorParameterSlider(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0) })
+                        EditableCompressorParameterSlider(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0) })
+                        EditableCompressorParameterSlider(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0) })
+                        EditableCompressorParameterSlider(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0) })
+                        EditableCompressorParameterSlider(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0) })
+                        EditableCompressorParameterSlider(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0) })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2453,6 +2453,125 @@ struct EditableChorusParameterSlider: View {
         case "%": return 1    // One decimal for percentages
         case "°": return 0    // Whole degrees
         case "": return 0     // Whole numbers (voices)
+        default: return 1
+        }
+    }
+}
+
+// MARK: - Editable Compressor Parameter Slider Component
+struct EditableCompressorParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    let gradientColors: [Color]
+    let onChange: ((Double) -> Void)?
+    
+    init(title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String, gradientColors: [Color], onChange: ((Double) -> Void)? = nil) {
+        self.title = title
+        self._value = value
+        self.range = range
+        self.unit = unit
+        self.gradientColors = gradientColors
+        self.onChange = onChange
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Parameter Title
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            // Stock Slider with Custom Styling
+            VStack(spacing: 4) {
+                Slider(value: $value, in: range, onEditingChanged: { editing in
+                    if editing {
+                        print("🎛️ COMPRESSOR PARAM START: \(title) editing started")
+                    } else {
+                        print("🎛️ COMPRESSOR PARAM END: \(title) = \(formatValue(value))\(unit)")
+                        onChange?(value)
+                    }
+                })
+                .accentColor(gradientColors.first ?? .orange)
+                .frame(height: 20)
+                
+                // Editable Value Display using EditableNumeric
+                editableValueDisplay
+            }
+        }
+        .frame(minWidth: 80)
+    }
+    
+    @ViewBuilder
+    private var editableValueDisplay: some View {
+        switch unit {
+        case "dB":
+            EditableNumeric.decibels(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case "ms":
+            EditableNumeric.milliseconds(value: value) { newValue in
+                value = newValue
+                onChange?(newValue)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        case ":1":
+            // Compression ratio (e.g., "4.0:1")
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: 1, // One decimal for ratio precision
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+            
+        default:
+            // Fallback for other units
+            EditableNumeric(
+                value: value,
+                range: range,
+                unit: unit,
+                precision: getCompressorPrecision(for: unit),
+                onValueChanged: { newValue in
+                    value = newValue
+                    onChange?(newValue)
+                }
+            )
+            .font(.caption2)
+            .fontWeight(.medium)
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if unit == "dB" {
+            return String(format: "%.1f", value)
+        } else if unit == "ms" {
+            return String(format: "%.1f", value)
+        } else if unit == ":1" {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.1f", value)
+        }
+    }
+    
+    private func getCompressorPrecision(for unit: String) -> Int {
+        switch unit {
+        case "dB": return 1    // One decimal for dB
+        case "ms": return 1    // One decimal for milliseconds
+        case ":1": return 1    // One decimal for ratio
         default: return 1
         }
     }
