@@ -84,7 +84,76 @@ struct TellUrStoriDAWApp: App {
                 }
                 .keyboardShortcut(.end)
             }
+            
+            // Help menu
+            CommandGroup(replacing: .help) {
+                Button("TellUrStori User Guide") {
+                    openDocumentation("README.md")
+                }
+                .keyboardShortcut("?", modifiers: .command)
+                
+                Button("Main Window Overview") {
+                    openDocumentation("getting-started/main-window-overview.md")
+                }
+                
+                Button("UI Element Reference") {
+                    openDocumentation("ui-reference/ui-terminology.md")
+                }
+                
+                Divider()
+                
+                Button("Keyboard Shortcuts") {
+                    // TODO: Create keyboard shortcuts reference
+                    openDocumentation("README.md")
+                }
+                
+                Button("Report Issue") {
+                    if let url = URL(string: "https://github.com/cgcardona/TellUrStoriDAW/issues") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
         }
+    }
+}
+
+// MARK: - Documentation Helper
+private func openDocumentation(_ relativePath: String) {
+    // Map relative paths to actual file names in bundle
+    let fileName: String
+    switch relativePath {
+    case "README.md":
+        fileName = "README"
+    case "getting-started/main-window-overview.md":
+        fileName = "main-window-overview"
+    case "ui-reference/ui-terminology.md":
+        fileName = "ui-terminology"
+    default:
+        fileName = relativePath.replacingOccurrences(of: ".md", with: "")
+    }
+    
+    // Try to find the file in the app bundle first
+    if let bundlePath = Bundle.main.path(forResource: fileName, ofType: "md") {
+        let url = URL(fileURLWithPath: bundlePath)
+        NSWorkspace.shared.open(url)
+        return
+    }
+    
+    // Fallback: Try documentation subfolder in bundle
+    if let bundlePath = Bundle.main.path(forResource: fileName, ofType: "md", inDirectory: "documentation") {
+        let url = URL(fileURLWithPath: bundlePath)
+        NSWorkspace.shared.open(url)
+        return
+    }
+    
+    // Final fallback: Show user-friendly alert
+    DispatchQueue.main.async {
+        let alert = NSAlert()
+        alert.messageText = "Documentation Not Available"
+        alert.informativeText = "The requested documentation file could not be found in the app bundle."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
 
