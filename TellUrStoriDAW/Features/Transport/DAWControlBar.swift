@@ -24,6 +24,15 @@ struct DAWControlBar: View {
             // MARK: - Left Section: View Toggles
             HStack(spacing: 6) {
                 DAWControlButton(
+                    icon: "books.vertical",
+                    isActive: showingLibrary,
+                    tooltip: "Show/Hide Library (⌘L)"
+                ) {
+                    showingLibrary.toggle()
+                }
+
+                .keyboardShortcut("l", modifiers: .command)
+                DAWControlButton(
                     icon: "slider.horizontal.3",
                     isActive: showingMixer,
                     tooltip: "Show/Hide Mixer (⌘M)"
@@ -31,15 +40,6 @@ struct DAWControlBar: View {
                     showingMixer.toggle()
                 }
                 .keyboardShortcut("m", modifiers: .command)
-                
-                DAWControlButton(
-                    icon: "books.vertical",
-                    isActive: showingLibrary,
-                    tooltip: "Show/Hide Library (⌘L)"
-                ) {
-                    showingLibrary.toggle()
-                }
-                .keyboardShortcut("l", modifiers: .command)
                 
                 DAWControlButton(
                     icon: "sidebar.right",
