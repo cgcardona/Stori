@@ -8,10 +8,14 @@
 import SwiftUI
 
 struct DAWTimelineView: View {
-    let project: AudioProject?
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     @Binding var selectedTrackId: UUID?
+    
+    // Get project directly from audioEngine for real-time updates
+    private var project: AudioProject? {
+        audioEngine.currentProject
+    }
     let horizontalZoom: Double
     let verticalZoom: Double
     let onAddTrack: () -> Void
@@ -423,19 +427,4 @@ struct DAWAddTrackButton: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
     }
-}
-
-#Preview {
-    DAWTimelineView(
-        project: AudioProject(name: "Demo Project"),
-        audioEngine: AudioEngine(),
-        projectManager: ProjectManager(),
-        selectedTrackId: .constant(nil),
-        horizontalZoom: 1.0,
-        verticalZoom: 1.0,
-        onAddTrack: {},
-        onCreateProject: {},
-        onOpenProject: {}
-    )
-    .frame(width: 1200, height: 600)
 }

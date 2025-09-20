@@ -8,10 +8,14 @@
 import SwiftUI
 
 struct MixerView: View {
-    let project: AudioProject?
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     @Binding var selectedTrackId: UUID?
+    
+    // Get project directly from audioEngine for real-time updates
+    private var project: AudioProject? {
+        audioEngine.currentProject
+    }
     
     @State private var isMonitoringLevels = false
     @State private var showingBusCreation = false
@@ -317,10 +321,10 @@ struct TrackChannelStrip: View {
     // MARK: - Mute/Solo Section (Professional DAW Style)
     private var muteSoloSection: some View {
         HStack(spacing: 2) {
-            // Mute Button
-            Button(action: {
-                // TODO: Implement mute functionality
-            }) {
+                // Mute Button
+                Button(action: {
+                    audioEngine.muteTrack(track.id, muted: !track.mixerSettings.isMuted)
+                }) {
                 Text("M")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(track.mixerSettings.isMuted ? .white : .secondary)
@@ -329,13 +333,13 @@ struct TrackChannelStrip: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(track.mixerSettings.isMuted ? .orange : Color(.controlBackgroundColor))
                     )
-            }
-            .buttonStyle(.plain)
-            .help("Mute Track")
+                }
+                .buttonStyle(.plain)
+                .help("Mute Track")
             
             // Solo Button  
             Button(action: {
-                // TODO: Implement solo functionality
+                audioEngine.soloTrack(track.id, solo: !track.mixerSettings.isSolo)
             }) {
                 Text("S")
                     .font(.system(size: 10, weight: .bold))

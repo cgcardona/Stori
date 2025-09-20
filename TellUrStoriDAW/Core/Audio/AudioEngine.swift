@@ -33,7 +33,7 @@ class AudioEngine: ObservableObject {
     private var soloTracks: Set<UUID> = []
     
     // MARK: - Current Project
-    private var currentProject: AudioProject?
+    @Published var currentProject: AudioProject?
     
     // MARK: - Timer for position updates
     private var positionTimer: Timer?
@@ -1063,7 +1063,7 @@ class AudioEngine: ObservableObject {
         var updatedProject = project
         
         if solo {
-            // Mute all other tracks
+            // Solo this track, un-solo all others
             for i in 0..<updatedProject.tracks.count {
                 updatedProject.tracks[i].mixerSettings.isSolo = updatedProject.tracks[i].id == trackId
             }
@@ -1084,11 +1084,21 @@ class AudioEngine: ObservableObject {
     }
     
     private func updateTrackMuteState(_ trackId: UUID, muted: Bool) {
-        // Update the mute state in the audio engine
+        // Call the existing updateTrackMute method that handles the actual audio muting
+        updateTrackMute(trackId: trackId, isMuted: muted)
     }
     
     private func updateAllTrackStates() {
-        // Update all track states in the audio engine
+        guard let project = currentProject else { return }
+        
+        // Update mute/solo states for all tracks
+        for track in project.tracks {
+            // Update mute state
+            updateTrackMute(trackId: track.id, isMuted: track.mixerSettings.isMuted)
+            
+            // Update solo state
+            updateTrackSolo(trackId: track.id, isSolo: track.mixerSettings.isSolo)
+        }
     }
     
     // MARK: - Audio File Import

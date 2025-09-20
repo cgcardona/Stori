@@ -39,6 +39,12 @@ class TrackHeaderManager: ObservableObject {
         syncWithProject()
     }
     
+    // MARK: - Project Change Handling
+    func handleProjectUpdate() {
+        // Re-sync track headers when the project changes
+        syncWithProject()
+    }
+    
     // MARK: - Track Management
     func addTrack(name: String = "New Track", type: TrackType = .audio) {
         let availableColors = TrackColor.allCases
@@ -216,12 +222,19 @@ class TrackHeaderManager: ObservableObject {
     
     // MARK: - Backend Synchronization
     func syncWithProject() {
-        guard let projectManager = projectManager,
-              let project = projectManager.currentProject else { return }
+        guard let audioEngine = audioEngine,
+              let project = audioEngine.currentProject else { 
+            return 
+        }
         
         // Convert AudioTracks to TrackHeaderModels
-        tracks = project.tracks.map { audioTrack in
+        let newTracks = project.tracks.map { audioTrack in
             TrackHeaderModel(from: audioTrack)
+        }
+        
+        // Force UI update by explicitly setting the published property
+        DispatchQueue.main.async {
+            self.tracks = newTracks
         }
         
         // Update track numbers

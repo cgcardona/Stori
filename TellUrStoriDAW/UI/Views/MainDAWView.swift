@@ -320,7 +320,6 @@ struct MainDAWView: View {
                                     VStack {
                                         Spacer(minLength: 0)
                                         MixerView(
-                                            project: projectManager.currentProject,
                                             audioEngine: audioEngine,
                                             projectManager: projectManager,
                                             selectedTrackId: $selectedTrackId

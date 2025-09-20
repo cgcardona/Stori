@@ -57,6 +57,10 @@ struct ProfessionalTimelineView: View {
                 trackHeaderManager.configure(audioEngine: audioEngine, projectManager: projectManager)
             }
         }
+        .onChange(of: audioEngine.currentProject) { _, _ in
+            // Sync track headers when the AudioEngine's project changes
+            trackHeaderManager.handleProjectUpdate()
+        }
     }
     
     // MARK: - Track Headers Panel
@@ -65,9 +69,9 @@ struct ProfessionalTimelineView: View {
             // Track headers list
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
-                    // Use actual project tracks directly
-                    if let project = project {
-                        ForEach(project.tracks) { audioTrack in
+                    // Use actual project tracks directly from AudioEngine for real-time updates
+                    if let currentProject = audioEngine.currentProject {
+                        ForEach(currentProject.tracks) { audioTrack in
                             ProfessionalTrackHeaderDirect(
                                 audioTrack: audioTrack,
                                 isSelected: selectedTrackId == audioTrack.id,
