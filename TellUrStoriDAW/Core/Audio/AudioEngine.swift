@@ -1245,6 +1245,28 @@ class AudioEngine: ObservableObject {
         return mixer.outputVolume
     }
     
+    // MARK: - Bus Output Level Control
+    func updateBusOutputLevel(_ busId: UUID, outputLevel: Double) {
+        // Update the bus node's output gain
+        if let busNode = busNodes[busId] {
+            busNode.outputGain = Float(outputLevel)
+            // Only log significant changes to reduce noise
+            if abs(Double(busNode.outputGain) - outputLevel) > 0.05 {
+                print("🎛️ Bus output level updated to \(Int(outputLevel * 100))%")
+            }
+        }
+        
+        // Update the project model
+        guard var project = currentProject,
+              let busIndex = project.buses.firstIndex(where: { $0.id == busId }) else {
+            return
+        }
+        
+        project.buses[busIndex].outputLevel = outputLevel
+        project.modifiedAt = Date()
+        currentProject = project
+    }
+    
     private func updateProjectTrackMixerSettings(trackId: UUID, update: (inout MixerSettings) -> Void) {
         guard var project = currentProject else { return }
         

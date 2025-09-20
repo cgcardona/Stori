@@ -554,7 +554,22 @@ struct BusChannelStrip: View {
             
             // Vertical Return Fader
             VerticalFader(
-                value: .constant(bus.outputLevel),
+                value: Binding(
+                    get: { bus.outputLevel },
+                    set: { newValue in
+                        // Update audio engine
+                        audioEngine.updateBusOutputLevel(bus.id, outputLevel: newValue)
+                        
+                        // Update project manager to trigger UI refresh
+                        if let project = project {
+                            projectManager.currentProject = project
+                            projectManager.saveCurrentProject()
+                        }
+                        
+                        // Only log when dragging stops to reduce noise
+                        // print("🎚️ RETURN LEVEL: Updated bus '\(bus.name)' output level to \(Int(newValue * 100))%")
+                    }
+                ),
                 height: 120
             )
             
