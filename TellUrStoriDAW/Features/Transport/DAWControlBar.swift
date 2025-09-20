@@ -432,14 +432,3 @@ struct DAWControlBar: View {
         .frame(width: 200)
     }
 }
-
-#Preview {
-    DAWControlBar(
-        audioEngine: AudioEngine(),
-        projectManager: ProjectManager(),
-        showingMixer: .constant(false),
-        showingLibrary: .constant(false),
-        showingInspector: .constant(false)
-    )
-    .frame(width: 800)
-}

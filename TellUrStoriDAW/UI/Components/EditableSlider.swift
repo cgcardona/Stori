@@ -336,37 +336,3 @@ extension EditableSlider where T == Double {
         )
     }
 }
-
-// MARK: - Preview
-#Preview {
-    VStack(spacing: 30) {
-        VStack {
-            Text("Volume")
-            EditableSlider.volume(value: .constant(0.75)) { newValue in
-                print("Volume changed to: \(newValue)")
-            }
-        }
-        
-        VStack {
-            Text("Pan")
-            EditableSlider.pan(value: .constant(-0.25)) { newValue in
-                print("Pan changed to: \(newValue)")
-            }
-        }
-        
-        VStack {
-            Text("Gain")
-            EditableSlider.gain(value: .constant(-6.0)) { newValue in
-                print("Gain changed to: \(newValue)")
-            }
-        }
-        
-        VStack {
-            Text("Frequency")
-            EditableSlider.frequency(value: .constant(1000.0)) { newValue in
-                print("Frequency changed to: \(newValue)")
-            }
-        }
-    }
-    .padding()
-}

@@ -506,21 +506,3 @@ extension Color {
         )
     }
 }
-
-#Preview {
-    DAWTrackHeader(
-        track: AudioTrack(
-            name: "Doing Science",
-            trackType: .audio,
-            color: .blue
-        ),
-        audioEngine: AudioEngine(),
-        projectManager: ProjectManager(),
-        trackNumber: 1,
-        isSelected: true,
-        onSelect: {},
-        onDelete: {}
-    )
-    .frame(width: 300, height: 60)
-    .padding()
-}

@@ -846,19 +846,3 @@ enum ProjectCategory: CaseIterable {
         }
     }
 }
-
-
-#Preview {
-    TimelineView(
-        project: nil,
-        audioEngine: AudioEngine(),
-        projectManager: ProjectManager(),
-        selectedTrackId: .constant(nil),
-        horizontalZoom: 1.0,
-        verticalZoom: 1.0,
-        onAddTrack: {},
-        onCreateProject: {},
-        onOpenProject: {}
-    )
-    .frame(width: 1000, height: 600)
-}

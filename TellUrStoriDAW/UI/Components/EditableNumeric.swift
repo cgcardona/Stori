@@ -318,25 +318,3 @@ extension EditableNumeric where T == Int {
         )
     }
 }
-
-// MARK: - Preview
-#Preview {
-    VStack(spacing: 20) {
-        EditableNumeric.bpm(value: 120) { newValue in
-            print("BPM changed to: \(newValue)")
-        }
-        
-        EditableNumeric.decibels(value: -12.5) { newValue in
-            print("Level changed to: \(newValue)")
-        }
-        
-        EditableNumeric.frequency(value: 1000.0) { newValue in
-            print("Frequency changed to: \(newValue)")
-        }
-        
-        EditableNumeric.percentage(value: 75.0) { newValue in
-            print("Percentage changed to: \(newValue)")
-        }
-    }
-    .padding()
-}

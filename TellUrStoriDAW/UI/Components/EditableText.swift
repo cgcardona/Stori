@@ -206,31 +206,3 @@ extension ValidationResult {
         }
     }
 }
-
-// MARK: - Preview
-#Preview {
-    VStack(spacing: 20) {
-        EditableText(
-            text: "Sample Track Name",
-            placeholder: "Enter track name",
-            font: .headline,
-            validator: ValidationResult.combine([
-                ValidationResult.notEmpty,
-                { ValidationResult.maxLength($0, 50) }
-            ])
-        ) { newText in
-            print("Track name changed to: \(newText)")
-        }
-        
-        EditableText(
-            text: "120",
-            placeholder: "BPM",
-            font: .title2,
-            editingStyle: .plain,
-            helpText: "Double-click to edit tempo"
-        ) { newText in
-            print("Tempo changed to: \(newText)")
-        }
-    }
-    .padding()
-}

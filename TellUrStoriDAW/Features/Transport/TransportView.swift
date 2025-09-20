@@ -154,8 +154,3 @@ struct TransportButton: View {
         .animation(.easeInOut(duration: 0.1), value: isActive)
     }
 }
-
-#Preview {
-    TransportView(audioEngine: AudioEngine())
-        .frame(width: 800, height: 80)
-}

@@ -754,21 +754,3 @@ struct ProfessionalTrackHeaderDirect: View {
         }
     }
 }
-
-#Preview {
-    let audioEngine = AudioEngine()
-    let projectManager = ProjectManager()
-    
-    return ProfessionalTimelineView(
-        project: nil,
-        audioEngine: audioEngine,
-        projectManager: projectManager,
-        selectedTrackId: .constant(nil),
-        horizontalZoom: 1.0,
-        verticalZoom: 1.0,
-        onAddTrack: {},
-        onCreateProject: {},
-        onOpenProject: {}
-    )
-    .frame(width: 1000, height: 600)
-}

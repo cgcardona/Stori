@@ -207,8 +207,3 @@ struct LibraryItemRow: View {
         }
     }
 }
-
-#Preview {
-    DAWLibraryPanel()
-        .frame(width: 250, height: 600)
-}

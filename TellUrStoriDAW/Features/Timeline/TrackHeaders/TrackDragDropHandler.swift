@@ -262,17 +262,3 @@ struct TrackDragPreview: View {
         .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
     }
 }
-
-#Preview {
-    let headerManager = TrackHeaderManager()
-    
-    // Add some sample tracks
-    headerManager.addTrack(name: "Lead Vocal", type: .audio)
-    headerManager.addTrack(name: "Guitar", type: .audio)
-    headerManager.addTrack(name: "Bass", type: .audio)
-    headerManager.addTrack(name: "Drums", type: .audio)
-    
-    return DraggableTrackList(headerManager: headerManager)
-        .frame(width: 280, height: 400)
-        .padding()
-}

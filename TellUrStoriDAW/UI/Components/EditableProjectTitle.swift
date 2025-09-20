@@ -100,24 +100,3 @@ struct EditableProjectTitle: View {
         // Keep editing mode active so user can correct the error
     }
 }
-
-#Preview {
-    VStack(spacing: 20) {
-        EditableProjectTitle(
-            projectName: "My Awesome Project",
-            onNameChanged: { newName in
-                print("Project renamed to: \(newName)")
-            }
-        )
-        .frame(width: 300)
-        
-        EditableProjectTitle(
-            projectName: "Short",
-            onNameChanged: { newName in
-                print("Project renamed to: \(newName)")
-            }
-        )
-        .frame(width: 200)
-    }
-    .padding()
-}

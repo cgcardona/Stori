@@ -620,21 +620,6 @@ struct TrackColorPicker: View {
         .frame(width: 300, height: 400)
     }
 }
-
-#Preview {
-    let headerManager = TrackHeaderManager()
-    let track = TrackHeaderModel(name: "Lead Vocal", trackType: .audio, color: .blue)
-    
-    return ProfessionalTrackHeader(
-        track: track,
-        isSelected: true,
-        height: 80,
-        headerManager: headerManager
-    )
-    .frame(width: 280, height: 80)
-    .padding()
-}
-
 // MARK: - Helper Functions
 extension ProfessionalTrackHeader {
     private func convertToAudioTrack(from trackHeader: TrackHeaderModel) -> AudioTrack {

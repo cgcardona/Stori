@@ -301,12 +301,3 @@ struct InspectorToggle: View {
         }
     }
 }
-
-#Preview {
-    DAWInspectorPanel(
-        selectedTrackId: .constant(nil),
-        project: nil,
-        audioEngine: AudioEngine()
-    )
-    .frame(width: 250, height: 600)
-}
