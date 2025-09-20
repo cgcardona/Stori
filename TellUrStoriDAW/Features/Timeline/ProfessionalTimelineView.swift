@@ -24,6 +24,7 @@ struct ProfessionalTimelineView: View {
     // Layout state
     @State private var trackHeaderWidth: CGFloat = 280
     @State private var defaultTrackHeight: CGFloat = 80
+    @State private var verticalScrollOffset: CGFloat = 0
     
     // Dynamic sizing based on zoom
     private var trackHeight: CGFloat { defaultTrackHeight * CGFloat(verticalZoom) }
@@ -33,11 +34,73 @@ struct ProfessionalTimelineView: View {
         VStack(spacing: 0) {
             if let project = project {
                 HStack(spacing: 0) {
-                    // Professional Track Headers Panel
-                    trackHeadersPanel
+                    // Track Headers Panel (fixed width, separate scroll)
+                    VStack(spacing: 0) {
+                        // Spacer to align with timeline ruler (40px height from MainDAWView)
+                        Color.clear
+                            .frame(height: 40)
+                        
+                        // Track headers list
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 0) {
+                                // Use actual project tracks directly from AudioEngine for real-time updates
+                                if let currentProject = audioEngine.currentProject {
+                                    ForEach(currentProject.tracks) { audioTrack in
+                                        ProfessionalTrackHeaderDirect(
+                                            audioTrack: audioTrack,
+                                            isSelected: selectedTrackId == audioTrack.id,
+                                            height: trackHeight,
+                                            audioEngine: audioEngine,
+                                            projectManager: projectManager
+                                        )
+                                        .id(audioTrack.id)
+                                        .onTapGesture {
+                                            selectedTrackId = audioTrack.id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Add track button
+                        AddTrackButton {
+                            onAddTrack()
+                        }
+                        .frame(height: 40)
+                    }
+                    .frame(width: trackHeaderWidth)
+                    .background(Color(.controlBackgroundColor))
+                    .overlay(
+                        Rectangle()
+                            .fill(Color(.separatorColor))
+                            .frame(width: 1),
+                        alignment: .trailing
+                    )
                     
-                    // Timeline Editor Area
-                    timelineEditorArea
+                    // Timeline Editor Area (starts immediately, no top spacer)
+                    ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                        VStack(spacing: 0) {
+                            // Use actual project tracks directly (like original TimelineView)
+                            ForEach(project.tracks) { audioTrack in
+                                TrackEditorLane(
+                                    track: getTrackHeaderModel(for: audioTrack.id),
+                                    audioTrack: audioTrack, // Pass the actual AudioTrack directly
+                                    audioEngine: audioEngine,
+                                    projectManager: projectManager,
+                                    isSelected: selectedTrackId == audioTrack.id,
+                                    pixelsPerSecond: pixelsPerSecond,
+                                    trackHeight: trackHeight,
+                                    onSelect: {
+                                        selectedTrackId = audioTrack.id
+                                    }
+                                )
+                                .id(audioTrack.id)
+                            }
+                            
+                            // Spacer for additional content
+                            Spacer(minLength: 200)
+                        }
+                    }
                 }
             } else {
                 EmptyTimelineView(
@@ -63,76 +126,7 @@ struct ProfessionalTimelineView: View {
         }
     }
     
-    // MARK: - Track Headers Panel
-    private var trackHeadersPanel: some View {
-        VStack(spacing: 0) {
-            // Track headers list
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                    // Use actual project tracks directly from AudioEngine for real-time updates
-                    if let currentProject = audioEngine.currentProject {
-                        ForEach(currentProject.tracks) { audioTrack in
-                            ProfessionalTrackHeaderDirect(
-                                audioTrack: audioTrack,
-                                isSelected: selectedTrackId == audioTrack.id,
-                                height: trackHeight,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager
-                            )
-                            .id(audioTrack.id)
-                            .onTapGesture {
-                                selectedTrackId = audioTrack.id
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Add track button
-            AddTrackButton {
-                onAddTrack()
-            }
-            .frame(height: 40)
-        }
-        .frame(width: trackHeaderWidth)
-        .background(Color(.controlBackgroundColor))
-        .overlay(
-            Rectangle()
-                .fill(Color(.separatorColor))
-                .frame(width: 1),
-            alignment: .trailing
-        )
-    }
     
-    // MARK: - Timeline Editor Area
-    private var timelineEditorArea: some View {
-        ScrollView([.horizontal, .vertical], showsIndicators: true) {
-            VStack(spacing: 0) {
-                // Use actual project tracks directly (like original TimelineView)
-                if let project = project {
-                    ForEach(project.tracks) { audioTrack in
-                        TrackEditorLane(
-                            track: getTrackHeaderModel(for: audioTrack.id),
-                            audioTrack: audioTrack, // Pass the actual AudioTrack directly
-                            audioEngine: audioEngine,
-                            projectManager: projectManager,
-                            isSelected: selectedTrackId == audioTrack.id,
-                            pixelsPerSecond: pixelsPerSecond,
-                            trackHeight: trackHeight,
-                            onSelect: {
-                                selectedTrackId = audioTrack.id
-                            }
-                        )
-                        .id(audioTrack.id)
-                    }
-                }
-                
-                // Spacer for additional content
-                Spacer(minLength: 200)
-            }
-        }
-        .background(Color(.windowBackgroundColor))
-    }
     
     // MARK: - Helper Methods
     private func setupTrackHeaderManager() {
