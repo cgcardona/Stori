@@ -18,7 +18,6 @@ struct DAWControlBar: View {
     @State private var showingTempoEditor = false
     @State private var showingKeySignatureEditor = false
     @State private var showingTimeSignatureEditor = false
-    @State private var masterVolume: Double = 0.8
     
     var body: some View {
         HStack(spacing: 0) {
@@ -292,11 +291,16 @@ struct DAWControlBar: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
-                        Slider(value: $masterVolume, in: 0...1)
+                        Slider(value: Binding(
+                            get: { audioEngine.masterVolume },
+                            set: { newValue in
+                                audioEngine.updateMasterVolume(Float(newValue))
+                            }
+                        ), in: 0...1)
                             .frame(width: 60)
-                            .help("Master Volume: \(Int(masterVolume * 100))%")
+                            .help("Master Volume: \(Int(audioEngine.masterVolume * 100))%")
                         
-                        Text("\(Int(masterVolume * 100))%")
+                        Text("\(Int(audioEngine.masterVolume * 100))%")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                             .frame(width: 28)

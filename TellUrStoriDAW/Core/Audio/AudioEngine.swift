@@ -20,6 +20,7 @@ class AudioEngine: ObservableObject {
     @Published var audioLevels: [Float] = []
     @Published var isCycleEnabled: Bool = false
     @Published var cycleStartTime: TimeInterval = 0.0
+    @Published var masterVolume: Double = 0.8  // Shared master volume state
     @Published var cycleEndTime: TimeInterval = 4.0
     
     // MARK: - Private Properties
@@ -63,7 +64,8 @@ class AudioEngine: ObservableObject {
         engine.connect(mixer, to: engine.outputNode, format: deviceFormat)
         print("🎯 MASTER SETUP: Using device format: \(deviceFormat)")
         
-        // Set default master volume to 60%
+        // Set default master volume to match published property
+        mixer.outputVolume = Float(masterVolume)
        
         // Start the engine
         startAudioEngine()
@@ -1225,6 +1227,7 @@ class AudioEngine: ObservableObject {
     func updateMasterVolume(_ volume: Float) {
         let clampedVolume = max(0.0, min(1.0, volume))
         mixer.outputVolume = clampedVolume
+        masterVolume = Double(clampedVolume)  // Update published property
         print("🔊 Master volume updated to \(Int(clampedVolume * 100))%")
     }
     

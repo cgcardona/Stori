@@ -579,7 +579,6 @@ struct BusChannelStrip: View {
 struct MasterChannelStrip: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
-    @State private var masterVolume: Double = 0.8
     @State private var masterHiEQ: Double = 0.5
     @State private var masterMidEQ: Double = 0.5
     @State private var masterLoEQ: Double = 0.5
@@ -662,9 +661,8 @@ struct MasterChannelStrip: View {
             // Master Fader (taller for better visibility)
             VerticalFader(
                 value: Binding(
-                    get: { masterVolume },
+                    get: { audioEngine.masterVolume },
                     set: { newValue in
-                        masterVolume = newValue
                         audioEngine.updateMasterVolume(Float(newValue))
                     }
                 ),
