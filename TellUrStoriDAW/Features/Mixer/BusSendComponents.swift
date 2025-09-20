@@ -801,6 +801,60 @@ struct ReverbConfigurationView: View {
     
     // UI State
     @State private var selectedPreset = "Default Preset"
+    @State private var isApplyingPreset = false
+    
+    // Professional Reverb Presets
+    private let reverbPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "roomSize": 50.0,
+            "decayTime": 2.0,
+            "wetLevel": 30.0,
+            "dryLevel": 70.0,
+            "predelay": 0.0
+        ],
+        "Hall": [
+            "roomSize": 85.0,
+            "decayTime": 4.5,
+            "wetLevel": 45.0,
+            "dryLevel": 55.0,
+            "predelay": 25.0
+        ],
+        "Room": [
+            "roomSize": 35.0,
+            "decayTime": 1.2,
+            "wetLevel": 25.0,
+            "dryLevel": 75.0,
+            "predelay": 5.0
+        ],
+        "Plate": [
+            "roomSize": 65.0,
+            "decayTime": 2.8,
+            "wetLevel": 40.0,
+            "dryLevel": 60.0,
+            "predelay": 15.0
+        ],
+        "Spring": [
+            "roomSize": 20.0,
+            "decayTime": 0.8,
+            "wetLevel": 35.0,
+            "dryLevel": 65.0,
+            "predelay": 2.0
+        ],
+        "Cathedral": [
+            "roomSize": 95.0,
+            "decayTime": 6.5,
+            "wetLevel": 55.0,
+            "dryLevel": 45.0,
+            "predelay": 40.0
+        ],
+        "Ambient": [
+            "roomSize": 75.0,
+            "decayTime": 8.0,
+            "wetLevel": 65.0,
+            "dryLevel": 35.0,
+            "predelay": 30.0
+        ]
+    ]
     @State private var dampingCurve: [CGPoint] = []
     @State private var freeze: Bool = false
     
@@ -834,6 +888,7 @@ struct ReverbConfigurationView: View {
         .onAppear {
             loadParametersFromEffect()
             setupDefaultCurve()
+            detectCurrentPreset()
         }
     }
     
@@ -848,6 +903,62 @@ struct ReverbConfigurationView: View {
     private func updateParameter(_ name: String, _ value: Double) {
         print("🎛️ REVERB UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = reverbPresets[presetName] else { return }
+        
+        // Show visual feedback
+        isApplyingPreset = true
+        
+        // Apply preset values with smooth animation
+        withAnimation(.easeInOut(duration: 0.4)) {
+            roomSize = preset["roomSize"] ?? roomSize
+            decayTime = preset["decayTime"] ?? decayTime
+            wetLevel = preset["wetLevel"] ?? wetLevel
+            dryLevel = preset["dryLevel"] ?? dryLevel
+            predelay = preset["predelay"] ?? predelay
+        }
+        
+        // Update audio engine parameters
+        preset.forEach { key, value in
+            updateParameter(key, value)
+        }
+        
+        selectedPreset = presetName
+        
+        // Hide visual feedback after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                isApplyingPreset = false
+            }
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        let currentValues: [String: Double] = [
+            "roomSize": roomSize,
+            "decayTime": decayTime,
+            "wetLevel": wetLevel,
+            "dryLevel": dryLevel,
+            "predelay": predelay
+        ]
+        
+        // Check if current values match any preset (with tolerance)
+        for (presetName, presetValues) in reverbPresets {
+            let matches = presetValues.allSatisfy { key, value in
+                guard let currentValue = currentValues[key] else { return false }
+                return abs(currentValue - value) < 0.1 // Small tolerance for floating point comparison
+            }
+            
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        
+        // If no preset matches, show "Custom"
+        selectedPreset = "Custom"
     }
     
     private var effectHeaderBar: some View {
@@ -885,21 +996,41 @@ struct ReverbConfigurationView: View {
             
             // Preset Selector with TellUrStori Styling
             Menu {
-                Button("Default Preset") { selectedPreset = "Default Preset" }
-                Button("Hall") { selectedPreset = "Hall" }
-                Button("Room") { selectedPreset = "Room" }
-                Button("Plate") { selectedPreset = "Plate" }
-                Button("Spring") { selectedPreset = "Spring" }
-                Button("Cathedral") { selectedPreset = "Cathedral" }
-                Button("Ambient") { selectedPreset = "Ambient" }
+                Button("Default Preset") { applyPreset("Default Preset") }
+                Divider()
+                Button("Hall") { applyPreset("Hall") }
+                Button("Room") { applyPreset("Room") }
+                Button("Plate") { applyPreset("Plate") }
+                Button("Spring") { applyPreset("Spring") }
+                Button("Cathedral") { applyPreset("Cathedral") }
+                Button("Ambient") { applyPreset("Ambient") }
+                if selectedPreset == "Custom" {
+                    Divider()
+                    Button("Custom") { /* No action - just shows current state */ }
+                        .disabled(true)
+                }
             } label: {
                 HStack {
+                    if isApplyingPreset {
+                        Image(systemName: "waveform.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: gradientColors,
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .symbolEffect(.pulse, isActive: isApplyingPreset)
+                    }
                     Text(selectedPreset)
                         .font(.headline)
                         .foregroundColor(.primary)
+                        .opacity(isApplyingPreset ? 0.7 : 1.0)
                     Image(systemName: "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .opacity(isApplyingPreset ? 0.5 : 1.0)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -912,8 +1043,9 @@ struct ReverbConfigurationView: View {
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
-                            lineWidth: 1
+                            lineWidth: isApplyingPreset ? 2 : 1
                         )
+                        .opacity(isApplyingPreset ? 0.8 : 1.0)
                 )
             }
             .menuStyle(.borderlessButton)
@@ -1137,6 +1269,7 @@ struct ReverbConfigurationView: View {
                         Slider(value: $roomSize, in: 0...100)
                             .onChange(of: roomSize) { _, newValue in
                                 updateParameter("roomSize", newValue)
+                                detectCurrentPreset()
                             }
                         EditableNumeric.percentage(
                             value: roomSize,
@@ -1144,6 +1277,7 @@ struct ReverbConfigurationView: View {
                         ) { newValue in
                             roomSize = newValue
                             updateParameter("roomSize", newValue)
+                            detectCurrentPreset()
                         }
                         .foregroundColor(.secondary)
                     }
@@ -1155,6 +1289,7 @@ struct ReverbConfigurationView: View {
                         Slider(value: $decayTime, in: 0.1...10)
                             .onChange(of: decayTime) { _, newValue in
                                 updateParameter("decayTime", newValue)
+                                detectCurrentPreset()
                             }
                         EditableNumeric(
                             value: decayTime,
@@ -1165,6 +1300,7 @@ struct ReverbConfigurationView: View {
                         ) { newValue in
                             decayTime = newValue
                             updateParameter("decayTime", newValue)
+                            detectCurrentPreset()
                         }
                         .foregroundColor(.secondary)
                     }
@@ -1176,6 +1312,7 @@ struct ReverbConfigurationView: View {
                         Slider(value: $predelay, in: 0...100)
                             .onChange(of: predelay) { _, newValue in
                                 updateParameter("predelay", newValue)
+                                detectCurrentPreset()
                             }
                         EditableNumeric.milliseconds(
                             value: predelay,
@@ -1184,6 +1321,7 @@ struct ReverbConfigurationView: View {
                         ) { newValue in
                             predelay = newValue
                             updateParameter("predelay", newValue)
+                            detectCurrentPreset()
                         }
                         .foregroundColor(.secondary)
                     }
@@ -1197,10 +1335,12 @@ struct ReverbConfigurationView: View {
                         Slider(value: $dryLevel, in: 0...100)
                             .onChange(of: dryLevel) { _, newValue in
                                 updateParameter("dryLevel", newValue)
+                                detectCurrentPreset()
                             }
                         EditableNumeric.percentage(value: dryLevel) { newValue in
                             dryLevel = newValue
                             updateParameter("dryLevel", newValue)
+                            detectCurrentPreset()
                         }
                     }
                     
@@ -1211,10 +1351,12 @@ struct ReverbConfigurationView: View {
                         Slider(value: $wetLevel, in: 0...100)
                             .onChange(of: wetLevel) { _, newValue in
                                 updateParameter("wetLevel", newValue)
+                                detectCurrentPreset()
                             }
                         EditableNumeric.percentage(value: wetLevel) { newValue in
                             wetLevel = newValue
                             updateParameter("wetLevel", newValue)
+                            detectCurrentPreset()
                         }
                     }
                     
