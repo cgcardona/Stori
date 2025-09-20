@@ -632,8 +632,10 @@ struct EffectSlot: View {
             ]
         case .chorus:
             return [
-                "rate": 1.0,
+                "rate": 0.5,
                 "depth": 50.0,
+                "voices": 4.0,
+                "spread": 180.0,
                 "wetLevel": 50.0,
                 "dryLevel": 50.0
             ]
@@ -1724,6 +1726,54 @@ struct ChorusConfigurationView: View {
     @State private var wetLevel: Double = 50.0
     @State private var dryLevel: Double = 50.0
     
+    // UI State
+    @State private var selectedPreset = "Default Preset"
+    @State private var isApplyingPreset = false
+    
+    // Professional Chorus Presets
+    private let chorusPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "rate": 0.5,
+            "depth": 50.0,
+            "voices": 4.0,
+            "spread": 180.0,
+            "wetLevel": 50.0,
+            "dryLevel": 50.0
+        ],
+        "Vintage": [
+            "rate": 0.3,
+            "depth": 35.0,
+            "voices": 2.0,
+            "spread": 90.0,
+            "wetLevel": 40.0,
+            "dryLevel": 60.0
+        ],
+        "Modern": [
+            "rate": 0.8,
+            "depth": 65.0,
+            "voices": 6.0,
+            "spread": 240.0,
+            "wetLevel": 55.0,
+            "dryLevel": 45.0
+        ],
+        "Extreme": [
+            "rate": 1.5,
+            "depth": 85.0,
+            "voices": 8.0,
+            "spread": 300.0,
+            "wetLevel": 70.0,
+            "dryLevel": 30.0
+        ],
+        "Subtle": [
+            "rate": 0.2,
+            "depth": 20.0,
+            "voices": 2.0,
+            "spread": 60.0,
+            "wetLevel": 25.0,
+            "dryLevel": 75.0
+        ]
+    ]
+    
     private let gradientColors = [Color.purple.opacity(0.8), Color.pink.opacity(0.8), Color.red.opacity(0.8)]
     
     var body: some View {
@@ -1732,9 +1782,9 @@ struct ChorusConfigurationView: View {
                 title: "CHORUS", 
                 gradientColors: gradientColors, 
                 isPresented: $isPresented,
-                selectedPreset: "Default Preset",
-                onPresetChange: { _ in },
-                isApplyingPreset: false
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
             )
             
             HStack(spacing: 0) {
@@ -1761,12 +1811,30 @@ struct ChorusConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        EditableChorusParameterSlider(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
-                        EditableChorusParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
-                        EditableChorusParameterSlider(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { updateParameter("voices", $0) })
-                        EditableChorusParameterSlider(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { updateParameter("spread", $0) })
-                        EditableChorusParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
-                        EditableChorusParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableChorusParameterSlider(title: "Rate", value: $rate, range: 0.1...10, unit: "Hz", gradientColors: gradientColors, onChange: { 
+                            updateParameter("rate", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableChorusParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { 
+                            updateParameter("depth", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableChorusParameterSlider(title: "Voices", value: $voices, range: 2...8, unit: "", gradientColors: gradientColors, onChange: { 
+                            updateParameter("voices", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableChorusParameterSlider(title: "Spread", value: $spread, range: 0...360, unit: "°", gradientColors: gradientColors, onChange: { 
+                            updateParameter("spread", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableChorusParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { 
+                            updateParameter("dryLevel", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableChorusParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { 
+                            updateParameter("wetLevel", $0)
+                            detectCurrentPreset()
+                        })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1786,6 +1854,7 @@ struct ChorusConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -1801,6 +1870,68 @@ struct ChorusConfigurationView: View {
     private func updateParameter(_ name: String, _ value: Double) {
         print("🎛️ CHORUS UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = chorusPresets[presetName] else {
+            print("⚠️ CHORUS PRESET: Unknown preset '\(presetName)'")
+            return
+        }
+        
+        print("🎛️ CHORUS PRESET: Applying '\(presetName)' preset")
+        isApplyingPreset = true
+        
+        // Apply preset values with smooth animation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            rate = preset["rate"] ?? rate
+            depth = preset["depth"] ?? depth
+            voices = preset["voices"] ?? voices
+            spread = preset["spread"] ?? spread
+            wetLevel = preset["wetLevel"] ?? wetLevel
+            dryLevel = preset["dryLevel"] ?? dryLevel
+        }
+        
+        // Update audio engine parameters
+        preset.forEach { key, value in
+            updateParameter(key, value)
+        }
+        
+        selectedPreset = presetName
+        
+        // Reset applying state after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        // Skip detection if we're currently applying a preset
+        guard !isApplyingPreset else { return }
+        
+        let currentValues: [String: Double] = [
+            "rate": rate,
+            "depth": depth,
+            "voices": voices,
+            "spread": spread,
+            "wetLevel": wetLevel,
+            "dryLevel": dryLevel
+        ]
+        
+        // Check if current values match any preset (with small tolerance)
+        for (presetName, presetValues) in chorusPresets {
+            let matches = presetValues.allSatisfy { key, value in
+                guard let currentValue = currentValues[key] else { return false }
+                return abs(currentValue - value) < 0.1
+            }
+            
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        
+        // If no preset matches, show "Custom"
+        selectedPreset = "Custom"
     }
 }
 
