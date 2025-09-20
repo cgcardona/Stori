@@ -382,7 +382,7 @@ struct ZoomControlsView: View {
     @Binding var verticalZoom: Double
     
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             // Spacer to align with track headers
             Color.clear
                 .frame(width: 280)
@@ -394,6 +394,7 @@ struct ZoomControlsView: View {
                     .font(.caption2)
                 
                 Slider(value: $horizontalZoom, in: 0.1...10.0, step: 0.1)
+                    .controlSize(.small)
                     .frame(width: 80)
                     .accentColor(.blue)
                 
@@ -408,7 +409,7 @@ struct ZoomControlsView: View {
             }
             
             Divider()
-                .frame(height: 16)
+                .frame(height: 12)
             
             // Vertical zoom control
             HStack(spacing: 4) {
@@ -417,6 +418,7 @@ struct ZoomControlsView: View {
                     .font(.caption2)
                 
                 Slider(value: $verticalZoom, in: 0.5...3.0, step: 0.1)
+                    .controlSize(.small)
                     .frame(width: 70)
                     .accentColor(.green)
                 
@@ -429,13 +431,19 @@ struct ZoomControlsView: View {
             Spacer()
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
+        .frame(height: 28)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color(NSColor.separatorColor)),
-            alignment: .bottom
+            VStack(spacing: 0) {
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color(NSColor.separatorColor))
+                Spacer(minLength: 0)
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color(NSColor.separatorColor))
+            }
         )
     }
 }
