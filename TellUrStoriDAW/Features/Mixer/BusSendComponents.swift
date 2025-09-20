@@ -653,7 +653,8 @@ struct EffectSlot: View {
                 "lowFreq": 100.0,
                 "lowMidGain": 0.0,
                 "highMidGain": 0.0,
-                "highGain": 0.0
+                "highGain": 0.0,
+                "highFreq": 10000.0
             ]
         case .distortion:
             return [
@@ -1948,8 +1949,61 @@ struct CompressorConfigurationView: View {
     @State private var release: Double = 100.0
     @State private var makeupGain: Double = 0.0
     @State private var knee: Double = 2.0
+    @State private var selectedPreset: String = "Default Preset"
+    @State private var isApplyingPreset: Bool = false
     
     private let gradientColors = [Color.orange.opacity(0.8), Color.red.opacity(0.8), Color.pink.opacity(0.8)]
+    
+    private let compressorPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "threshold": -12.0,
+            "ratio": 4.0,
+            "attack": 10.0,
+            "release": 100.0,
+            "makeupGain": 0.0,
+            "knee": 2.0
+        ],
+        "Vocal": [
+            "threshold": -18.0,
+            "ratio": 3.0,
+            "attack": 5.0,
+            "release": 50.0,
+            "makeupGain": 3.0,
+            "knee": 3.0
+        ],
+        "Drum": [
+            "threshold": -8.0,
+            "ratio": 6.0,
+            "attack": 0.5,
+            "release": 80.0,
+            "makeupGain": 2.0,
+            "knee": 1.0
+        ],
+        "Bass": [
+            "threshold": -15.0,
+            "ratio": 4.5,
+            "attack": 2.0,
+            "release": 120.0,
+            "makeupGain": 2.5,
+            "knee": 2.5
+        ],
+        "Gentle": [
+            "threshold": -20.0,
+            "ratio": 2.0,
+            "attack": 15.0,
+            "release": 200.0,
+            "makeupGain": 1.0,
+            "knee": 5.0
+        ],
+        "Aggressive": [
+            "threshold": -6.0,
+            "ratio": 10.0,
+            "attack": 0.1,
+            "release": 30.0,
+            "makeupGain": 4.0,
+            "knee": 0.5
+        ]
+    ]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -1957,9 +2011,9 @@ struct CompressorConfigurationView: View {
                 title: "COMPRESSOR", 
                 gradientColors: gradientColors, 
                 isPresented: $isPresented,
-                selectedPreset: "Default Preset",
-                onPresetChange: { _ in },
-                isApplyingPreset: false
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
             )
             
             HStack(spacing: 0) {
@@ -1986,12 +2040,12 @@ struct CompressorConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        EditableCompressorParameterSlider(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0) })
-                        EditableCompressorParameterSlider(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0) })
-                        EditableCompressorParameterSlider(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0) })
-                        EditableCompressorParameterSlider(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0) })
-                        EditableCompressorParameterSlider(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0) })
-                        EditableCompressorParameterSlider(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0) })
+                        EditableCompressorParameterSlider(title: "Threshold", value: $threshold, range: -60...0, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("threshold", $0); detectCurrentPreset() })
+                        EditableCompressorParameterSlider(title: "Ratio", value: $ratio, range: 1...20, unit: ":1", gradientColors: gradientColors, onChange: { updateParameter("ratio", $0); detectCurrentPreset() })
+                        EditableCompressorParameterSlider(title: "Attack", value: $attack, range: 0.1...100, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("attack", $0); detectCurrentPreset() })
+                        EditableCompressorParameterSlider(title: "Release", value: $release, range: 10...1000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("release", $0); detectCurrentPreset() })
+                        EditableCompressorParameterSlider(title: "Makeup", value: $makeupGain, range: 0...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("makeupGain", $0); detectCurrentPreset() })
+                        EditableCompressorParameterSlider(title: "Knee", value: $knee, range: 0...10, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("knee", $0); detectCurrentPreset() })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2011,6 +2065,7 @@ struct CompressorConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -2021,6 +2076,55 @@ struct CompressorConfigurationView: View {
         release = effect.parameters["release"] ?? 100.0
         makeupGain = effect.parameters["makeupGain"] ?? 0.0
         knee = effect.parameters["knee"] ?? 2.0
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = compressorPresets[presetName] else { return }
+        
+        isApplyingPreset = true
+        selectedPreset = presetName
+        
+        withAnimation(.easeInOut(duration: 0.3)) {
+            threshold = preset["threshold"] ?? threshold
+            ratio = preset["ratio"] ?? ratio
+            attack = preset["attack"] ?? attack
+            release = preset["release"] ?? release
+            makeupGain = preset["makeupGain"] ?? makeupGain
+            knee = preset["knee"] ?? knee
+        }
+        
+        // Update audio engine parameters after animation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            updateParameter("threshold", threshold)
+            updateParameter("ratio", ratio)
+            updateParameter("attack", attack)
+            updateParameter("release", release)
+            updateParameter("makeupGain", makeupGain)
+            updateParameter("knee", knee)
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        let currentParams = [
+            "threshold": threshold,
+            "ratio": ratio,
+            "attack": attack,
+            "release": release,
+            "makeupGain": makeupGain,
+            "knee": knee
+        ]
+        
+        for (presetName, presetParams) in compressorPresets {
+            let matches = presetParams.allSatisfy { key, value in
+                abs(currentParams[key, default: 0] - value) < 0.1
+            }
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        selectedPreset = "Custom"
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
@@ -2042,8 +2146,61 @@ struct EQConfigurationView: View {
     @State private var highGain: Double = 0.0
     @State private var lowFreq: Double = 100.0
     @State private var highFreq: Double = 10000.0
+    @State private var selectedPreset: String = "Default Preset"
+    @State private var isApplyingPreset: Bool = false
     
     private let gradientColors = [Color.cyan.opacity(0.8), Color.blue.opacity(0.8), Color.purple.opacity(0.8)]
+    
+    private let eqPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "lowGain": 0.0,
+            "lowFreq": 100.0,
+            "lowMidGain": 0.0,
+            "highMidGain": 0.0,
+            "highGain": 0.0,
+            "highFreq": 10000.0
+        ],
+        "Vocal Presence": [
+            "lowGain": -2.0,
+            "lowFreq": 80.0,
+            "lowMidGain": 1.5,
+            "highMidGain": 3.0,
+            "highGain": 2.0,
+            "highFreq": 8000.0
+        ],
+        "Bass Boost": [
+            "lowGain": 4.0,
+            "lowFreq": 60.0,
+            "lowMidGain": 2.0,
+            "highMidGain": -1.0,
+            "highGain": -2.0,
+            "highFreq": 12000.0
+        ],
+        "Treble Enhance": [
+            "lowGain": -1.0,
+            "lowFreq": 120.0,
+            "lowMidGain": -0.5,
+            "highMidGain": 2.0,
+            "highGain": 4.0,
+            "highFreq": 6000.0
+        ],
+        "Mid Cut": [
+            "lowGain": 1.0,
+            "lowFreq": 80.0,
+            "lowMidGain": -3.0,
+            "highMidGain": -2.0,
+            "highGain": 1.5,
+            "highFreq": 10000.0
+        ],
+        "Smiley Face": [
+            "lowGain": 3.0,
+            "lowFreq": 60.0,
+            "lowMidGain": -1.5,
+            "highMidGain": -1.0,
+            "highGain": 3.5,
+            "highFreq": 8000.0
+        ]
+    ]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -2051,9 +2208,9 @@ struct EQConfigurationView: View {
                 title: "EQ", 
                 gradientColors: gradientColors, 
                 isPresented: $isPresented,
-                selectedPreset: "Default Preset",
-                onPresetChange: { _ in },
-                isApplyingPreset: false
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
             )
             
             HStack(spacing: 0) {
@@ -2080,12 +2237,12 @@ struct EQConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        EditableEQParameterSlider(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0) })
-                        EditableEQParameterSlider(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0) })
-                        EditableEQParameterSlider(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0) })
-                        EditableEQParameterSlider(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0) })
-                        EditableEQParameterSlider(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0) })
-                        EditableEQParameterSlider(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0) })
+                        EditableEQParameterSlider(title: "Low Gain", value: $lowGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowGain", $0); detectCurrentPreset() })
+                        EditableEQParameterSlider(title: "Low Freq", value: $lowFreq, range: 20...500, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowFreq", $0); detectCurrentPreset() })
+                        EditableEQParameterSlider(title: "Low Mid", value: $lowMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("lowMidGain", $0); detectCurrentPreset() })
+                        EditableEQParameterSlider(title: "Mid Freq", value: $highFreq, range: 200...5000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highFreq", $0); detectCurrentPreset() })
+                        EditableEQParameterSlider(title: "High Mid", value: $highMidGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highMidGain", $0); detectCurrentPreset() })
+                        EditableEQParameterSlider(title: "High Gain", value: $highGain, range: -15...15, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("highGain", $0); detectCurrentPreset() })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2105,6 +2262,7 @@ struct EQConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -2115,6 +2273,55 @@ struct EQConfigurationView: View {
         highGain = effect.parameters["highGain"] ?? 0.0
         lowFreq = effect.parameters["lowFreq"] ?? 100.0
         highFreq = effect.parameters["highFreq"] ?? 10000.0
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = eqPresets[presetName] else { return }
+        
+        isApplyingPreset = true
+        selectedPreset = presetName
+        
+        withAnimation(.easeInOut(duration: 0.3)) {
+            lowGain = preset["lowGain"] ?? lowGain
+            lowMidGain = preset["lowMidGain"] ?? lowMidGain
+            highMidGain = preset["highMidGain"] ?? highMidGain
+            highGain = preset["highGain"] ?? highGain
+            lowFreq = preset["lowFreq"] ?? lowFreq
+            highFreq = preset["highFreq"] ?? highFreq
+        }
+        
+        // Update audio engine parameters after animation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            updateParameter("lowGain", lowGain)
+            updateParameter("lowMidGain", lowMidGain)
+            updateParameter("highMidGain", highMidGain)
+            updateParameter("highGain", highGain)
+            updateParameter("lowFreq", lowFreq)
+            updateParameter("highFreq", highFreq)
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        let currentParams = [
+            "lowGain": lowGain,
+            "lowMidGain": lowMidGain,
+            "highMidGain": highMidGain,
+            "highGain": highGain,
+            "lowFreq": lowFreq,
+            "highFreq": highFreq
+        ]
+        
+        for (presetName, presetParams) in eqPresets {
+            let matches = presetParams.allSatisfy { key, value in
+                abs(currentParams[key, default: 0] - value) < 0.1
+            }
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        selectedPreset = "Custom"
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
@@ -2134,8 +2341,49 @@ struct DistortionConfigurationView: View {
     @State private var tone: Double = 50.0
     @State private var output: Double = 0.0
     @State private var wetLevel: Double = 100.0
+    @State private var selectedPreset: String = "Default Preset"
+    @State private var isApplyingPreset: Bool = false
     
     private let gradientColors = [Color.red.opacity(0.8), Color.orange.opacity(0.8), Color.yellow.opacity(0.8)]
+    
+    private let distortionPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "drive": 30.0,
+            "tone": 50.0,
+            "output": 0.0,
+            "wetLevel": 100.0
+        ],
+        "Overdrive": [
+            "drive": 25.0,
+            "tone": 60.0,
+            "output": -2.0,
+            "wetLevel": 80.0
+        ],
+        "Fuzz": [
+            "drive": 80.0,
+            "tone": 40.0,
+            "output": -5.0,
+            "wetLevel": 100.0
+        ],
+        "Tube": [
+            "drive": 35.0,
+            "tone": 70.0,
+            "output": 2.0,
+            "wetLevel": 90.0
+        ],
+        "Digital": [
+            "drive": 60.0,
+            "tone": 30.0,
+            "output": -3.0,
+            "wetLevel": 100.0
+        ],
+        "Heavy": [
+            "drive": 95.0,
+            "tone": 45.0,
+            "output": -8.0,
+            "wetLevel": 100.0
+        ]
+    ]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -2143,9 +2391,9 @@ struct DistortionConfigurationView: View {
                 title: "DISTORTION", 
                 gradientColors: gradientColors, 
                 isPresented: $isPresented,
-                selectedPreset: "Default Preset",
-                onPresetChange: { _ in },
-                isApplyingPreset: false
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
             )
             
             HStack(spacing: 0) {
@@ -2172,10 +2420,10 @@ struct DistortionConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        EditableDistortionParameterSlider(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0) })
-                        EditableDistortionParameterSlider(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0) })
-                        EditableDistortionParameterSlider(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0) })
-                        EditableDistortionParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableDistortionParameterSlider(title: "Drive", value: $drive, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("drive", $0); detectCurrentPreset() })
+                        EditableDistortionParameterSlider(title: "Tone", value: $tone, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("tone", $0); detectCurrentPreset() })
+                        EditableDistortionParameterSlider(title: "Output", value: $output, range: -20...20, unit: "dB", gradientColors: gradientColors, onChange: { updateParameter("output", $0); detectCurrentPreset() })
+                        EditableDistortionParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0); detectCurrentPreset() })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2195,6 +2443,7 @@ struct DistortionConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -2203,6 +2452,49 @@ struct DistortionConfigurationView: View {
         tone = effect.parameters["tone"] ?? 50.0
         output = effect.parameters["output"] ?? 0.0
         wetLevel = effect.parameters["wetLevel"] ?? 100.0
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = distortionPresets[presetName] else { return }
+        
+        isApplyingPreset = true
+        selectedPreset = presetName
+        
+        withAnimation(.easeInOut(duration: 0.3)) {
+            drive = preset["drive"] ?? drive
+            tone = preset["tone"] ?? tone
+            output = preset["output"] ?? output
+            wetLevel = preset["wetLevel"] ?? wetLevel
+        }
+        
+        // Update audio engine parameters after animation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            updateParameter("drive", drive)
+            updateParameter("tone", tone)
+            updateParameter("output", output)
+            updateParameter("wetLevel", wetLevel)
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        let currentParams = [
+            "drive": drive,
+            "tone": tone,
+            "output": output,
+            "wetLevel": wetLevel
+        ]
+        
+        for (presetName, presetParams) in distortionPresets {
+            let matches = presetParams.allSatisfy { key, value in
+                abs(currentParams[key, default: 0] - value) < 0.1
+            }
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        selectedPreset = "Custom"
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
@@ -2222,8 +2514,43 @@ struct FilterConfigurationView: View {
     @State private var resonance: Double = 0.7
     @State private var filterType: String = "Low Pass"
     @State private var wetLevel: Double = 100.0
+    @State private var selectedPreset: String = "Default Preset"
+    @State private var isApplyingPreset: Bool = false
     
     private let gradientColors = [Color.yellow.opacity(0.8), Color.green.opacity(0.8), Color.cyan.opacity(0.8)]
+    
+    private let filterPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "cutoff": 1000.0,
+            "resonance": 0.7,
+            "wetLevel": 100.0
+        ],
+        "Low Pass": [
+            "cutoff": 800.0,
+            "resonance": 0.5,
+            "wetLevel": 100.0
+        ],
+        "High Pass": [
+            "cutoff": 200.0,
+            "resonance": 0.3,
+            "wetLevel": 100.0
+        ],
+        "Band Pass": [
+            "cutoff": 500.0,
+            "resonance": 1.2,
+            "wetLevel": 100.0
+        ],
+        "Notch": [
+            "cutoff": 1500.0,
+            "resonance": 2.0,
+            "wetLevel": 80.0
+        ],
+        "Resonant": [
+            "cutoff": 600.0,
+            "resonance": 3.5,
+            "wetLevel": 90.0
+        ]
+    ]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -2231,9 +2558,9 @@ struct FilterConfigurationView: View {
                 title: "FILTER", 
                 gradientColors: gradientColors, 
                 isPresented: $isPresented,
-                selectedPreset: "Default Preset",
-                onPresetChange: { _ in },
-                isApplyingPreset: false
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
             )
             
             HStack(spacing: 0) {
@@ -2260,9 +2587,9 @@ struct FilterConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        EditableFilterParameterSlider(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0) })
-                        EditableFilterParameterSlider(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0) })
-                        EditableFilterParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableFilterParameterSlider(title: "Cutoff", value: $cutoff, range: 20...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("cutoff", $0); detectCurrentPreset() })
+                        EditableFilterParameterSlider(title: "Resonance", value: $resonance, range: 0.1...10, unit: "Q", gradientColors: gradientColors, onChange: { updateParameter("resonance", $0); detectCurrentPreset() })
+                        EditableFilterParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0); detectCurrentPreset() })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2282,6 +2609,7 @@ struct FilterConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -2292,6 +2620,46 @@ struct FilterConfigurationView: View {
         // Convert filterType from Double to String for UI
         let filterTypeValue = effect.parameters["filterType"] ?? 0.0
         filterType = filterTypeValue == 0.0 ? "Low Pass" : (filterTypeValue == 1.0 ? "High Pass" : "Band Pass")
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = filterPresets[presetName] else { return }
+        
+        isApplyingPreset = true
+        selectedPreset = presetName
+        
+        withAnimation(.easeInOut(duration: 0.3)) {
+            cutoff = preset["cutoff"] ?? cutoff
+            resonance = preset["resonance"] ?? resonance
+            wetLevel = preset["wetLevel"] ?? wetLevel
+        }
+        
+        // Update audio engine parameters after animation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            updateParameter("cutoff", cutoff)
+            updateParameter("resonance", resonance)
+            updateParameter("wetLevel", wetLevel)
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        let currentParams = [
+            "cutoff": cutoff,
+            "resonance": resonance,
+            "wetLevel": wetLevel
+        ]
+        
+        for (presetName, presetParams) in filterPresets {
+            let matches = presetParams.allSatisfy { key, value in
+                abs(currentParams[key, default: 0] - value) < 0.1
+            }
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        selectedPreset = "Custom"
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
@@ -2318,8 +2686,43 @@ struct ModulationConfigurationView: View {
     @State private var depth: Double = 50.0
     @State private var waveform: String = "Sine"
     @State private var wetLevel: Double = 50.0
+    @State private var selectedPreset: String = "Default Preset"
+    @State private var isApplyingPreset: Bool = false
     
     private let gradientColors = [Color.pink.opacity(0.8), Color.purple.opacity(0.8), Color.blue.opacity(0.8)]
+    
+    private let modulationPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "rate": 2.0,
+            "depth": 50.0,
+            "wetLevel": 50.0
+        ],
+        "Tremolo": [
+            "rate": 4.0,
+            "depth": 60.0,
+            "wetLevel": 70.0
+        ],
+        "Vibrato": [
+            "rate": 6.0,
+            "depth": 30.0,
+            "wetLevel": 80.0
+        ],
+        "Phaser": [
+            "rate": 0.5,
+            "depth": 75.0,
+            "wetLevel": 40.0
+        ],
+        "Flanger": [
+            "rate": 0.8,
+            "depth": 85.0,
+            "wetLevel": 60.0
+        ],
+        "Ring Mod": [
+            "rate": 15.0,
+            "depth": 90.0,
+            "wetLevel": 50.0
+        ]
+    ]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -2327,9 +2730,9 @@ struct ModulationConfigurationView: View {
                 title: "MODULATION", 
                 gradientColors: gradientColors, 
                 isPresented: $isPresented,
-                selectedPreset: "Default Preset",
-                onPresetChange: { _ in },
-                isApplyingPreset: false
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
             )
             
             HStack(spacing: 0) {
@@ -2356,9 +2759,9 @@ struct ModulationConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-                        EditableModulationParameterSlider(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0) })
-                        EditableModulationParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0) })
-                        EditableModulationParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableModulationParameterSlider(title: "Rate", value: $rate, range: 0.1...20, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("rate", $0); detectCurrentPreset() })
+                        EditableModulationParameterSlider(title: "Depth", value: $depth, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("depth", $0); detectCurrentPreset() })
+                        EditableModulationParameterSlider(title: "Mix", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0); detectCurrentPreset() })
                     }
                     .padding(.horizontal, 20)
                     
@@ -2378,6 +2781,7 @@ struct ModulationConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -2386,6 +2790,46 @@ struct ModulationConfigurationView: View {
         depth = effect.parameters["depth"] ?? 50.0
         wetLevel = effect.parameters["wetLevel"] ?? 50.0
         // Handle waveform parameter if needed
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = modulationPresets[presetName] else { return }
+        
+        isApplyingPreset = true
+        selectedPreset = presetName
+        
+        withAnimation(.easeInOut(duration: 0.3)) {
+            rate = preset["rate"] ?? rate
+            depth = preset["depth"] ?? depth
+            wetLevel = preset["wetLevel"] ?? wetLevel
+        }
+        
+        // Update audio engine parameters after animation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            updateParameter("rate", rate)
+            updateParameter("depth", depth)
+            updateParameter("wetLevel", wetLevel)
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        let currentParams = [
+            "rate": rate,
+            "depth": depth,
+            "wetLevel": wetLevel
+        ]
+        
+        for (presetName, presetParams) in modulationPresets {
+            let matches = presetParams.allSatisfy { key, value in
+                abs(currentParams[key, default: 0] - value) < 0.1
+            }
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        selectedPreset = "Custom"
     }
     
     private func updateParameter(_ name: String, _ value: Double) {
@@ -2438,12 +2882,11 @@ struct EffectHeaderBar: View {
             
             // Preset Selector
             Menu {
-                Button("Default Preset") { onPresetChange("Default Preset") }
-                Divider()
-                Button("Vintage") { onPresetChange("Vintage") }
-                Button("Modern") { onPresetChange("Modern") }
-                Button("Extreme") { onPresetChange("Extreme") }
-                Button("Subtle") { onPresetChange("Subtle") }
+                ForEach(getPresetNames(), id: \.self) { presetName in
+                    Button(presetName) {
+                        onPresetChange(presetName)
+                    }
+                }
                 if selectedPreset == "Custom" {
                     Divider()
                     Button("Custom") { }
@@ -2512,6 +2955,30 @@ struct EffectHeaderBar: View {
                     )
             }
         )
+    }
+    
+    private func getPresetNames() -> [String] {
+        // Return appropriate preset names based on the effect title
+        switch title {
+        case "COMPRESSOR":
+            return ["Default Preset", "Vocal", "Drum", "Bass", "Gentle", "Aggressive"]
+        case "EQ":
+            return ["Default Preset", "Vocal Presence", "Bass Boost", "Treble Enhance", "Mid Cut", "Smiley Face"]
+        case "DISTORTION":
+            return ["Default Preset", "Overdrive", "Fuzz", "Tube", "Digital", "Heavy"]
+        case "FILTER":
+            return ["Default Preset", "Low Pass", "High Pass", "Band Pass", "Notch", "Resonant"]
+        case "MODULATION":
+            return ["Default Preset", "Tremolo", "Vibrato", "Phaser", "Flanger", "Ring Mod"]
+        case "REVERB":
+            return ["Default Preset", "Hall", "Room", "Plate", "Spring", "Cathedral", "Ambient"]
+        case "DELAY":
+            return ["Default Preset", "Vintage", "Modern", "Extreme", "Subtle"]
+        case "CHORUS":
+            return ["Default Preset", "Vintage", "Modern", "Extreme", "Subtle"]
+        default:
+            return ["Default Preset"]
+        }
     }
 }
 
