@@ -235,6 +235,7 @@ struct SendSlot: View {
     let audioEngine: AudioEngine  // Add AudioEngine reference
     let onCreateBus: (String) -> UUID  // Returns the created bus ID
     let onAssignBus: (UUID) -> Void
+    let onUpdateTrack: (AudioTrack) -> Void  // Add callback to update track
     
     @State private var showingBusMenu = false
     @State private var assignedBusId: UUID?
@@ -298,8 +299,11 @@ struct SendSlot: View {
                 .onChange(of: sendLevel) { _, newValue in
                     print("🎚️ SEND LEVEL: S\(sendIndex + 1) changed to \(newValue) for track \(track.name)")
                     if let busId = assignedBusId {
-                        // Update audio engine send level - THIS IS THE CRITICAL FIX!
+                        // Update audio engine send level
                         audioEngine.updateTrackSendLevel(track.id, busId: busId, level: newValue)
+                        
+                        // CRITICAL FIX: Update the track's sends array in the data model
+                        updateTrackSendLevel(busId: busId, level: newValue)
                     }
                 }
             }
@@ -326,6 +330,40 @@ struct SendSlot: View {
                 }
             )
             .frame(minWidth: 250, maxWidth: 300)
+        }
+        .onAppear {
+            // Initialize send state from track's sends array
+            if sendIndex < track.sends.count {
+                let trackSend = track.sends[sendIndex]
+                if trackSend.busId != UUID() { // Check if it's not a placeholder UUID
+                    assignedBusId = trackSend.busId
+                    sendLevel = trackSend.sendLevel
+                }
+            }
+        }
+    }
+    
+    // MARK: - Helper Methods
+    private func updateTrackSendLevel(busId: UUID, level: Double) {
+        var updatedTrack = track
+        
+        // Ensure the sends array has enough slots
+        while updatedTrack.sends.count <= sendIndex {
+            updatedTrack.sends.append(TrackSend(busId: UUID(), sendLevel: 0.0, isPreFader: false))
+        }
+        
+        // Update the send level in the track's sends array
+        if updatedTrack.sends[sendIndex].busId == busId {
+            updatedTrack.sends[sendIndex] = TrackSend(
+                busId: busId,
+                sendLevel: level,
+                isPreFader: updatedTrack.sends[sendIndex].isPreFader
+            )
+            
+            // Update the track via callback
+            onUpdateTrack(updatedTrack)
+            
+            print("✅ SEND LEVEL PERSISTENCE: Updated send level to \(level) for bus \(busId) on track \(track.name)")
         }
     }
 }

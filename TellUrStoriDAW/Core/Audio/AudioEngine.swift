@@ -389,6 +389,9 @@ class AudioEngine: ObservableObject {
         }
         
         print("🎛️ Set up \(project.buses.count) bus nodes")
+        
+        // Restore track sends after buses are set up
+        restoreTrackSendsForProject(project)
     }
     
     private func createBusNode(for bus: MixerBus) -> BusAudioNode {
@@ -677,6 +680,30 @@ class AudioEngine: ObservableObject {
         
         trackSendIds.removeValue(forKey: sendKey)
         print("🗑️ CONNECTION POINTS: Removed send from track \(trackId) to bus \(busId)")
+    }
+    
+    // MARK: - Track Send Restoration
+    private func restoreTrackSendsForProject(_ project: AudioProject) {
+        print("🔄 SEND RESTORATION: Restoring track sends for project...")
+        
+        for track in project.tracks {
+            for (sendIndex, trackSend) in track.sends.enumerated() {
+                // Skip placeholder sends (empty UUID)
+                if trackSend.busId != UUID() {
+                    // Check if the bus exists
+                    if busNodes[trackSend.busId] != nil {
+                        print("🔄 RESTORING SEND: Track '\(track.name)' S\(sendIndex + 1) → Bus \(trackSend.busId) at level \(trackSend.sendLevel)")
+                        
+                        // Set up the audio routing
+                        setupTrackSend(track.id, to: trackSend.busId, level: trackSend.sendLevel)
+                    } else {
+                        print("⚠️ SEND RESTORATION: Bus \(trackSend.busId) not found for track '\(track.name)' send \(sendIndex + 1)")
+                    }
+                }
+            }
+        }
+        
+        print("✅ SEND RESTORATION: Completed restoring track sends")
     }
     
     private func rebuildBusChain(_ bus: BusAudioNode) {

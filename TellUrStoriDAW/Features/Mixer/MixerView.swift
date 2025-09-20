@@ -234,6 +234,9 @@ struct TrackChannelStrip: View {
                     onCreateBus: onCreateBus,
                     onAssignBus: { busId in
                         assignBusToSend(sendIndex: sendIndex, busId: busId)
+                    },
+                    onUpdateTrack: { updatedTrack in
+                        projectManager.updateTrack(updatedTrack)
                     }
                 )
             }
@@ -259,14 +262,27 @@ struct TrackChannelStrip: View {
     }
     
     private func assignBusToSend(sendIndex: Int, busId: UUID) {
-        // Update the track's send assignment
-        // This will be handled by the parent MixerView
-        // For now, we'll store it in sendLevels with a composite key
-        // Initialize send level for this bus
+        // Update the track's send assignment in the data model
+        var updatedTrack = track
+        
+        // Create a new TrackSend for this bus assignment
+        let newSend = TrackSend(busId: busId, sendLevel: 0.0, isPreFader: false)
+        
+        // Ensure the sends array has enough slots
+        while updatedTrack.sends.count <= sendIndex {
+            updatedTrack.sends.append(TrackSend(busId: UUID(), sendLevel: 0.0, isPreFader: false))
+        }
+        
+        // Assign the bus to the specific send slot
+        updatedTrack.sends[sendIndex] = newSend
+        
+        // Update the project with the modified track
+        projectManager.updateTrack(updatedTrack)
+        
+        // Initialize send level for UI state
         sendLevels[busId] = 0.0
         
-        // TODO: Update track model to support individual send assignments
-        // track.mixerSettings.sends[sendIndex] = SendAssignment(busId: busId, level: 0.0)
+        print("✅ SEND PERSISTENCE: Assigned bus \(busId) to send slot \(sendIndex) on track \(track.name)")
     }
     
     
