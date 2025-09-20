@@ -1500,11 +1500,66 @@ struct DelayConfigurationView: View {
     @State private var highCut: Double = 8000.0
     @State private var sync: Bool = false
     
+    // UI State
+    @State private var selectedPreset = "Default Preset"
+    @State private var isApplyingPreset = false
+    
+    // Professional Delay Presets
+    private let delayPresets: [String: [String: Double]] = [
+        "Default Preset": [
+            "delayTime": 250.0,
+            "feedback": 25.0,
+            "wetLevel": 30.0,
+            "dryLevel": 70.0,
+            "lowCut": 20.0,
+            "highCut": 8000.0
+        ],
+        "Vintage": [
+            "delayTime": 375.0,
+            "feedback": 45.0,
+            "wetLevel": 35.0,
+            "dryLevel": 65.0,
+            "lowCut": 80.0,
+            "highCut": 4000.0
+        ],
+        "Modern": [
+            "delayTime": 125.0,
+            "feedback": 15.0,
+            "wetLevel": 25.0,
+            "dryLevel": 75.0,
+            "lowCut": 20.0,
+            "highCut": 12000.0
+        ],
+        "Extreme": [
+            "delayTime": 500.0,
+            "feedback": 75.0,
+            "wetLevel": 60.0,
+            "dryLevel": 40.0,
+            "lowCut": 100.0,
+            "highCut": 6000.0
+        ],
+        "Subtle": [
+            "delayTime": 80.0,
+            "feedback": 8.0,
+            "wetLevel": 15.0,
+            "dryLevel": 85.0,
+            "lowCut": 20.0,
+            "highCut": 10000.0
+        ]
+    ]
+    
     private let gradientColors = [Color.green.opacity(0.8), Color.cyan.opacity(0.8), Color.blue.opacity(0.8)]
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "DELAY", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "DELAY", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: selectedPreset,
+                onPresetChange: applyPreset,
+                isApplyingPreset: isApplyingPreset
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - Visualization
@@ -1531,12 +1586,30 @@ struct DelayConfigurationView: View {
                 // Right Panel - Controls
                 VStack(spacing: 20) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 16) {
-                        EditableDelayParameterSlider(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { updateParameter("delayTime", $0) })
-                        EditableDelayParameterSlider(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("feedback", $0) })
-                        EditableDelayParameterSlider(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("lowCut", $0) })
-                        EditableDelayParameterSlider(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { updateParameter("highCut", $0) })
-                        EditableDelayParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("dryLevel", $0) })
-                        EditableDelayParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { updateParameter("wetLevel", $0) })
+                        EditableDelayParameterSlider(title: "Time", value: $delayTime, range: 1...2000, unit: "ms", gradientColors: gradientColors, onChange: { 
+                            updateParameter("delayTime", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableDelayParameterSlider(title: "Feedback", value: $feedback, range: 0...95, unit: "%", gradientColors: gradientColors, onChange: { 
+                            updateParameter("feedback", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableDelayParameterSlider(title: "Low Cut", value: $lowCut, range: 20...1000, unit: "Hz", gradientColors: gradientColors, onChange: { 
+                            updateParameter("lowCut", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableDelayParameterSlider(title: "High Cut", value: $highCut, range: 1000...20000, unit: "Hz", gradientColors: gradientColors, onChange: { 
+                            updateParameter("highCut", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableDelayParameterSlider(title: "Dry", value: $dryLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { 
+                            updateParameter("dryLevel", $0)
+                            detectCurrentPreset()
+                        })
+                        EditableDelayParameterSlider(title: "Wet", value: $wetLevel, range: 0...100, unit: "%", gradientColors: gradientColors, onChange: { 
+                            updateParameter("wetLevel", $0)
+                            detectCurrentPreset()
+                        })
                     }
                     .padding(.horizontal, 20)
                     
@@ -1556,6 +1629,7 @@ struct DelayConfigurationView: View {
         .background(Color(.controlBackgroundColor))
         .onAppear {
             loadParametersFromEffect()
+            detectCurrentPreset()
         }
     }
     
@@ -1571,6 +1645,68 @@ struct DelayConfigurationView: View {
     private func updateParameter(_ name: String, _ value: Double) {
         print("🎛️ DELAY UPDATE: \(name) = \(value) on bus '\(busName)' (effect ID: \(effect.id))")
         onParameterChange(name, value)
+    }
+    
+    private func applyPreset(_ presetName: String) {
+        guard let preset = delayPresets[presetName] else {
+            print("⚠️ DELAY PRESET: Unknown preset '\(presetName)'")
+            return
+        }
+        
+        print("🎛️ DELAY PRESET: Applying '\(presetName)' preset")
+        isApplyingPreset = true
+        
+        // Apply preset values with smooth animation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            delayTime = preset["delayTime"] ?? delayTime
+            feedback = preset["feedback"] ?? feedback
+            wetLevel = preset["wetLevel"] ?? wetLevel
+            dryLevel = preset["dryLevel"] ?? dryLevel
+            lowCut = preset["lowCut"] ?? lowCut
+            highCut = preset["highCut"] ?? highCut
+        }
+        
+        // Update audio engine parameters
+        preset.forEach { key, value in
+            updateParameter(key, value)
+        }
+        
+        selectedPreset = presetName
+        
+        // Reset applying state after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isApplyingPreset = false
+        }
+    }
+    
+    private func detectCurrentPreset() {
+        // Skip detection if we're currently applying a preset
+        guard !isApplyingPreset else { return }
+        
+        let currentValues: [String: Double] = [
+            "delayTime": delayTime,
+            "feedback": feedback,
+            "wetLevel": wetLevel,
+            "dryLevel": dryLevel,
+            "lowCut": lowCut,
+            "highCut": highCut
+        ]
+        
+        // Check if current values match any preset (with small tolerance)
+        for (presetName, presetValues) in delayPresets {
+            let matches = presetValues.allSatisfy { key, value in
+                guard let currentValue = currentValues[key] else { return false }
+                return abs(currentValue - value) < 0.1
+            }
+            
+            if matches {
+                selectedPreset = presetName
+                return
+            }
+        }
+        
+        // If no preset matches, show "Custom"
+        selectedPreset = "Custom"
     }
 }
 
@@ -1592,7 +1728,14 @@ struct ChorusConfigurationView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "CHORUS", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "CHORUS", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: "Default Preset",
+                onPresetChange: { _ in },
+                isApplyingPreset: false
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - Waveform
@@ -1679,7 +1822,14 @@ struct CompressorConfigurationView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "COMPRESSOR", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "COMPRESSOR", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: "Default Preset",
+                onPresetChange: { _ in },
+                isApplyingPreset: false
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - Gain Reduction Meter
@@ -1766,7 +1916,14 @@ struct EQConfigurationView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "EQ", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "EQ", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: "Default Preset",
+                onPresetChange: { _ in },
+                isApplyingPreset: false
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - EQ Curve
@@ -1851,7 +2008,14 @@ struct DistortionConfigurationView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "DISTORTION", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "DISTORTION", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: "Default Preset",
+                onPresetChange: { _ in },
+                isApplyingPreset: false
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - Waveform
@@ -1932,7 +2096,14 @@ struct FilterConfigurationView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "FILTER", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "FILTER", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: "Default Preset",
+                onPresetChange: { _ in },
+                isApplyingPreset: false
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - Filter Response
@@ -2021,7 +2192,14 @@ struct ModulationConfigurationView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            EffectHeaderBar(title: "MODULATION", gradientColors: gradientColors, isPresented: $isPresented)
+            EffectHeaderBar(
+                title: "MODULATION", 
+                gradientColors: gradientColors, 
+                isPresented: $isPresented,
+                selectedPreset: "Default Preset",
+                onPresetChange: { _ in },
+                isApplyingPreset: false
+            )
             
             HStack(spacing: 0) {
                 // Left Panel - LFO Waveform
@@ -2090,8 +2268,9 @@ struct EffectHeaderBar: View {
     let title: String
     let gradientColors: [Color]
     @Binding var isPresented: Bool
-    
-    @State private var selectedPreset = "Default Preset"
+    let selectedPreset: String
+    let onPresetChange: (String) -> Void
+    let isApplyingPreset: Bool
     
     var body: some View {
         HStack {
@@ -2128,19 +2307,27 @@ struct EffectHeaderBar: View {
             
             // Preset Selector
             Menu {
-                Button("Default Preset") { selectedPreset = "Default Preset" }
-                Button("Vintage") { selectedPreset = "Vintage" }
-                Button("Modern") { selectedPreset = "Modern" }
-                Button("Extreme") { selectedPreset = "Extreme" }
-                Button("Subtle") { selectedPreset = "Subtle" }
+                Button("Default Preset") { onPresetChange("Default Preset") }
+                Divider()
+                Button("Vintage") { onPresetChange("Vintage") }
+                Button("Modern") { onPresetChange("Modern") }
+                Button("Extreme") { onPresetChange("Extreme") }
+                Button("Subtle") { onPresetChange("Subtle") }
+                if selectedPreset == "Custom" {
+                    Divider()
+                    Button("Custom") { }
+                        .disabled(true)
+                }
             } label: {
                 HStack {
                     Text(selectedPreset)
                         .font(.headline)
-                        .foregroundColor(.primary)
-                    Image(systemName: "chevron.down")
+                        .foregroundColor(isApplyingPreset ? .secondary : .primary)
+                    Image(systemName: isApplyingPreset ? "arrow.triangle.2.circlepath" : "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(isApplyingPreset ? 360 : 0))
+                        .animation(.linear(duration: 0.3).repeatCount(isApplyingPreset ? 1 : 0), value: isApplyingPreset)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
