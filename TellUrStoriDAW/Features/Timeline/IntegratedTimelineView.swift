@@ -1,0 +1,680 @@
+//
+//  IntegratedTimelineView.swift
+//  TellUrStoriDAW
+//
+//  Integrated timeline combining synchronized scrolling with full TellUrStori functionality
+//  Merges layout-test-1 scroll sync with existing AudioEngine, project management, and DAW features
+//
+
+import SwiftUI
+
+struct IntegratedTimelineView: View {
+    let project: AudioProject?
+    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
+    @Binding var selectedTrackId: UUID?
+    let horizontalZoom: Double
+    let verticalZoom: Double
+    let onAddTrack: () -> Void
+    let onCreateProject: () -> Void
+    let onOpenProject: () -> Void
+    
+    // Scroll synchronization model
+    @State private var scrollSync = ScrollSyncModel()
+    
+    // Layout constants adapted from layout-test-1
+    private let headerWidth: CGFloat = 280
+    private let rulerHeight: CGFloat = 44
+    private let trackRowHeight: CGFloat = 80
+    
+    // Dynamic sizing based on zoom
+    private var effectiveTrackHeight: CGFloat { trackRowHeight * CGFloat(verticalZoom) }
+    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
+    
+    // Content sizing for scroll sync
+    private var contentSize: CGSize {
+        guard let project = project else {
+            return CGSize(width: 3000, height: 1000) // Default size
+        }
+        
+        let width = max(3000, pixelsPerSecond * 60) // At least 60 seconds visible
+        let height = CGFloat(project.tracks.count) * effectiveTrackHeight
+        return CGSize(width: width, height: height)
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            if project != nil {
+                HStack(spacing: 0) {
+                    // LEFT: Track Headers Column (vertical scrolling only)
+                    VStack(spacing: 0) {
+                        // Header spacer to align with timeline ruler
+                        Rectangle()
+                            .fill(Color(NSColor.controlBackgroundColor))
+                            .frame(height: rulerHeight)
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1),
+                                alignment: .bottom
+                            )
+                        
+                        // Synchronized track headers
+                        SynchronizedScrollView(
+                            axes: .vertical,
+                            showsIndicators: true,
+                            contentSize: CGSize(width: headerWidth, height: contentSize.height),
+                            normalizedX: .constant(0),
+                            normalizedY: $scrollSync.verticalScrollPosition,
+                            isUpdatingX: { false },
+                            isUpdatingY: { scrollSync.isUpdatingVertical },
+                            onUserScrollX: { _ in },
+                            onUserScrollY: { scrollSync.updateVerticalPosition($0) }
+                        ) {
+                            AnyView(trackHeadersContent)
+                        }
+                    }
+                    .frame(width: headerWidth)
+                    
+                    // Vertical separator
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 1)
+                    
+                    // RIGHT: Timeline Ruler + Tracks Area
+                    VStack(spacing: 0) {
+                        // Timeline ruler (horizontal scrolling only)
+                        SynchronizedScrollView(
+                            axes: .horizontal,
+                            showsIndicators: true,
+                            contentSize: CGSize(width: contentSize.width, height: rulerHeight),
+                            normalizedX: $scrollSync.horizontalScrollPosition,
+                            normalizedY: .constant(0),
+                            isUpdatingX: { scrollSync.isUpdatingHorizontal },
+                            isUpdatingY: { false },
+                            onUserScrollX: { scrollSync.updateHorizontalPosition($0) },
+                            onUserScrollY: { _ in }
+                        ) {
+                            AnyView(timelineRulerContent)
+                        }
+                        .frame(height: rulerHeight)
+                        
+                        // Horizontal separator
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(height: 1)
+                        
+                        // Tracks area (both axes - master scroll view)
+                        SynchronizedScrollView(
+                            axes: .both,
+                            showsIndicators: true,
+                            contentSize: contentSize,
+                            normalizedX: $scrollSync.horizontalScrollPosition,
+                            normalizedY: $scrollSync.verticalScrollPosition,
+                            isUpdatingX: { scrollSync.isUpdatingHorizontal },
+                            isUpdatingY: { scrollSync.isUpdatingVertical },
+                            onUserScrollX: { scrollSync.updateHorizontalPosition($0) },
+                            onUserScrollY: { scrollSync.updateVerticalPosition($0) }
+                        ) {
+                            AnyView(tracksAreaContent)
+                        }
+                    }
+                }
+                .background(Color(NSColor.windowBackgroundColor))
+                .onChange(of: scrollSync.verticalScrollPosition) { _, newValue in
+                    scrollSync.setVerticalPosition(newValue)
+                }
+                .onChange(of: scrollSync.horizontalScrollPosition) { _, newValue in
+                    scrollSync.setHorizontalPosition(newValue)
+                }
+            } else {
+                EmptyTimelineView(
+                    onCreateProject: onCreateProject,
+                    onOpenProject: onOpenProject,
+                    projectManager: projectManager
+                )
+            }
+        }
+        .frame(minHeight: 300)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Content Views
+    
+    private var trackHeadersContent: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(project?.tracks ?? []) { audioTrack in
+                IntegratedTrackHeader(
+                    audioTrack: audioTrack,
+                    isSelected: selectedTrackId == audioTrack.id,
+                    height: effectiveTrackHeight,
+                    audioEngine: audioEngine,
+                    projectManager: projectManager,
+                    onSelect: {
+                        selectedTrackId = audioTrack.id
+                    }
+                )
+                .id(audioTrack.id)
+            }
+            
+            // Add track button
+            Button(action: onAddTrack) {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("Add Track")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(Color(NSColor.controlBackgroundColor))
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 0.5),
+                    alignment: .bottom
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: headerWidth)
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+    
+    private var timelineRulerContent: some View {
+        IntegratedTimelineRuler(
+            currentPosition: audioEngine.currentPosition.timeInterval,
+            pixelsPerSecond: pixelsPerSecond,
+            contentWidth: contentSize.width
+        )
+    }
+    
+    private var tracksAreaContent: some View {
+        ZStack(alignment: .topLeading) {
+            // Background grid
+            IntegratedGridBackground(
+                contentSize: contentSize,
+                trackHeight: effectiveTrackHeight,
+                pixelsPerSecond: pixelsPerSecond,
+                trackCount: project?.tracks.count ?? 0
+            )
+            
+            // Track rows with regions
+            LazyVStack(spacing: 0) {
+                ForEach(project?.tracks ?? []) { audioTrack in
+                    IntegratedTrackRow(
+                        audioTrack: audioTrack,
+                        isSelected: selectedTrackId == audioTrack.id,
+                        height: effectiveTrackHeight,
+                        pixelsPerSecond: pixelsPerSecond,
+                        audioEngine: audioEngine,
+                        projectManager: projectManager,
+                        onSelect: {
+                            selectedTrackId = audioTrack.id
+                        }
+                    )
+                    .id(audioTrack.id)
+                }
+            }
+        }
+        .frame(width: contentSize.width, height: contentSize.height)
+        .background(Color(NSColor.textBackgroundColor))
+    }
+}
+
+// MARK: - Integrated Track Header
+
+struct IntegratedTrackHeader: View {
+    let audioTrack: AudioTrack
+    let isSelected: Bool
+    let height: CGFloat
+    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
+    let onSelect: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            // Track icon and color indicator
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(trackColor)
+                    .frame(width: 4, height: height * 0.6)
+                
+                Image(systemName: trackIcon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.primary)
+                    .frame(width: 20)
+            }
+            
+            // Track name and type
+            VStack(alignment: .leading, spacing: 2) {
+                Text(audioTrack.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                
+                Text("Audio")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            // Control buttons section
+            HStack(spacing: 4) {
+                // Record button
+                recordButton
+                
+                // Mute button
+                muteButton
+                
+                // Solo button  
+                soloButton
+                
+                // Volume slider (compact)
+                VStack(spacing: 2) {
+                    Text("Vol")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    Slider(
+                        value: Binding(
+                            get: { Double(audioTrack.mixerSettings.volume) },
+                            set: { newValue in
+                                audioEngine.updateTrackVolume(trackId: audioTrack.id, volume: Float(newValue))
+                                projectManager.saveCurrentProject()
+                            }
+                        ),
+                        in: 0...1
+                    )
+                    .frame(width: 40)
+                    .controlSize(.mini)
+                }
+                
+                // Pan control (compact)
+                VStack(spacing: 2) {
+                    Text("Pan")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    Slider(
+                        value: Binding(
+                            get: { Double(audioTrack.mixerSettings.pan) },
+                            set: { newValue in
+                                audioEngine.updateTrackPan(trackId: audioTrack.id, pan: Float(newValue))
+                                projectManager.saveCurrentProject()
+                            }
+                        ),
+                        in: -1...1
+                    )
+                    .frame(width: 40)
+                    .controlSize(.mini)
+                }
+                
+                // AI Generation button
+                aiGenerationButton
+                
+                // Delete button
+                deleteButton
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: height)
+        .background(trackRowBackground)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
+    }
+    
+    private var trackColor: Color {
+        // Generate consistent color based on track name/id
+        let colors: [Color] = [.red, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple, .pink, .brown]
+        let index = abs(audioTrack.name.hashValue) % colors.count
+        return colors[index].opacity(0.8)
+    }
+    
+    private var trackIcon: String {
+        // Choose icon based on track type or name
+        let name = audioTrack.name.lowercased()
+        if name.contains("kick") || name.contains("drum") { return "music.note" }
+        if name.contains("bass") { return "waveform" }
+        if name.contains("guitar") { return "guitars" }
+        if name.contains("piano") || name.contains("keys") { return "pianokeys" }
+        if name.contains("vocal") || name.contains("voice") { return "mic" }
+        if name.contains("synth") { return "tuningfork" }
+        return "music.quarternote.3"
+    }
+    
+    private var recordButton: some View {
+        Button(action: {
+            // Toggle record enable for track
+            let newState = !audioTrack.mixerSettings.isRecordEnabled
+            audioEngine.updateTrackRecordEnabled(trackId: audioTrack.id, isRecordEnabled: newState)
+            projectManager.saveCurrentProject()
+        }) {
+            Image(systemName: "record.circle")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(audioTrack.mixerSettings.isRecordEnabled ? .red : .secondary)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var muteButton: some View {
+        Button(action: {
+            let newState = !audioTrack.mixerSettings.isMuted
+            audioEngine.updateTrackMute(trackId: audioTrack.id, isMuted: newState)
+            projectManager.saveCurrentProject()
+        }) {
+            Text("M")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(audioTrack.mixerSettings.isMuted ? .white : .secondary)
+                .frame(width: 20, height: 20)
+                .background(audioTrack.mixerSettings.isMuted ? .orange : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(audioTrack.mixerSettings.isMuted ? .orange : .gray, lineWidth: 1)
+                )
+                .cornerRadius(3)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var soloButton: some View {
+        Button(action: {
+            let newState = !audioTrack.mixerSettings.isSolo
+            audioEngine.updateTrackSolo(trackId: audioTrack.id, isSolo: newState)
+            projectManager.saveCurrentProject()
+        }) {
+            Text("S")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(audioTrack.mixerSettings.isSolo ? .black : .secondary)
+                .frame(width: 20, height: 20)
+                .background(audioTrack.mixerSettings.isSolo ? .yellow : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(audioTrack.mixerSettings.isSolo ? .yellow : .gray, lineWidth: 1)
+                )
+                .cornerRadius(3)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var aiGenerationButton: some View {
+        Button(action: {
+            // Trigger AI generation for this track
+            // This would integrate with the existing AI generation system
+        }) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.purple)
+        }
+        .buttonStyle(.plain)
+        .help("Generate AI music for this track")
+    }
+    
+    private var deleteButton: some View {
+        Button(action: {
+            projectManager.removeTrack(audioTrack.id)
+        }) {
+            Image(systemName: "trash")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.red)
+        }
+        .buttonStyle(.plain)
+        .help("Delete track")
+    }
+    
+    private var trackRowBackground: some View {
+        Rectangle()
+            .fill(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+            .overlay(
+                Rectangle()
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 0.5),
+                alignment: .bottom
+            )
+    }
+}
+
+// MARK: - Integrated Timeline Ruler
+
+struct IntegratedTimelineRuler: View {
+    let currentPosition: TimeInterval
+    let pixelsPerSecond: CGFloat
+    let contentWidth: CGFloat
+    
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Ruler background
+            Rectangle()
+                .fill(Color(NSColor.controlBackgroundColor))
+            
+            // Time markers
+            Canvas { context, size in
+                drawTimeMarkers(context: context, size: size)
+            }
+            
+            // Playhead
+            Rectangle()
+                .fill(Color.red)
+                .frame(width: 2)
+                .offset(x: currentPosition * pixelsPerSecond)
+        }
+        .frame(width: contentWidth, height: 44)
+    }
+    
+    private func drawTimeMarkers(context: GraphicsContext, size: CGSize) {
+        let totalSeconds = Int(contentWidth / pixelsPerSecond)
+        
+        // Major markers every 10 seconds
+        for second in stride(from: 0, through: totalSeconds, by: 10) {
+            let x = CGFloat(second) * pixelsPerSecond
+            
+            // Major tick line
+            let majorPath = Path { path in
+                path.move(to: CGPoint(x: x, y: size.height - 20))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(majorPath, with: .color(.primary), lineWidth: 1)
+            
+            // Time label
+            let minutes = second / 60
+            let seconds = second % 60
+            let timeText = String(format: "%d:%02d", minutes, seconds)
+            
+            context.draw(
+                Text(timeText)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary),
+                at: CGPoint(x: x + 4, y: 8)
+            )
+        }
+        
+        // Minor markers every 5 seconds
+        for second in stride(from: 5, through: totalSeconds, by: 10) {
+            let x = CGFloat(second) * pixelsPerSecond
+            
+            let minorPath = Path { path in
+                path.move(to: CGPoint(x: x, y: size.height - 10))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(minorPath, with: .color(.secondary), lineWidth: 0.5)
+        }
+    }
+}
+
+// MARK: - Integrated Grid Background
+
+struct IntegratedGridBackground: View {
+    let contentSize: CGSize
+    let trackHeight: CGFloat
+    let pixelsPerSecond: CGFloat
+    let trackCount: Int
+    
+    var body: some View {
+        Canvas { context, size in
+            drawGrid(context: context, size: size)
+        }
+        .frame(width: contentSize.width, height: contentSize.height)
+    }
+    
+    private func drawGrid(context: GraphicsContext, size: CGSize) {
+        let totalSeconds = Int(contentSize.width / pixelsPerSecond)
+        
+        // Vertical grid lines (every 5 seconds)
+        for second in stride(from: 0, through: totalSeconds, by: 5) {
+            let x = CGFloat(second) * pixelsPerSecond
+            let path = Path { path in
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            context.stroke(path, with: .color(.gray.opacity(0.2)), lineWidth: 0.5)
+        }
+        
+        // Horizontal grid lines (track separators)
+        for trackIndex in 0...trackCount {
+            let y = CGFloat(trackIndex) * trackHeight
+            let path = Path { path in
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.stroke(path, with: .color(.gray.opacity(0.2)), lineWidth: 0.5)
+        }
+    }
+}
+
+// MARK: - Integrated Track Row
+
+struct IntegratedTrackRow: View {
+    let audioTrack: AudioTrack
+    let isSelected: Bool
+    let height: CGFloat
+    let pixelsPerSecond: CGFloat
+    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
+    let onSelect: () -> Void
+    
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Track background
+            Rectangle()
+                .fill(isSelected ? Color.blue.opacity(0.05) : Color.clear)
+            
+            // Audio regions
+            ForEach(audioTrack.regions) { region in
+                IntegratedAudioRegion(
+                    region: region,
+                    pixelsPerSecond: pixelsPerSecond,
+                    trackHeight: height
+                )
+                .offset(
+                    x: region.startTime * pixelsPerSecond,
+                    y: 8
+                )
+            }
+        }
+        .frame(height: height)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
+    }
+}
+
+// MARK: - Integrated Audio Region
+
+struct IntegratedAudioRegion: View {
+    let region: AudioRegion
+    let pixelsPerSecond: CGFloat
+    let trackHeight: CGFloat
+    
+    private var regionWidth: CGFloat {
+        region.duration * pixelsPerSecond
+    }
+    
+    private var regionHeight: CGFloat {
+        trackHeight - 16 // 8pt margin top and bottom
+    }
+    
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // Region background
+            RoundedRectangle(cornerRadius: 4)
+                .fill(regionColor.opacity(0.8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(regionColor, lineWidth: 1)
+                )
+            
+            // Region content
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(region.audioFile.name)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    
+                    Text(formatDuration(region.duration))
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                .padding(.leading, 6)
+                
+                Spacer()
+            }
+            
+            // Waveform visualization (placeholder for now)
+            // TODO: Implement waveform data extraction from AudioRegion
+            WaveformVisualization(data: generatePlaceholderWaveform())
+                .opacity(0.4)
+                .padding(.horizontal, 4)
+        }
+        .frame(width: regionWidth, height: regionHeight)
+        .clipped()
+    }
+    
+    private var regionColor: Color {
+        // Generate consistent color based on region name
+        let colors: [Color] = [.blue, .green, .orange, .purple, .red, .cyan, .pink, .yellow]
+        let index = abs(region.audioFile.name.hashValue) % colors.count
+        return colors[index]
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+    
+    private func generatePlaceholderWaveform() -> [Float] {
+        // Generate placeholder waveform data for visualization
+        let sampleCount = 100
+        return (0..<sampleCount).map { _ in Float.random(in: -1...1) }
+    }
+}
+
+// MARK: - Waveform Visualization
+
+struct WaveformVisualization: View {
+    let data: [Float]
+    
+    var body: some View {
+        Canvas { context, size in
+            let sampleCount = min(data.count, Int(size.width / 2))
+            let centerY = size.height / 2
+            let widthPerSample = size.width / CGFloat(sampleCount)
+            
+            for i in 0..<sampleCount {
+                let x = CGFloat(i) * widthPerSample
+                let amplitude = CGFloat(abs(data[i])) * centerY
+                
+                let path = Path { path in
+                    path.move(to: CGPoint(x: x, y: centerY - amplitude))
+                    path.addLine(to: CGPoint(x: x, y: centerY + amplitude))
+                }
+                
+                context.stroke(path, with: .color(.white.opacity(0.7)), lineWidth: 1)
+            }
+        }
+    }
+}

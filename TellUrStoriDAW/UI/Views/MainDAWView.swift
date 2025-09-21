@@ -284,20 +284,18 @@ struct MainDAWView: View {
                             }
                         }
                         
-                        // Professional Timeline with enhanced track headers and editor
-                        ScrollView(.horizontal) {
-                            ProfessionalTimelineView(
-                                project: projectManager.currentProject,
-                                audioEngine: audioEngine,
-                                projectManager: projectManager,
-                                selectedTrackId: $selectedTrackId,
-                                horizontalZoom: horizontalZoom,
-                                verticalZoom: verticalZoom,
-                                onAddTrack: { addTrack() },
-                                onCreateProject: { showingNewProjectSheet = true },
-                                onOpenProject: { showingProjectBrowser = true }
-                            )
-                        }
+                        // Integrated Timeline with synchronized scrolling
+                        IntegratedTimelineView(
+                            project: projectManager.currentProject,
+                            audioEngine: audioEngine,
+                            projectManager: projectManager,
+                            selectedTrackId: $selectedTrackId,
+                            horizontalZoom: horizontalZoom,
+                            verticalZoom: verticalZoom,
+                            onAddTrack: { addTrack() },
+                            onCreateProject: { showingNewProjectSheet = true },
+                            onOpenProject: { showingProjectBrowser = true }
+                        )
                     }
                     
                     // Bottom area: Mixer panel (when visible)
