@@ -24,6 +24,9 @@ struct IntegratedTimelineView: View {
     // Scroll synchronization model
     @State private var scrollSync = ScrollSyncModel()
     
+    // Force refresh state to trigger UI updates when project changes
+    @State private var refreshTrigger: UUID = UUID()
+    
     // Layout constants adapted from layout-test-1
     private let headerWidth: CGFloat = 280
     private let rulerHeight: CGFloat = 44
@@ -153,10 +156,12 @@ struct IntegratedTimelineView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: projectManager.currentProject) { _, newProject in
             // Force UI refresh when project changes (including new tracks)
+            refreshTrigger = UUID()
             if let newProject = newProject {
                 print("🔄 IntegratedTimelineView: Project changed, refreshing UI with \(newProject.tracks.count) tracks")
             }
         }
+        .id(refreshTrigger) // Force complete view refresh when project changes
     }
     
     // MARK: - Content Views
