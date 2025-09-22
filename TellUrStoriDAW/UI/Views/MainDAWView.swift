@@ -45,7 +45,7 @@ struct MainDAWView: View {
     // MARK: - Panel Size State
     @State private var libraryWidth: CGFloat = 250
     @State private var inspectorWidth: CGFloat = 300
-    @State private var mixerHeight: CGFloat = 200
+    @State private var mixerHeight: CGFloat = 550
     
     // MARK: - Track Management
     private func addTrack(name: String? = nil) {
