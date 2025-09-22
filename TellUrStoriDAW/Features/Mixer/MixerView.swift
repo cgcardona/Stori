@@ -12,9 +12,9 @@ struct MixerView: View {
     @ObservedObject var projectManager: ProjectManager
     @Binding var selectedTrackId: UUID?
     
-    // Get project directly from audioEngine for real-time updates
+    // Get project from projectManager to stay in sync with timeline views
     private var project: AudioProject? {
-        audioEngine.currentProject
+        projectManager.currentProject
     }
     
     @State private var isMonitoringLevels = false
@@ -36,7 +36,7 @@ struct MixerView: View {
                         // Track Channel Strips
                         ForEach(project.tracks) { track in
                             TrackChannelStrip(
-                                track: track,
+                                trackId: track.id,
                                 buses: buses,
                                 isSelected: selectedTrackId == track.id,
                                 audioEngine: audioEngine,
@@ -147,7 +147,7 @@ struct MixerView: View {
 
 // MARK: - Track Channel Strip
 struct TrackChannelStrip: View {
-    let track: AudioTrack
+    let trackId: UUID  // Store ID instead of track snapshot
     let buses: [MixerBus]
     let isSelected: Bool
     @ObservedObject var audioEngine: AudioEngine
@@ -155,6 +155,11 @@ struct TrackChannelStrip: View {
     let onSelect: () -> Void
     let onCreateBus: (String) -> UUID  // Returns the created bus ID
     let onRemoveBus: (UUID) -> Void
+    
+    // Computed property to get current track state reactively
+    private var track: AudioTrack {
+        projectManager.currentProject?.tracks.first { $0.id == trackId } ?? AudioTrack(name: "Unknown", color: .gray)
+    }
     
     @State private var showingSends = false
     @State private var sendLevels: [UUID: Double] = [:]
@@ -323,7 +328,8 @@ struct TrackChannelStrip: View {
         HStack(spacing: 2) {
                 // Mute Button
                 Button(action: {
-                    audioEngine.muteTrack(track.id, muted: !track.mixerSettings.isMuted)
+                    let newState = !track.mixerSettings.isMuted
+                    audioEngine.updateTrackMute(trackId: track.id, isMuted: newState)
                 }) {
                 Text("M")
                     .font(.system(size: 10, weight: .bold))
@@ -339,7 +345,8 @@ struct TrackChannelStrip: View {
             
             // Solo Button  
             Button(action: {
-                audioEngine.soloTrack(track.id, solo: !track.mixerSettings.isSolo)
+                let newState = !track.mixerSettings.isSolo
+                audioEngine.updateTrackSolo(trackId: track.id, isSolo: newState)
             }) {
                 Text("S")
                     .font(.system(size: 10, weight: .bold))

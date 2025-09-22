@@ -170,7 +170,7 @@ struct IntegratedTimelineView: View {
         LazyVStack(spacing: 0) {
             ForEach(project?.tracks ?? []) { audioTrack in
                 IntegratedTrackHeader(
-                    audioTrack: audioTrack,
+                    trackId: audioTrack.id,
                     isSelected: selectedTrackId == audioTrack.id,
                     height: effectiveTrackHeight,
                     audioEngine: audioEngine,
@@ -230,12 +230,17 @@ struct IntegratedTimelineView: View {
 // MARK: - Integrated Track Header
 
 struct IntegratedTrackHeader: View {
-    let audioTrack: AudioTrack
+    let trackId: UUID  // Store ID instead of track snapshot
     let isSelected: Bool
     let height: CGFloat
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
+    
+    // Computed property to get current track state reactively
+    private var audioTrack: AudioTrack {
+        projectManager.currentProject?.tracks.first { $0.id == trackId } ?? AudioTrack(name: "Unknown", color: .gray)
+    }
     
     // AI Generation state
     @State private var showingAIGeneration = false
@@ -375,7 +380,6 @@ struct IntegratedTrackHeader: View {
         Button(action: {
             let newState = !audioTrack.mixerSettings.isMuted
             audioEngine.updateTrackMute(trackId: audioTrack.id, isMuted: newState)
-            projectManager.saveCurrentProject()
         }) {
             Text("M")
                 .font(.system(size: 10, weight: .bold))
@@ -395,7 +399,6 @@ struct IntegratedTrackHeader: View {
         Button(action: {
             let newState = !audioTrack.mixerSettings.isSolo
             audioEngine.updateTrackSolo(trackId: audioTrack.id, isSolo: newState)
-            projectManager.saveCurrentProject()
         }) {
             Text("S")
                 .font(.system(size: 10, weight: .bold))

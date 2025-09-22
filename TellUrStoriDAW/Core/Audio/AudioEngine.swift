@@ -1164,7 +1164,11 @@ class AudioEngine: ObservableObject {
     }
     
     func updateTrackMute(trackId: UUID, isMuted: Bool) {
-        guard let trackNode = trackNodes[trackId] else { return }
+        guard let trackNode = trackNodes[trackId] else { 
+            print("⚠️ AudioEngine: No trackNode found for \(trackId)")
+            return 
+        }
+        
         trackNode.setMuted(isMuted)
         
         // Update the project model
@@ -1174,7 +1178,10 @@ class AudioEngine: ObservableObject {
     }
     
     func updateTrackSolo(trackId: UUID, isSolo: Bool) {
-        guard let trackNode = trackNodes[trackId] else { return }
+        guard let trackNode = trackNodes[trackId] else { 
+            print("⚠️ AudioEngine: No trackNode found for \(trackId)")
+            return 
+        }
         
         if isSolo {
             soloTracks.insert(trackId)
@@ -1272,7 +1279,11 @@ class AudioEngine: ObservableObject {
         
         if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
             update(&project.tracks[trackIndex].mixerSettings)
+            project.modifiedAt = Date()
             currentProject = project
+            
+            // CRITICAL: Notify that project has been updated so SwiftUI views refresh
+            NotificationCenter.default.post(name: .projectUpdated, object: project)
         }
     }
     

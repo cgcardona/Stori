@@ -59,6 +59,23 @@ class ProjectManager: ObservableObject {
         
         createProjectsDirectoryIfNeeded()
         loadRecentProjects()
+        setupNotificationObservers()
+    }
+    
+    // MARK: - Notification Observers
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .projectUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let updatedProject = notification.object as? AudioProject {
+                Task { @MainActor in
+                    self?.currentProject = updatedProject
+                    self?.hasUnsavedChanges = true
+                }
+            }
+        }
     }
     
     // MARK: - Directory Setup

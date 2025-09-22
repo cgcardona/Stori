@@ -177,4 +177,5 @@ extension Notification.Name {
     static let toggleMixer = Notification.Name("toggleMixer")
     static let toggleLibrary = Notification.Name("toggleLibrary")
     static let toggleInspector = Notification.Name("toggleInspector")
+    static let projectUpdated = Notification.Name("projectUpdated")
 }
