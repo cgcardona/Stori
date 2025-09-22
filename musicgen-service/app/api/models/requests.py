@@ -47,6 +47,12 @@ class GenerationRequest(BaseModel):
         le=10.0,
         description="Classifier-free guidance coefficient"
     )
+    seed: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=2**32-1,
+        description="Random seed for deterministic generation (0 to 4294967295). If None, uses random seed."
+    )
     
     @validator('prompt')
     def validate_prompt(cls, v):

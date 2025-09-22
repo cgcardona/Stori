@@ -247,6 +247,9 @@ class ProjectManager: ObservableObject {
     func deleteProject(_ project: AudioProject) {
         let projectURL = projectURL(for: project)
         
+        // Clean up all audio files associated with this project
+        cleanupAudioFiles(for: project)
+        
         do {
             try fileManager.removeItem(at: projectURL)
             recentProjects.removeAll { $0.id == project.id }
@@ -300,6 +303,12 @@ class ProjectManager: ObservableObject {
     func removeTrack(_ trackId: UUID) {
         guard var project = currentProject else { return }
         
+        // Find the track to get its audio files before removal
+        if let trackToRemove = project.tracks.first(where: { $0.id == trackId }) {
+            // Clean up audio files associated with this track
+            cleanupAudioFiles(for: trackToRemove)
+        }
+        
         project.removeTrack(withId: trackId)
         currentProject = project
         saveCurrentProject()
@@ -330,6 +339,11 @@ class ProjectManager: ObservableObject {
         guard var project = currentProject else { return }
         
         if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
+            // Find the region to clean up its audio file before removal
+            if let regionToRemove = project.tracks[trackIndex].regions.first(where: { $0.id == regionId }) {
+                cleanupAudioFile(regionToRemove.audioFile)
+            }
+            
             project.tracks[trackIndex].removeRegion(withId: regionId)
             currentProject = project
             saveCurrentProject()
@@ -478,6 +492,47 @@ class ProjectManager: ObservableObject {
         project.modifiedAt = Date()
         currentProject = project
         hasUnsavedChanges = true
+    }
+    
+    // MARK: - Audio File Cleanup
+    
+    /// Clean up audio files associated with a specific track
+    private func cleanupAudioFiles(for track: AudioTrack) {
+        print("🗑️ Cleaning up audio files for track: \(track.name)")
+        
+        for region in track.regions {
+            cleanupAudioFile(region.audioFile)
+        }
+    }
+    
+    /// Clean up audio files associated with an entire project
+    private func cleanupAudioFiles(for project: AudioProject) {
+        print("🗑️ Cleaning up audio files for project: \(project.name)")
+        
+        for track in project.tracks {
+            cleanupAudioFiles(for: track)
+        }
+    }
+    
+    /// Clean up a specific audio file if it's a generated file
+    private func cleanupAudioFile(_ audioFile: AudioFile) {
+        let fileURL = audioFile.url
+        
+        // Only clean up generated audio files (those in the musicgen-service/generated_audio directory)
+        if fileURL.path.contains("musicgen-service/generated_audio/") {
+            do {
+                if fileManager.fileExists(atPath: fileURL.path) {
+                    try fileManager.removeItem(at: fileURL)
+                    print("✅ Deleted generated audio file: \(fileURL.lastPathComponent)")
+                } else {
+                    print("⚠️ Generated audio file not found (already deleted?): \(fileURL.lastPathComponent)")
+                }
+            } catch {
+                print("❌ Failed to delete generated audio file \(fileURL.lastPathComponent): \(error)")
+            }
+        } else {
+            print("ℹ️ Skipping cleanup of non-generated audio file: \(fileURL.lastPathComponent)")
+        }
     }
 }
 

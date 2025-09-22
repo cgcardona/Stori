@@ -40,6 +40,7 @@ class GenerationService:
         top_k: int = 250,
         top_p: float = 0.0,
         cfg_coef: float = 3.0,
+        seed: Optional[int] = None,
         progress_callback=None
     ) -> Tuple[torch.Tensor, int]:
         """
@@ -52,6 +53,7 @@ class GenerationService:
             top_k: Top-k sampling parameter
             top_p: Top-p sampling parameter
             cfg_coef: Classifier-free guidance coefficient
+            seed: Random seed for deterministic generation (optional)
             
         Returns:
             Tuple of (audio_tensor, sample_rate)
@@ -75,6 +77,7 @@ class GenerationService:
                 top_k=top_k,
                 top_p=top_p,
                 cfg_coef=cfg_coef,
+                seed=seed,
                 progress_callback=progress_callback
             )
             

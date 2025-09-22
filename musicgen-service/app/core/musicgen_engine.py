@@ -158,6 +158,7 @@ class MusicGenEngine:
         top_k: int = 250,
         top_p: float = 0.0,
         cfg_coef: float = 3.0,
+        seed: Optional[int] = None,
         progress_callback=None
     ) -> Tuple[torch.Tensor, int]:
         """
@@ -170,6 +171,7 @@ class MusicGenEngine:
             top_k: Top-k sampling parameter
             top_p: Top-p sampling parameter
             cfg_coef: Classifier-free guidance coefficient
+            seed: Random seed for deterministic generation (optional)
             
         Returns:
             Tuple of (audio_tensor, sample_rate)
@@ -198,7 +200,8 @@ class MusicGenEngine:
                 temperature,
                 top_k,
                 top_p,
-                cfg_coef
+                cfg_coef,
+                seed
             )
         finally:
             # Cancel progress simulation
@@ -233,9 +236,36 @@ class MusicGenEngine:
             pass
     
     def _generate_audio(self, prompt: str, duration: float, temperature: float, 
-                       top_k: int, top_p: float, cfg_coef: float) -> torch.Tensor:
+                       top_k: int, top_p: float, cfg_coef: float, seed: Optional[int] = None) -> torch.Tensor:
         """Generate audio (runs in thread pool)."""
         logger.info(f"🎵 _generate_audio called with prompt='{prompt}', duration={duration}")
+        
+        # Set deterministic seed for reproducible generation
+        if seed is not None:
+            import random
+            import numpy as np
+            import os
+            
+            # Set all random seeds for deterministic generation
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)  # For GPU generation
+            random.seed(seed)
+            np.random.seed(seed)
+            
+            # Set environment variables for deterministic behavior
+            os.environ['PYTHONHASHSEED'] = str(seed)
+            
+            # Ensure deterministic behavior for PyTorch
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            torch.use_deterministic_algorithms(True, warn_only=True)
+            
+            logger.info(f"🎲 Set comprehensive deterministic seed: {seed}")
+        else:
+            # Generate random seed for logging
+            import time
+            random_seed = int(time.time() * 1000000) % (2**32)
+            logger.info(f"🎲 Using random seed: {random_seed}")
         
         try:
             with torch.no_grad():
@@ -347,24 +377,19 @@ class MusicGenEngine:
     def _save_audio_sync(self, audio_tensor: torch.Tensor, output_path: Path, sample_rate: int):
         """Save audio synchronously (runs in thread pool)."""
         try:
-            if audio_write is not None:
-                # Use AudioCraft's audio_write function
-                audio_write(
-                    str(output_path.with_suffix('')),  # Remove extension, audio_write adds it
-                    audio_tensor,
-                    sample_rate,
-                    strategy="loudness"
-                )
-            else:
-                # Fallback using torchaudio
-                # Ensure tensor is 2D with shape [channels, samples]
-                if audio_tensor.dim() == 1:
-                    audio_tensor = audio_tensor.unsqueeze(0)  # Add channel dimension
-                elif audio_tensor.dim() == 2 and audio_tensor.shape[0] > audio_tensor.shape[1]:
-                    # If shape is [samples, channels], transpose to [channels, samples]
-                    audio_tensor = audio_tensor.transpose(0, 1)
-                
-                torchaudio.save(str(output_path), audio_tensor, sample_rate)
+            # Always use torchaudio for deterministic saving
+            # AudioCraft's audio_write adds non-deterministic PEAK metadata
+            
+            # Ensure tensor is 2D with shape [channels, samples]
+            if audio_tensor.dim() == 1:
+                audio_tensor = audio_tensor.unsqueeze(0)  # Add channel dimension
+            elif audio_tensor.dim() == 2 and audio_tensor.shape[0] > audio_tensor.shape[1]:
+                # If shape is [samples, channels], transpose to [channels, samples]
+                audio_tensor = audio_tensor.transpose(0, 1)
+            
+            # Use torchaudio.save for deterministic output
+            torchaudio.save(str(output_path), audio_tensor, sample_rate)
+            
         except Exception as e:
             logger.error(f"Failed to save audio: {e}")
             raise

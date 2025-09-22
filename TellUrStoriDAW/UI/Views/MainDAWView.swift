@@ -286,7 +286,6 @@ struct MainDAWView: View {
                         
                         // Integrated Timeline with synchronized scrolling
                         IntegratedTimelineView(
-                            project: projectManager.currentProject,
                             audioEngine: audioEngine,
                             projectManager: projectManager,
                             selectedTrackId: $selectedTrackId,

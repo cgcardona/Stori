@@ -65,6 +65,7 @@ async def generate_music(
         "top_k": request.top_k,
         "top_p": request.top_p,
         "cfg_coef": request.cfg_coef,
+        "seed": request.seed,
         "created_at": datetime.utcnow(),
         "progress": 0.0,
         "message": "Job queued for processing"
@@ -191,6 +192,54 @@ async def build_prompt(request: PromptBuilderRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/prompt/random", response_model=PromptBuilderResponse)
+async def generate_random_prompt(complexity: str = "medium"):
+    """
+    Generate a completely random prompt for music generation.
+    
+    Creates a random combination of genre, mood, tempo, instruments,
+    and optionally artist style for creative exploration.
+    
+    Args:
+        complexity: "simple", "medium", or "complex" - affects number of components
+    """
+    try:
+        # Validate complexity parameter
+        if complexity not in ["simple", "medium", "complex"]:
+            raise HTTPException(
+                status_code=400, 
+                detail="Complexity must be 'simple', 'medium', or 'complex'"
+            )
+        
+        # Generate random prompt
+        result = prompt_builder.generate_random_prompt(complexity=complexity)
+        
+        # Format components for response (convert lists to strings)
+        formatted_components = {}
+        for key, value in result["components"].items():
+            if key == "instruments" and isinstance(value, list):
+                formatted_components[key] = f"featuring {', '.join(value)}"
+            elif key == "genre":
+                formatted_components[key] = f"{value} music"
+            elif key == "tempo":
+                formatted_components[key] = f"{value} tempo"
+            elif key == "mood":
+                formatted_components[key] = f"{value} mood"
+            else:
+                formatted_components[key] = str(value)
+        
+        return PromptBuilderResponse(
+            structured_prompt=result["prompt"],
+            components=formatted_components
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Random prompt generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/jobs/{job_id}")
 async def cancel_generation_job(job_id: str):
     """
@@ -291,6 +340,7 @@ async def process_generation_job(
             top_k=request.top_k,
             top_p=request.top_p,
             cfg_coef=request.cfg_coef,
+            seed=request.seed,
             progress_callback=update_progress
         )
         

@@ -5,6 +5,7 @@ Constructs structured prompts from individual components for better
 music generation results.
 """
 
+import random
 from typing import List, Optional
 
 
@@ -239,3 +240,69 @@ class PromptBuilder:
                 results["warnings"].append(f"Unrecognized instruments: {', '.join(unrecognized)}")
         
         return results
+    
+    def generate_random_prompt(self, complexity: str = "medium") -> dict:
+        """
+        Generate a completely random prompt with various components.
+        
+        Args:
+            complexity: "simple", "medium", or "complex" - affects number of components
+            
+        Returns:
+            Dictionary with generated components and final prompt
+        """
+        components = {}
+        
+        # Always include genre and mood
+        components["genre"] = random.choice(self.GENRES)
+        components["mood"] = random.choice(self.MOODS)
+        
+        # Add tempo based on complexity
+        if complexity in ["medium", "complex"]:
+            components["tempo"] = random.choice(self.TEMPOS)
+        
+        # Add instruments based on complexity
+        if complexity == "simple":
+            # 0-1 instruments
+            if random.random() < 0.7:  # 70% chance
+                components["instruments"] = [random.choice(self.INSTRUMENTS)]
+        elif complexity == "medium":
+            # 1-2 instruments
+            num_instruments = random.choice([1, 2])
+            components["instruments"] = random.sample(self.INSTRUMENTS, num_instruments)
+        else:  # complex
+            # 2-4 instruments
+            num_instruments = random.choice([2, 3, 4])
+            components["instruments"] = random.sample(self.INSTRUMENTS, num_instruments)
+        
+        # Add artist style based on complexity
+        if complexity == "medium" and random.random() < 0.4:  # 40% chance
+            components["artist_style"] = random.choice(self.ARTIST_STYLES)
+        elif complexity == "complex" and random.random() < 0.6:  # 60% chance
+            components["artist_style"] = random.choice(self.ARTIST_STYLES)
+        
+        # Add custom descriptive text for complex prompts
+        if complexity == "complex" and random.random() < 0.3:  # 30% chance
+            custom_phrases = [
+                "with rich harmonies", "featuring intricate melodies", "with dynamic arrangements",
+                "showcasing virtuosic performance", "with atmospheric textures", "building to a climax",
+                "with subtle variations", "featuring call and response", "with polyrhythmic elements",
+                "showcasing improvisation", "with lush orchestration", "featuring counterpoint melodies"
+            ]
+            components["custom_text"] = random.choice(custom_phrases)
+        
+        # Build the final prompt
+        prompt = self.build_prompt(
+            genre=components.get("genre"),
+            tempo=components.get("tempo"),
+            mood=components.get("mood"),
+            artist_style=components.get("artist_style"),
+            instruments=components.get("instruments"),
+            custom_text=components.get("custom_text")
+        )
+        
+        return {
+            "prompt": prompt,
+            "components": components,
+            "complexity": complexity
+        }

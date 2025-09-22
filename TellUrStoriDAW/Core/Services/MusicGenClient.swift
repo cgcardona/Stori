@@ -60,7 +60,8 @@ class MusicGenClient: ObservableObject {
         temperature: Double = 1.0,
         topK: Int = 250,
         topP: Double = 0.0,
-        cfgCoef: Double = 3.0
+        cfgCoef: Double = 3.0,
+        seed: Int? = nil
     ) async throws -> GenerationJob {
         
         let request = GenerationRequest(
@@ -69,7 +70,8 @@ class MusicGenClient: ObservableObject {
             temperature: temperature,
             topK: topK,
             topP: topP,
-            cfgCoef: cfgCoef
+            cfgCoef: cfgCoef,
+            seed: seed
         )
         
         let generateURL = baseURL.appendingPathComponent("api/v1/generate")
@@ -279,12 +281,14 @@ struct GenerationRequest: Codable {
     let topK: Int
     let topP: Double
     let cfgCoef: Double
+    let seed: Int?
     
     enum CodingKeys: String, CodingKey {
         case prompt, duration, temperature
         case topK = "top_k"
         case topP = "top_p"
         case cfgCoef = "cfg_coef"
+        case seed
     }
 }
 

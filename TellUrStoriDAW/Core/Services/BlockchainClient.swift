@@ -4,7 +4,7 @@
 //
 //  🎵 TellUrStori V2 - Blockchain Integration Client
 //
-//  Handles all blockchain interactions including STEM minting, marketplace operations,
+
 //  wallet connections, and real-time data synchronization with the indexer service.
 //
 

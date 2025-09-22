@@ -9,9 +9,11 @@
 import SwiftUI
 
 struct IntegratedTimelineView: View {
-    let project: AudioProject?
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
+    
+    // Computed property to get current project reactively
+    private var project: AudioProject? { projectManager.currentProject }
     @Binding var selectedTrackId: UUID?
     let horizontalZoom: Double
     let verticalZoom: Double
@@ -48,15 +50,28 @@ struct IntegratedTimelineView: View {
                 HStack(spacing: 0) {
                     // LEFT: Track Headers Column (vertical scrolling only)
                     VStack(spacing: 0) {
-                        // Header spacer to align with timeline ruler
-                        Rectangle()
-                            .fill(Color(NSColor.controlBackgroundColor))
-                            .frame(height: rulerHeight)
-                            .overlay(
-                                Rectangle()
-                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1),
-                                alignment: .bottom
-                            )
+                        // Header spacer with Logic Pro-style Add Track button
+                        HStack(spacing: 0) {
+                            // Logic Pro-style Add Track button with hover states
+                            Button(action: onAddTrack) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.primary)
+                            }
+                            .buttonStyle(AddTrackButtonStyle())
+                            .frame(width: 32, height: rulerHeight)
+                            .help("Add Track (⇧⌘N)")
+                            
+                            // Remaining header space
+                            Rectangle()
+                                .fill(Color(NSColor.controlBackgroundColor))
+                                .frame(height: rulerHeight)
+                        }
+                        .overlay(
+                            Rectangle()
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1),
+                            alignment: .bottom
+                        )
                         
                         // Synchronized track headers
                         SynchronizedScrollView(
@@ -136,6 +151,12 @@ struct IntegratedTimelineView: View {
         }
         .frame(minHeight: 300)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: projectManager.currentProject) { _, newProject in
+            // Force UI refresh when project changes (including new tracks)
+            if let newProject = newProject {
+                print("🔄 IntegratedTimelineView: Project changed, refreshing UI with \(newProject.tracks.count) tracks")
+            }
+        }
     }
     
     // MARK: - Content Views
@@ -155,27 +176,6 @@ struct IntegratedTimelineView: View {
                 )
                 .id(audioTrack.id)
             }
-            
-            // Add track button
-            Button(action: onAddTrack) {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundColor(.blue)
-                    Text("Add Track")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.primary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .frame(height: 40)
-                .background(Color(NSColor.controlBackgroundColor))
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.gray.opacity(0.3), lineWidth: 0.5),
-                    alignment: .bottom
-                )
-            }
-            .buttonStyle(.plain)
         }
         .frame(width: headerWidth)
         .background(Color(NSColor.controlBackgroundColor))
@@ -231,6 +231,9 @@ struct IntegratedTrackHeader: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
+    
+    // AI Generation state
+    @State private var showingAIGeneration = false
     
     var body: some View {
         HStack(spacing: 8) {
@@ -325,6 +328,9 @@ struct IntegratedTrackHeader: View {
         .onTapGesture {
             onSelect()
         }
+        .sheet(isPresented: $showingAIGeneration) {
+            AIGenerationView(targetTrack: audioTrack, projectManager: projectManager)
+        }
     }
     
     private var trackColor: Color {
@@ -402,8 +408,7 @@ struct IntegratedTrackHeader: View {
     
     private var aiGenerationButton: some View {
         Button(action: {
-            // Trigger AI generation for this track
-            // This would integrate with the existing AI generation system
+            showingAIGeneration = true
         }) {
             Image(systemName: "wand.and.stars")
                 .font(.system(size: 12, weight: .medium))
@@ -675,6 +680,32 @@ struct WaveformVisualization: View {
                 
                 context.stroke(path, with: .color(.white.opacity(0.7)), lineWidth: 1)
             }
+        }
+    }
+}
+
+// MARK: - Add Track Button Style
+
+struct AddTrackButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Rectangle()
+                    .fill(buttonBackgroundColor(configuration: configuration))
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+    }
+    
+    private func buttonBackgroundColor(configuration: Configuration) -> Color {
+        if configuration.isPressed {
+            Color(NSColor.controlAccentColor).opacity(0.2)
+        } else {
+            Color(NSColor.controlBackgroundColor)
         }
     }
 }
