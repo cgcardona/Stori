@@ -1,13 +1,13 @@
 //
-//  LogicProCycleOverlay.swift
+//  CycleOverlay.swift
 //  TellUrStoriDAW
 //
-//  Professional cycle overlay with Logic Pro-style interactions
+//  Professional cycle overlay with interactive drag controls
 //
 
 import SwiftUI
 
-struct LogicProCycleOverlay: View {
+struct CycleOverlay: View {
     // Inputs
     let cycleStartTime: TimeInterval
     let cycleEndTime: TimeInterval

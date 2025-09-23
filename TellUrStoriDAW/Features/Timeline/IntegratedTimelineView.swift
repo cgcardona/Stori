@@ -89,9 +89,9 @@ struct IntegratedTimelineView: View {
                 HStack(spacing: 0) {
                     // LEFT: Track Headers Column (vertical scrolling only)
                     VStack(spacing: 0) {
-                        // Header spacer with Logic Pro-style Add Track button
+                        // Header spacer with professional Add Track button
                         HStack(spacing: 0) {
-                            // Logic Pro-style Add Track button with hover states
+                            // Professional Add Track button with hover states
                             Button(action: onAddTrack) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 14, weight: .medium))
@@ -223,7 +223,7 @@ struct IntegratedTimelineView: View {
     }
     
     private var timelineRulerContent: some View {
-        LogicStyleTimelineRuler(
+        ProfessionalTimelineRuler(
             pixelsPerSecond: pixelsPerSecond,
             contentWidth: contentSize.width,
             height: rulerHeight  // keep at 60
@@ -503,7 +503,7 @@ struct IntegratedTrackHeader: View {
 
 // MARK: - Integrated Timeline Ruler
 // TODO: DEAD CODE - This struct can be deleted in future dead code cleanup cycle
-// This timeline ruler has been replaced by LogicStyleTimelineRuler
+// This timeline ruler has been replaced by ProfessionalTimelineRuler
 // Keeping for now to avoid disruption, but no longer used in the main app
 
 struct IntegratedTimelineRuler: View {
@@ -773,7 +773,7 @@ struct IntegratedAudioRegion: View {
                         .stroke(regionColor, lineWidth: 1)
                 )
             
-            // Selection border overlay (Logic Pro style)
+            // Selection border overlay (professional style)
             if isSelected {
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(Color.blue, lineWidth: 3)

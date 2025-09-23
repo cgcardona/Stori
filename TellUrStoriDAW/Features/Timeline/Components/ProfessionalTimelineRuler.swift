@@ -1,13 +1,13 @@
 //
-//  LogicStyleTimelineRuler.swift
+//  ProfessionalTimelineRuler.swift
 //  TellUrStoriDAW
 //
-//  Logic Pro-style two-layer timeline ruler with cycle overlay and playhead control
+//  Professional two-layer timeline ruler with cycle overlay and playhead control
 //
 
 import SwiftUI
 
-struct LogicStyleTimelineRuler: View {
+struct ProfessionalTimelineRuler: View {
     // Inputs
     @EnvironmentObject var audioEngine: AudioEngine
     let pixelsPerSecond: CGFloat
@@ -45,7 +45,7 @@ struct LogicStyleTimelineRuler: View {
                     )
 
                 if audioEngine.isCycleEnabled {
-                    LogicProCycleOverlay(
+                    CycleOverlay(
                         cycleStartTime: audioEngine.cycleStartTime,
                         cycleEndTime: audioEngine.cycleEndTime,
                         pixelsPerSecond: pixelsPerSecond,
@@ -55,9 +55,9 @@ struct LogicStyleTimelineRuler: View {
                         }
                     )
                     .onAppear {
-                        print("🟡 LOGIC CYCLE OVERLAY: isCycleEnabled=\(audioEngine.isCycleEnabled)")
-                        print("🟡 LOGIC CYCLE OVERLAY: cycleStart=\(audioEngine.cycleStartTime), cycleEnd=\(audioEngine.cycleEndTime)")
-                        print("🟡 LOGIC CYCLE OVERLAY: pixelsPerSecond=\(pixelsPerSecond), contentWidth=\(contentWidth)")
+                        print("🟡 CYCLE OVERLAY: isCycleEnabled=\(audioEngine.isCycleEnabled)")
+                        print("🟡 CYCLE OVERLAY: cycleStart=\(audioEngine.cycleStartTime), cycleEnd=\(audioEngine.cycleEndTime)")
+                        print("🟡 CYCLE OVERLAY: pixelsPerSecond=\(pixelsPerSecond), contentWidth=\(contentWidth)")
                     }
                 }
             }
