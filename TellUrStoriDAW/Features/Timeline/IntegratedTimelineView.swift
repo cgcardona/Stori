@@ -15,6 +15,7 @@ struct IntegratedTimelineView: View {
     // Computed property to get current project reactively
     private var project: AudioProject? { projectManager.currentProject }
     @Binding var selectedTrackId: UUID?
+    @State private var selectedRegionId: UUID?  // Audio region selection state
     let horizontalZoom: Double
     let verticalZoom: Double
     let onAddTrack: () -> Void
@@ -172,6 +173,7 @@ struct IntegratedTimelineView: View {
                 IntegratedTrackHeader(
                     trackId: audioTrack.id,
                     selectedTrackId: $selectedTrackId,
+                    selectedRegionId: $selectedRegionId,
                     height: effectiveTrackHeight,
                     audioEngine: audioEngine,
                     projectManager: projectManager,
@@ -210,6 +212,7 @@ struct IntegratedTimelineView: View {
                     IntegratedTrackRow(
                         audioTrack: audioTrack,
                         selectedTrackId: $selectedTrackId,
+                        selectedRegionId: $selectedRegionId,
                         height: effectiveTrackHeight,
                         pixelsPerSecond: pixelsPerSecond,
                         audioEngine: audioEngine,
@@ -232,6 +235,7 @@ struct IntegratedTimelineView: View {
 struct IntegratedTrackHeader: View {
     let trackId: UUID  // Store ID instead of track snapshot
     @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
+    @Binding var selectedRegionId: UUID?  // Region selection binding
     let height: CGFloat
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
@@ -343,6 +347,7 @@ struct IntegratedTrackHeader: View {
         .contentShape(Rectangle())
         .onTapGesture {
             print("🎯 Track Header Tapped: \(audioTrack.name) (\(trackId))")
+            selectedRegionId = nil  // Clear region selection when clicking track header
             onSelect()
             print("🎯 Track Header Selection Called")
         }
@@ -571,6 +576,7 @@ struct IntegratedGridBackground: View {
 struct IntegratedTrackRow: View {
     let audioTrack: AudioTrack
     @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
+    @Binding var selectedRegionId: UUID?  // Region selection binding
     let height: CGFloat
     let pixelsPerSecond: CGFloat
     @ObservedObject var audioEngine: AudioEngine
@@ -593,7 +599,12 @@ struct IntegratedTrackRow: View {
                 IntegratedAudioRegion(
                     region: region,
                     pixelsPerSecond: pixelsPerSecond,
-                    trackHeight: height
+                    trackHeight: height,
+                    selectedRegionId: $selectedRegionId,
+                    onRegionSelect: { regionId in
+                        selectedRegionId = regionId
+                        selectedTrackId = audioTrack.id  // Also select the parent track
+                    }
                 )
                 .offset(
                     x: region.startTime * pixelsPerSecond,
@@ -604,6 +615,7 @@ struct IntegratedTrackRow: View {
         .frame(height: height)
         .contentShape(Rectangle())
         .onTapGesture {
+            selectedRegionId = nil  // Clear region selection when clicking track
             onSelect()
         }
     }
@@ -615,6 +627,8 @@ struct IntegratedAudioRegion: View {
     let region: AudioRegion
     let pixelsPerSecond: CGFloat
     let trackHeight: CGFloat
+    @Binding var selectedRegionId: UUID?  // Selection binding
+    let onRegionSelect: (UUID) -> Void    // Selection callback
     
     private var regionWidth: CGFloat {
         region.duration * pixelsPerSecond
@@ -624,9 +638,14 @@ struct IntegratedAudioRegion: View {
         trackHeight - 16 // 8pt margin top and bottom
     }
     
+    // Computed property for selection state
+    private var isSelected: Bool {
+        selectedRegionId == region.id
+    }
+    
     var body: some View {
         ZStack(alignment: .leading) {
-            // Region background
+            // Main region background
             RoundedRectangle(cornerRadius: 4)
                 .fill(regionColor.opacity(0.8))
                 .overlay(
@@ -634,30 +653,80 @@ struct IntegratedAudioRegion: View {
                         .stroke(regionColor, lineWidth: 1)
                 )
             
-            // Region content
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(region.audioFile.name)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
+            // Selection border overlay (Logic Pro style)
+            if isSelected {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.blue, lineWidth: 3)
+                    .background(
+                        // Subtle glow effect
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.blue.opacity(0.3), lineWidth: 6)
+                            .blur(radius: 2)
+                    )
+                    .overlay(
+                        // Selection header bar (inverted style)
+                        VStack {
+                            Rectangle()
+                                .fill(Color.blue)
+                                .frame(height: 20)
+                                .overlay(
+                                    HStack {
+                                        Text(region.audioFile.name)
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        // Add duration in selection header
+                                        Text(formatDuration(region.duration))
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.9))
+                                    }
+                                    .padding(.horizontal, 6)
+                                )
+                            Spacer()
+                        }
+                    )
+            }
+            
+            // Region content (only show when not selected to avoid overlap)
+            if !isSelected {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(region.audioFile.name)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        
+                        Text(formatDuration(region.duration))
+                            .font(.system(size: 9))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .padding(.leading, 6)
+                    .padding(.top, 4)
                     
-                    Text(formatDuration(region.duration))
-                        .font(.system(size: 9))
-                        .foregroundColor(.white.opacity(0.8))
+                    Spacer()
                 }
-                .padding(.leading, 6)
-                
-                Spacer()
             }
             
             // Waveform visualization (placeholder for now)
             // TODO: Implement waveform data extraction from AudioRegion
             WaveformVisualization(data: generatePlaceholderWaveform())
-                .opacity(0.4)
+                .opacity(isSelected ? 0.2 : 0.4)
                 .padding(.horizontal, 4)
+                .padding(.top, isSelected ? 20 : 0) // Offset for selection header
         }
         .frame(width: regionWidth, height: regionHeight)
+        .shadow(
+            color: isSelected ? Color.blue.opacity(0.4) : Color.black.opacity(0.1),
+            radius: isSelected ? 6 : 2,
+            x: 0, y: isSelected ? 3 : 1
+        )
+        .scaleEffect(isSelected ? 1.03 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: isSelected)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onRegionSelect(region.id)
+        }
         .clipped()
     }
     
