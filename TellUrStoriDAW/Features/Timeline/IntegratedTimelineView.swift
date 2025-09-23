@@ -172,6 +172,7 @@ struct IntegratedTimelineView: View {
                             AnyView(tracksAreaContent)
                         }
                     }
+                    .coordinateSpace(name: "timelineRoot")
                 }
                 .background(Color(NSColor.windowBackgroundColor))
                 .onChange(of: scrollSync.verticalScrollPosition) { _, newValue in
@@ -222,27 +223,12 @@ struct IntegratedTimelineView: View {
     }
     
     private var timelineRulerContent: some View {
-        ZStack(alignment: .topLeading) {
-            IntegratedTimelineRuler(
-                currentPosition: audioEngine.currentPosition.timeInterval,
-                pixelsPerSecond: pixelsPerSecond,
-                contentWidth: contentSize.width,
-                height: rulerHeight
-            )
-            
-            // Cycle overlay - now in the same scroll context as the ruler
-            if audioEngine.isCycleEnabled {
-                InteractiveCycleOverlay(
-                    cycleStartTime: audioEngine.cycleStartTime,
-                    cycleEndTime: audioEngine.cycleEndTime,
-                    horizontalZoom: Double(pixelsPerSecond / 100.0), // reverse of calc
-                    onCycleRegionChanged: { start, end in
-                        audioEngine.setCycleRegion(start: start, end: end)
-                    }
-                )
-                // No offsets needed - it's in the same coordinate space as the ruler now
-            }
-        }
+        LogicStyleTimelineRuler(
+            pixelsPerSecond: pixelsPerSecond,
+            contentWidth: contentSize.width,
+            height: rulerHeight  // keep at 60
+        )
+        .environmentObject(audioEngine)
         .frame(width: contentSize.width, height: rulerHeight)
     }
     
@@ -516,6 +502,9 @@ struct IntegratedTrackHeader: View {
 }
 
 // MARK: - Integrated Timeline Ruler
+// TODO: DEAD CODE - This struct can be deleted in future dead code cleanup cycle
+// This timeline ruler has been replaced by LogicStyleTimelineRuler
+// Keeping for now to avoid disruption, but no longer used in the main app
 
 struct IntegratedTimelineRuler: View {
     let currentPosition: TimeInterval

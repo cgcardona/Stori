@@ -4,6 +4,9 @@
 //
 //  Interactive cycle region with dragging and resizing capabilities
 //
+// TODO: DEAD CODE - This file can be deleted in future dead code cleanup cycle
+// This cycle overlay has been replaced by LogicProCycleOverlay
+// Keeping for now to avoid disruption, but no longer used in the main app
 
 import SwiftUI
 

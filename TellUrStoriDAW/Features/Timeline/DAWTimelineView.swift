@@ -4,6 +4,9 @@
 //
 //  Professional DAW timeline view with industry-standard track layout and controls
 //
+// TODO: DEAD CODE - This file can be deleted in future dead code cleanup cycle
+// This timeline implementation has been replaced by IntegratedTimelineView.swift
+// Keeping for now to avoid disruption, but no longer used in the main app
 
 import SwiftUI
 
