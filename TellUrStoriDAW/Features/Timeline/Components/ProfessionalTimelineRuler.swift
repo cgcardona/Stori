@@ -55,9 +55,9 @@ struct ProfessionalTimelineRuler: View {
                         }
                     )
                     .onAppear {
-                        print("🟡 CYCLE OVERLAY: isCycleEnabled=\(audioEngine.isCycleEnabled)")
-                        print("🟡 CYCLE OVERLAY: cycleStart=\(audioEngine.cycleStartTime), cycleEnd=\(audioEngine.cycleEndTime)")
-                        print("🟡 CYCLE OVERLAY: pixelsPerSecond=\(pixelsPerSecond), contentWidth=\(contentWidth)")
+                        // print("🟡 CYCLE OVERLAY: isCycleEnabled=\(audioEngine.isCycleEnabled)")
+                        // print("🟡 CYCLE OVERLAY: cycleStart=\(audioEngine.cycleStartTime), cycleEnd=\(audioEngine.cycleEndTime)")
+                        // print("🟡 CYCLE OVERLAY: pixelsPerSecond=\(pixelsPerSecond), contentWidth=\(contentWidth)")
                     }
                 }
             }

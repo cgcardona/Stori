@@ -38,9 +38,9 @@ struct CycleOverlay: View {
         let x1    = CGFloat(end)   * pixelsPerSecond
         let w     = max(1, min(x1 - x0, maxWidth - x0))
         
-        let _ = print("🟡 CYCLE OVERLAY RENDER: start=\(start), end=\(end), x0=\(x0), x1=\(x1), w=\(w)")
-        let _ = print("🟡 CYCLE OVERLAY DEBUG: cycleStartTime=\(cycleStartTime), cycleEndTime=\(cycleEndTime), pixelsPerSecond=\(pixelsPerSecond)")
-        let _ = print("🟡 CYCLE OVERLAY POSITION: maxWidth=\(maxWidth), laneH=\(laneH), x0=\(x0), w=\(w)")
+        // let _ = print("🟡 CYCLE OVERLAY RENDER: start=\(start), end=\(end), x0=\(x0), x1=\(x1), w=\(w)")
+        // let _ = print("🟡 CYCLE OVERLAY DEBUG: cycleStartTime=\(cycleStartTime), cycleEndTime=\(cycleEndTime), pixelsPerSecond=\(pixelsPerSecond)")
+        // let _ = print("🟡 CYCLE OVERLAY POSITION: maxWidth=\(maxWidth), laneH=\(laneH), x0=\(x0), w=\(w)")
 
         // Entire overlay lives in top lane coordinate space
         ZStack(alignment: .topLeading) {

@@ -232,21 +232,21 @@ struct InteractiveCycleOverlay: View {
             .frame(height: regionHeight)
             .clipped()
             .onAppear {
-                print("🟡 CYCLE OVERLAY APPEARED - cycleStartTime: \(cycleStartTime), cycleEndTime: \(cycleEndTime)")
-                print("🟡 CYCLE OVERLAY APPEARED - horizontalZoom: \(horizontalZoom)")
+                // print("🟡 CYCLE OVERLAY APPEARED - cycleStartTime: \(cycleStartTime), cycleEndTime: \(cycleEndTime)")
+                // print("🟡 CYCLE OVERLAY APPEARED - horizontalZoom: \(horizontalZoom)")
                 let startX = CGFloat(cycleStartTime) * pixelsPerSecond
                 let endX = CGFloat(cycleEndTime) * pixelsPerSecond
                 let width = endX - startX
                 let centerX = startX + width/2
-                print("🟡 CYCLE OVERLAY APPEARED - startX: \(startX), endX: \(endX), width: \(width)")
-                print("🟡 CYCLE OVERLAY APPEARED - centerX: \(centerX), pixelsPerSecond: \(pixelsPerSecond)")
-                print("🟡 CYCLE OVERLAY APPEARED - NOTE: This overlay will be offset by +280px in MainDAWView")
+                // print("🟡 CYCLE OVERLAY APPEARED - startX: \(startX), endX: \(endX), width: \(width)")
+                // print("🟡 CYCLE OVERLAY APPEARED - centerX: \(centerX), pixelsPerSecond: \(pixelsPerSecond)")
+                // print("🟡 CYCLE OVERLAY APPEARED - NOTE: This overlay will be offset by +280px in MainDAWView")
             }
             .onChange(of: cycleStartTime) { _, newValue in
-                print("🟡 CYCLE OVERLAY CHANGED - cycleStartTime: \(newValue)")
+                // print("🟡 CYCLE OVERLAY CHANGED - cycleStartTime: \(newValue)")
             }
             .onChange(of: cycleEndTime) { _, newValue in
-                print("🟡 CYCLE OVERLAY CHANGED - cycleEndTime: \(newValue)")
+                // print("🟡 CYCLE OVERLAY CHANGED - cycleEndTime: \(newValue)")
             }
     }
     
