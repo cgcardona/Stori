@@ -670,16 +670,11 @@ struct PositionedAudioRegion: View {
         let baseX = region.startTime * pixelsPerSecond
         let regionWidth = region.duration * pixelsPerSecond
         
-        // Debug logging for region positioning
-        if isDragging {
-            let totalX = baseX + dragOffset
-            let _ = print("🎯 REGION DRAG: '\(region.audioFile.name)'")
-            let _ = print("   📏 Width: \(String(format: "%.1f", regionWidth))px (duration: \(String(format: "%.2f", region.duration))s)")
-            let _ = print("   📍 Base X: \(String(format: "%.1f", baseX))px (startTime: \(String(format: "%.2f", region.startTime))s)")
-            let _ = print("   👆 Drag Offset: \(String(format: "%.1f", dragOffset))px")
-            let _ = print("   🎯 Final X: \(String(format: "%.1f", totalX))px")
-            let _ = print("   📐 Region bounds: [\(String(format: "%.1f", totalX)), \(String(format: "%.1f", totalX + regionWidth))]")
-        }
+        // Debug logging for region positioning (simplified)
+        // if isDragging {
+        //     let totalX = baseX + dragOffset
+        //     print("🎯 DRAG: '\(region.audioFile.name)' @ \(String(format: "%.1f", totalX))px")
+        // }
         
         return IntegratedAudioRegion(
             region: region,
@@ -815,17 +810,11 @@ struct IntegratedAudioRegion: View {
                     if !isDragging {
                         isDragging = true
                         onRegionSelect(region.id)  // Select region when drag starts
-                        print("🚀 DRAG STARTED: '\(region.audioFile.name)' at startTime: \(String(format: "%.2f", region.startTime))s")
-                        print("🎯 INITIAL LOCATION: \(String(format: "%.1f", value.startLocation.x))px")
+                        // print("🚀 DRAG STARTED: '\(region.audioFile.name)' at startTime: \(String(format: "%.2f", region.startTime))s")
                     }
                     
                     // Use absolute position difference instead of translation to avoid feedback loop
                     let absoluteOffset = value.location.x - value.startLocation.x
-                    let offsetChange = absoluteOffset - dragOffset
-                    
-                    print("📱 DRAG UPDATE: offset: \(String(format: "%.1f", absoluteOffset))px (Δ: \(String(format: "%.1f", offsetChange))px)")
-                    print("🌍 GLOBAL COORDS: start=\(String(format: "%.1f", value.startLocation.x)), current=\(String(format: "%.1f", value.location.x))")
-                    
                     dragOffset = absoluteOffset
                 }
                 .onEnded { value in

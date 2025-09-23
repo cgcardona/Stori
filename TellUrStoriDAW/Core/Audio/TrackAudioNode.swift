@@ -196,35 +196,57 @@ class TrackAudioNode {
     }
     
     func scheduleFromPosition(_ startTime: TimeInterval, audioRegions: [AudioRegion]) throws {
-        // Stop any current playback
+        // Clean slate once
         playerNode.stop()
-        
-        // Schedule audio regions that are active at the given start time
+        playerNode.reset()
+
+        // We'll express all 'when' times in player-time samples.
+        // Player-time sample 0 == the instant we call playerNode.play()
+        // So a region that should start 1.0s later uses sampleTime = 1.0 * sampleRate.
+        var scheduledSomething = false
+
         for region in audioRegions {
-            let regionEndTime = region.startTime + region.duration
-            
-            // Only schedule regions that are playing at or after the start time
-            if regionEndTime > startTime {
-                let audioFile = try AVAudioFile(forReading: region.audioFile.url)
-                let sampleRate = audioFile.processingFormat.sampleRate
-                
-                // Calculate the offset within the region
-                let offsetInRegion = max(0, startTime - region.startTime)
-                let startFrame = AVAudioFramePosition(offsetInRegion * sampleRate)
-                let totalFrames = audioFile.length
-                let framesToPlay = max(0, totalFrames - startFrame)
-                
-                if framesToPlay > 0 {
-                    print("🎵 Scheduling region '\(region.audioFile.name)' from frame \(startFrame)/\(totalFrames)")
-                    
-                    playerNode.scheduleSegment(
-                        audioFile,
-                        startingFrame: startFrame,
-                        frameCount: AVAudioFrameCount(framesToPlay),
-                        at: nil
-                    )
-                }
-            }
+            let audioFile = try AVAudioFile(forReading: region.audioFile.url)
+            let sr = audioFile.processingFormat.sampleRate
+
+            let regionStart = region.startTime
+            let regionEnd   = region.startTime + region.duration
+
+            // Skip regions that already ended before startTime
+            if regionEnd <= startTime { continue }
+
+            // How far after playback-start this region should begin
+            let delaySeconds = max(0.0, regionStart - startTime)
+            let delaySamples = AVAudioFramePosition(delaySeconds * sr)
+
+            // Where to begin inside the file
+            // If we are starting after the region began, we need to jump into the file.
+            let offsetSecondsInFile = max(0.0, startTime - regionStart) + region.offset
+            let startFrameInFile = AVAudioFramePosition(offsetSecondsInFile * sr)
+
+            // How many frames remain in the region from that point?
+            let framesRemainingInRegion = AVAudioFrameCount(max(0.0, (region.duration - max(0.0, startTime - regionStart)) * sr))
+
+            guard framesRemainingInRegion > 0 else { continue }
+
+            // Player-time 'when' (0 for immediate, >0 samples in the future)
+            let when = AVAudioTime(sampleTime: delaySamples, atRate: sr)
+
+            playerNode.scheduleSegment(
+                audioFile,
+                startingFrame: startFrameInFile,
+                frameCount: framesRemainingInRegion,
+                at: when
+            )
+            scheduledSomething = true
+            print("🎵 Scheduling '\(region.audioFile.name)' @ +\(String(format: "%.3f", delaySeconds))s (fileStart=\(startFrameInFile), frames=\(framesRemainingInRegion))")
+        }
+
+        if scheduledSomething {
+            // Start the player's timeline now; future items will fire at their 'when' offsets
+            // Use immediate play() for player-time scheduling consistency
+            playerNode.play()
+            print("🎵 PLAYER STARTED: Using player-time scheduling")
         }
     }
     

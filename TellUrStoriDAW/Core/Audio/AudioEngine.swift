@@ -174,7 +174,6 @@ class AudioEngine: ObservableObject {
             let newTrackIds = Set(project.tracks.map { $0.id })
             let addedTrackIds = newTrackIds.subtracting(oldTrackIds)
             
-            print("🔍 DEBUG: Project update - Old tracks: \(oldTrackIds.count), New tracks: \(newTrackIds.count), Added tracks: \(addedTrackIds.count)")
             
             // Set up audio nodes for new tracks
             for trackId in addedTrackIds {
@@ -195,7 +194,6 @@ class AudioEngine: ObservableObject {
                     let newRegionIds = Set(track.regions.map { $0.id })
                     let addedRegionIds = newRegionIds.subtracting(oldRegionIds)
                     
-                    print("🔍 DEBUG: Track '\(track.name)' - Old regions: \(oldRegionIds.count), New regions: \(newRegionIds.count), Added: \(addedRegionIds.count)")
                     
                     // Load audio for new regions
                     for regionId in addedRegionIds {
@@ -211,6 +209,43 @@ class AudioEngine: ObservableObject {
                         print("🗑️ Removed \(removedRegionIds.count) regions from track: \(track.name)")
                         // Note: TrackAudioNode handles multiple regions, so we don't need to explicitly remove
                         // The next playback will only schedule the remaining regions
+                    }
+                    
+                    // CRITICAL FIX: Check for moved regions (same ID but different position)
+                    var hasRegionPositionChanges = false
+                    for newRegion in track.regions {
+                        if let oldRegion = oldTrack.regions.first(where: { $0.id == newRegion.id }) {
+                            if abs(oldRegion.startTime - newRegion.startTime) > 0.001 { // 1ms tolerance
+                                print("🔄 REGION MOVED: '\(newRegion.audioFile.name)' from \(String(format: "%.2f", oldRegion.startTime))s to \(String(format: "%.2f", newRegion.startTime))s")
+                                hasRegionPositionChanges = true
+                            }
+                        }
+                    }
+                    
+                    // If regions were moved, handle re-scheduling based on transport state
+                    if hasRegionPositionChanges {
+                        if transportState == .playing {
+                            // Currently playing: Re-schedule immediately
+                            print("🔄 RE-SCHEDULING: Track '\(track.name)' due to region position changes (PLAYING)")
+                            trackNode.playerNode.stop()
+                            
+                            // Re-schedule from current position
+                            let currentTime = currentPosition.timeInterval
+                            do {
+                                try trackNode.scheduleFromPosition(currentTime, audioRegions: track.regions)
+                                if !trackNode.playerNode.isPlaying {
+                                    trackNode.playerNode.play()
+                                    print("✅ RE-SCHEDULED: Track '\(track.name)' playing from \(String(format: "%.2f", currentTime))s")
+                                }
+                            } catch {
+                                print("❌ RE-SCHEDULE FAILED: Track '\(track.name)': \(error)")
+                            }
+                        } else {
+                            // Currently stopped: Clear audio cache so next playback uses updated positions
+                            print("🔄 CLEARING CACHE: Track '\(track.name)' due to region position changes (STOPPED)")
+                            trackNode.playerNode.stop()
+                            print("✅ CACHE CLEARED: Track '\(track.name)' ready for next playback with updated positions")
+                        }
                     }
                 }
             }
@@ -232,7 +267,6 @@ class AudioEngine: ObservableObject {
             updateSoloState()
         }
         
-        print("📝 Updated current project without stopping playback - handled \(project.tracks.count) tracks")
     }
     
     private func setupTracksForProject(_ project: AudioProject) {
@@ -845,44 +879,24 @@ class AudioEngine: ObservableObject {
     // MARK: - Playback Implementation
     private func startPlayback() {
         guard let project = currentProject else { return }
-        
+
         let startTime = currentPosition.timeInterval
-        var scheduledNodes: [AVAudioPlayerNode] = []
-        
-        // First, schedule all tracks without starting playback
+        var tracksStarted = 0
+
         for track in project.tracks {
-            print("🔍 DEBUG: Checking track '\(track.name)' - ID: \(track.id), Regions: \(track.regions.count)")
-            
-            if let trackNode = trackNodes[track.id] {
-                print("🔍 DEBUG: Found track node for '\(track.name)'")
-                
-                let activeRegions = track.regions.filter { region in
-                    let isActive = region.startTime <= startTime && region.endTime > startTime
-                    print("🔍 DEBUG: Region '\(region.audioFile.name)' - Start: \(region.startTime), End: \(region.endTime), Current: \(startTime), Active: \(isActive)")
-                    return isActive
+            guard let trackNode = trackNodes[track.id] else { continue }
+
+            do {
+                try trackNode.scheduleFromPosition(startTime, audioRegions: track.regions)
+                if trackNode.playerNode.isPlaying {
+                    tracksStarted += 1
                 }
-                
-                print("🔍 DEBUG: Track '\(track.name)' has \(activeRegions.count) active regions at time \(startTime)")
-                
-                for region in activeRegions {
-                    if scheduleRegionForSynchronizedPlayback(region, on: trackNode, at: startTime) {
-                        scheduledNodes.append(trackNode.playerNode)
-                        print("🔍 DEBUG: Successfully scheduled region '\(region.audioFile.name)' for playback")
-                    } else {
-                        print("🔍 DEBUG: Failed to schedule region '\(region.audioFile.name)' for playback")
-                    }
-                }
-            } else {
-                print("🔍 DEBUG: No track node found for '\(track.name)' - ID: \(track.id)")
+            } catch {
+                print("❌ Failed scheduling track '\(track.name)': \(error)")
             }
         }
-        
-        // Now start all scheduled nodes simultaneously for perfect sync
-        for playerNode in scheduledNodes {
-            safePlay(playerNode) // Use ChatGPT's safe play guard
-        }
-        
-        print("🎵 Started \(scheduledNodes.count) tracks simultaneously")
+
+        print("🎵 Started \(tracksStarted) track(s) from \(String(format: "%.2f", startTime))s")
     }
     
     private func stopPlayback() {
@@ -901,13 +915,12 @@ class AudioEngine: ObservableObject {
             return
         }
         
-        // Find regions that should be playing at the current time
-        let activeRegions = track.regions.filter { region in
-            region.startTime <= startTime && region.endTime > startTime
-        }
+        // Schedule ALL regions - let TrackAudioNode handle timing internally
+        // Don't filter by "active" status based on current position
+        let allRegions = track.regions
         
-        // Schedule audio for each active region on this track's player node
-        for region in activeRegions {
+        // Schedule audio for each region on this track's player node
+        for region in allRegions {
             scheduleRegion(region, on: trackNode, at: startTime)
         }
     }
@@ -1649,17 +1662,14 @@ extension AudioEngine {
             }
         }
         
-        // 4) Start everyone at next render tick (avoid mid-cycle start)
-        // Slight host-time offset (~5ms) is enough to dodge the timing window
-        let hostStart = mach_absolute_time() + UInt64(5_000_000) // ~5 ms in ns
-        let hostTime = AVAudioTime(hostTime: hostStart)
+        // 4) Schedule all tracks using consistent player-time scheduling
         
         for track in currentProject?.tracks ?? [] {
             guard let trackNode = trackNodes[track.id] else { continue }
             do {
                 try trackNode.scheduleFromPosition(startTime, audioRegions: track.regions)
-                trackNode.playerNode.play(at: hostTime)
-                print("🚀 SAFE JUMP: Scheduled track \(track.name) at host time")
+                // Note: scheduleFromPosition now handles playerNode.play() internally
+                print("🚀 SAFE JUMP: Scheduled track \(track.name) with player-time")
             } catch {
                 print("❌ SAFE JUMP: Failed to schedule track \(track.name): \(error)")
             }
