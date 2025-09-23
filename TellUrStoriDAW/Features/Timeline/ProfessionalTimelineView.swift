@@ -178,6 +178,7 @@ struct TrackEditorLane: View {
                         region: region,
                         track: audioTrack,
                         trackColor: track?.color ?? audioTrack.color,
+                        audioEngine: audioEngine,
                         projectManager: projectManager,
                         pixelsPerSecond: pixelsPerSecond,
                         isSelected: isSelected
@@ -234,6 +235,7 @@ struct ProfessionalAudioRegion: View {
     let region: AudioRegion
     let track: AudioTrack
     let trackColor: TrackColor
+    @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let pixelsPerSecond: CGFloat
     let isSelected: Bool
@@ -450,6 +452,14 @@ struct ProfessionalAudioRegion: View {
                 // TODO: Implement copy
             }
             
+            Button("Split at Playhead") {
+                let playheadTime = audioEngine.currentPosition.timeInterval
+                splitRegionAtPlayhead(playheadTime)
+            }
+            .disabled(!canSplitAtPlayhead)
+            
+            Divider()
+            
             Button("Delete") {
                 projectManager.removeRegionFromTrack(region.id, trackId: track.id)
             }
@@ -458,10 +468,6 @@ struct ProfessionalAudioRegion: View {
             
             Button("Duplicate") {
                 duplicateRegion()
-            }
-            
-            Button("Split at Playhead") {
-                // TODO: Implement split
             }
             
             Divider()
@@ -506,6 +512,17 @@ struct ProfessionalAudioRegion: View {
             offset: region.offset
         )
         projectManager.addRegionToTrack(duplicatedRegion, trackId: track.id)
+    }
+    
+    // MARK: - Region Splitting
+    private var canSplitAtPlayhead: Bool {
+        let playheadTime = audioEngine.currentPosition.timeInterval
+        let regionEndTime = region.startTime + region.duration
+        return playheadTime > region.startTime && playheadTime < regionEndTime
+    }
+    
+    private func splitRegionAtPlayhead(_ playheadTime: TimeInterval) {
+        projectManager.splitRegionAtPosition(region.id, trackId: track.id, splitTime: playheadTime)
     }
 }
 

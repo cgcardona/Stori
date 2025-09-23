@@ -222,11 +222,27 @@ struct IntegratedTimelineView: View {
     }
     
     private var timelineRulerContent: some View {
-        IntegratedTimelineRuler(
-            currentPosition: audioEngine.currentPosition.timeInterval,
-            pixelsPerSecond: pixelsPerSecond,
-            contentWidth: contentSize.width
-        )
+        ZStack(alignment: .topLeading) {
+            IntegratedTimelineRuler(
+                currentPosition: audioEngine.currentPosition.timeInterval,
+                pixelsPerSecond: pixelsPerSecond,
+                contentWidth: contentSize.width
+            )
+            
+            // Cycle overlay - now in the same scroll context as the ruler
+            if audioEngine.isCycleEnabled {
+                InteractiveCycleOverlay(
+                    cycleStartTime: audioEngine.cycleStartTime,
+                    cycleEndTime: audioEngine.cycleEndTime,
+                    horizontalZoom: Double(pixelsPerSecond / 100.0), // reverse of calc
+                    onCycleRegionChanged: { start, end in
+                        audioEngine.setCycleRegion(start: start, end: end)
+                    }
+                )
+                // No offsets needed - it's in the same coordinate space as the ruler now
+            }
+        }
+        .frame(width: contentSize.width, height: rulerHeight)
     }
     
     private var tracksAreaContent: some View {
@@ -504,6 +520,7 @@ struct IntegratedTimelineRuler: View {
     let currentPosition: TimeInterval
     let pixelsPerSecond: CGFloat
     let contentWidth: CGFloat
+    @EnvironmentObject var audioEngine: AudioEngine
     
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -523,44 +540,65 @@ struct IntegratedTimelineRuler: View {
                 .offset(x: currentPosition * pixelsPerSecond)
         }
         .frame(width: contentWidth, height: 44)
+        .contentShape(Rectangle())
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onEnded { value in
+                                let x = value.location.x
+                                let targetTime = max(0, Double(x / pixelsPerSecond))
+                                audioEngine.seekToPosition(targetTime)
+                                print("🎯 RULER CLICK: Seeking to \(String(format: "%.2f", targetTime))s")
+                            }
+                    )
+            }
+        )
     }
     
     private func drawTimeMarkers(context: GraphicsContext, size: CGSize) {
         let totalSeconds = Int(contentWidth / pixelsPerSecond)
         
-        // Major markers every 10 seconds
-        for second in stride(from: 0, through: totalSeconds, by: 10) {
+        // All 1-second markers
+        for second in 0...totalSeconds {
             let x = CGFloat(second) * pixelsPerSecond
             
-            // Major tick line
-            let majorPath = Path { path in
-                path.move(to: CGPoint(x: x, y: size.height - 20))
-                path.addLine(to: CGPoint(x: x, y: size.height))
+            if second % 10 == 0 {
+                // Major markers every 10 seconds - tallest with labels
+                let majorPath = Path { path in
+                    path.move(to: CGPoint(x: x, y: size.height - 20))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                }
+                context.stroke(majorPath, with: .color(.primary), lineWidth: 1.5)
+                
+                // Time label for major markers
+                let minutes = second / 60
+                let seconds = second % 60
+                let timeText = String(format: "%d:%02d", minutes, seconds)
+                
+                context.draw(
+                    Text(timeText)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.primary),
+                    at: CGPoint(x: x + 4, y: 8)
+                )
+            } else if second % 5 == 0 {
+                // Medium markers every 5 seconds
+                let mediumPath = Path { path in
+                    path.move(to: CGPoint(x: x, y: size.height - 15))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                }
+                context.stroke(mediumPath, with: .color(.primary.opacity(0.7)), lineWidth: 1)
+            } else {
+                // Minor markers every 1 second
+                let minorPath = Path { path in
+                    path.move(to: CGPoint(x: x, y: size.height - 8))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                }
+                context.stroke(minorPath, with: .color(.secondary.opacity(0.6)), lineWidth: 0.5)
             }
-            context.stroke(majorPath, with: .color(.primary), lineWidth: 1)
-            
-            // Time label
-            let minutes = second / 60
-            let seconds = second % 60
-            let timeText = String(format: "%d:%02d", minutes, seconds)
-            
-            context.draw(
-                Text(timeText)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.primary),
-                at: CGPoint(x: x + 4, y: 8)
-            )
-        }
-        
-        // Minor markers every 5 seconds
-        for second in stride(from: 5, through: totalSeconds, by: 10) {
-            let x = CGFloat(second) * pixelsPerSecond
-            
-            let minorPath = Path { path in
-                path.move(to: CGPoint(x: x, y: size.height - 10))
-                path.addLine(to: CGPoint(x: x, y: size.height))
-            }
-            context.stroke(minorPath, with: .color(.secondary), lineWidth: 0.5)
         }
     }
 }
@@ -640,7 +678,10 @@ struct IntegratedTrackRow: View {
                         selectedRegionId = regionId
                         selectedTrackId = audioTrack.id  // Also select the parent track
                     },
-                    onRegionMove: onRegionMove
+                    onRegionMove: onRegionMove,
+                    audioEngine: audioEngine,
+                    projectManager: projectManager,
+                    trackId: audioTrack.id
                 )
             }
         }
@@ -662,13 +703,16 @@ struct PositionedAudioRegion: View {
     @Binding var selectedRegionId: UUID?
     let onRegionSelect: (UUID) -> Void
     let onRegionMove: (UUID, TimeInterval) -> Void
+    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
+    let trackId: UUID
     
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging: Bool = false
     
     var body: some View {
         let baseX = region.startTime * pixelsPerSecond
-        let regionWidth = region.duration * pixelsPerSecond
+        // let regionWidth = region.duration * pixelsPerSecond // Unused - calculated in IntegratedAudioRegion
         
         // Debug logging for region positioning (simplified)
         // if isDragging {
@@ -684,7 +728,10 @@ struct PositionedAudioRegion: View {
             onRegionSelect: onRegionSelect,
             onRegionMove: onRegionMove,
             dragOffset: $dragOffset,
-            isDragging: $isDragging
+            isDragging: $isDragging,
+            audioEngine: audioEngine,
+            projectManager: projectManager,
+            trackId: trackId
         )
         .offset(
             x: baseX + (isDragging ? dragOffset : 0),
@@ -706,6 +753,11 @@ struct IntegratedAudioRegion: View {
     // Drag state (now passed from parent)
     @Binding var dragOffset: CGFloat
     @Binding var isDragging: Bool
+    
+    // Context menu dependencies
+    @ObservedObject var audioEngine: AudioEngine
+    @ObservedObject var projectManager: ProjectManager
+    let trackId: UUID
     
     private var regionWidth: CGFloat {
         region.duration * pixelsPerSecond
@@ -837,6 +889,9 @@ struct IntegratedAudioRegion: View {
                     onRegionMove(region.id, snappedStartTime)
                 }
         )
+        .contextMenu {
+            regionContextMenu
+        }
         .clipped()
     }
     
@@ -857,6 +912,71 @@ struct IntegratedAudioRegion: View {
         // Generate placeholder waveform data for visualization
         let sampleCount = 100
         return (0..<sampleCount).map { _ in Float.random(in: -1...1) }
+    }
+    
+    // MARK: - Context Menu
+    private var regionContextMenu: some View {
+        Group {
+            Button("Cut") {
+                // TODO: Implement cut
+            }
+            
+            Button("Copy") {
+                // TODO: Implement copy
+            }
+            
+            Button("Split at Playhead") {
+                let playheadTime = audioEngine.currentPosition.timeInterval
+                splitRegionAtPlayhead(playheadTime)
+            }
+            .disabled(!canSplitAtPlayhead)
+            
+            Divider()
+            
+            Button("Delete") {
+                projectManager.removeRegionFromTrack(region.id, trackId: trackId)
+            }
+            
+            Divider()
+            
+            Button("Duplicate") {
+                duplicateRegion()
+            }
+            
+            Divider()
+            
+            Button("Fade In...") {
+                // TODO: Implement fade in
+            }
+            Button("Fade Out...") {
+                // TODO: Implement fade out
+            }
+        }
+    }
+    
+    // MARK: - Context Menu Helpers
+    private var canSplitAtPlayhead: Bool {
+        let playheadTime = audioEngine.currentPosition.timeInterval
+        let regionEndTime = region.startTime + region.duration
+        return playheadTime > region.startTime && playheadTime < regionEndTime
+    }
+    
+    private func splitRegionAtPlayhead(_ playheadTime: TimeInterval) {
+        projectManager.splitRegionAtPosition(region.id, trackId: trackId, splitTime: playheadTime)
+    }
+    
+    private func duplicateRegion() {
+        let duplicatedRegion = AudioRegion(
+            audioFile: region.audioFile,
+            startTime: region.startTime + region.duration,
+            duration: region.duration,
+            fadeIn: region.fadeIn,
+            fadeOut: region.fadeOut,
+            gain: region.gain,
+            isLooped: region.isLooped,
+            offset: region.offset
+        )
+        projectManager.addRegionToTrack(duplicatedRegion, trackId: trackId)
     }
 }
 

@@ -254,35 +254,7 @@ struct MainDAWView: View {
                             )
                         }
                         
-                        // Timeline ruler (aligned with track content) with Cycle Overlay
-                        ZStack(alignment: .topLeading) {
-                            HStack(spacing: 0) {
-                                // Spacer to align with track headers (280px)
-                                Color.clear
-                                    .frame(width: 280)
-                                
-                                // Timeline ruler
-                                TimelineRulerView(
-                                    audioEngine: audioEngine,
-                                    project: projectManager.currentProject,
-                                    horizontalZoom: horizontalZoom
-                                )
-                            }
-                            .frame(height: 40)
-                            
-                            // Interactive cycle overlay over timeline ruler
-                            if audioEngine.isCycleEnabled {
-                                InteractiveCycleOverlay(
-                                    cycleStartTime: audioEngine.cycleStartTime,
-                                    cycleEndTime: audioEngine.cycleEndTime,
-                                    horizontalZoom: horizontalZoom,
-                                    onCycleRegionChanged: { start, end in
-                                        audioEngine.setCycleRegion(start: start, end: end)
-                                    }
-                                )
-                                .offset(x: 280, y: 0) // Align with timeline ruler
-                            }
-                        }
+                        // Note: Timeline ruler now integrated within IntegratedTimelineView below
                         
                         // Integrated Timeline with synchronized scrolling
                         IntegratedTimelineView(
@@ -448,72 +420,7 @@ struct ZoomControlsView: View {
     }
 }
 
-// MARK: - Timeline Ruler View
-struct TimelineRulerView: View {
-    @ObservedObject var audioEngine: AudioEngine
-    let project: AudioProject?
-    let horizontalZoom: Double
-    
-    private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
-    
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Background
-                Color(.controlBackgroundColor)
-                
-                if let project = project {
-                    // Time markers
-                    Canvas { context, size in
-                        drawTimeMarkers(context: context, size: size, project: project)
-                    }
-                    
-                    // Playhead
-                    Rectangle()
-                        .fill(Color.red)
-                        .frame(width: 2)
-                        .offset(x: CGFloat(audioEngine.currentPosition.timeInterval) * pixelsPerSecond)
-                }
-            }
-        }
-        .background(Color(.controlBackgroundColor))
-    }
-    
-    private func drawTimeMarkers(context: GraphicsContext, size: CGSize, project: AudioProject) {
-        let secondsVisible = size.width / pixelsPerSecond
-        let markerInterval: TimeInterval = 1.0 // 1 second intervals
-        
-        for i in 0...Int(secondsVisible) {
-            let time = TimeInterval(i) * markerInterval
-            let x = time * Double(pixelsPerSecond)
-            
-            // Draw marker line
-            let startPoint = CGPoint(x: x, y: size.height - 10)
-            let endPoint = CGPoint(x: x, y: size.height)
-            
-            context.stroke(
-                Path { path in
-                    path.move(to: startPoint)
-                    path.addLine(to: endPoint)
-                },
-                with: .color(.primary),
-                lineWidth: 1
-            )
-            
-            // Draw time label
-            let minutes = Int(time) / 60
-            let seconds = Int(time) % 60
-            let timeString = String(format: "%d:%02d", minutes, seconds)
-            
-            context.draw(
-                Text(timeString)
-                    .font(.caption)
-                    .foregroundColor(.secondary),
-                at: CGPoint(x: x + 4, y: size.height - 20)
-            )
-        }
-    }
-}
+// MARK: - Timeline Ruler View (Removed - now integrated within IntegratedTimelineView)
 
 
 // MARK: - Supporting Views

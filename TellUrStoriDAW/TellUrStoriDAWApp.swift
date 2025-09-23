@@ -77,12 +77,12 @@ struct TellUrStoriDAWApp: App {
                 Button("Skip to Beginning") {
                     NotificationCenter.default.post(name: .skipToBeginning, object: nil)
                 }
-                .keyboardShortcut(.home)
+                .keyboardShortcut(.return)
                 
                 Button("Skip to End") {
                     NotificationCenter.default.post(name: .skipToEnd, object: nil)
                 }
-                .keyboardShortcut(.end)
+                .keyboardShortcut(.return, modifiers: [.command, .shift])
             }
             
             // Help menu

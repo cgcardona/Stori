@@ -64,8 +64,8 @@ struct DAWControlBar: View {
                         isActive: false,
                         action: { audioEngine.seek(to: 0) }
                     )
-                    .help("Go to Beginning (Home)")
-                    .keyboardShortcut(.home, modifiers: [])
+                    .help("Go to Beginning (Return)")
+                    .keyboardShortcut(.return, modifiers: [])
                     
                     // Rewind
                     TransportButton(
@@ -73,11 +73,11 @@ struct DAWControlBar: View {
                         isActive: false,
                         action: { 
                             let currentTime = audioEngine.currentPosition.timeInterval
-                            audioEngine.seek(to: max(0, currentTime - 10))
+                            audioEngine.seek(to: max(0, currentTime - 1))
                         }
                     )
-                    .help("Rewind 10 seconds (←)")
-                    .keyboardShortcut(.leftArrow, modifiers: [])
+                    .help("Rewind 1 second (,)")
+                    .keyboardShortcut(",", modifiers: [])
                     
                     // Play/Pause
                     TransportButton(
@@ -127,11 +127,11 @@ struct DAWControlBar: View {
                         isActive: false,
                         action: { 
                             let currentTime = audioEngine.currentPosition.timeInterval
-                            audioEngine.seek(to: currentTime + 10)
+                            audioEngine.seek(to: currentTime + 1)
                         }
                     )
-                    .help("Fast Forward 10 seconds (→)")
-                    .keyboardShortcut(.rightArrow, modifiers: [])
+                    .help("Fast Forward 1 second (.)")
+                    .keyboardShortcut(".", modifiers: [])
                     
                     // Go to End
                     TransportButton(
@@ -146,8 +146,8 @@ struct DAWControlBar: View {
                             }
                         }
                     )
-                    .help("Go to End (End)")
-                    .keyboardShortcut(.end, modifiers: [])
+                    .help("Go to End (Cmd+Shift+Return)")
+                    .keyboardShortcut(.return, modifiers: [.command, .shift])
                 }
                 
                 // Separator

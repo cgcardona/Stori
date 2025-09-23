@@ -851,8 +851,9 @@ class AudioEngine: ObservableObject {
     
     func stop() {
         transportState = .stopped
-        pausedTime = 0
-        currentPosition = PlaybackPosition()
+        // Keep current playhead position instead of resetting to 0
+        pausedTime = currentPosition.timeInterval
+        // Don't reset currentPosition - keep it where it stopped
         stopPlayback()
     }
     

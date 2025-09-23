@@ -96,6 +96,7 @@ struct TrackLaneView: View {
                     AudioRegionView(
                         region: region,
                         track: track,
+                        audioEngine: audioEngine,
                         projectManager: projectManager,
                         pixelsPerSecond: pixelsPerSecond
                     )
@@ -333,6 +334,7 @@ struct TrackHeaderView: View {
 struct AudioRegionView: View {
     let region: AudioRegion
     let track: AudioTrack
+    @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let pixelsPerSecond: CGFloat
     
@@ -413,6 +415,14 @@ struct AudioRegionView: View {
                 }
         )
         .contextMenu {
+            Button("Split at Playhead") {
+                let playheadTime = audioEngine.currentPosition.timeInterval
+                splitRegionAtPlayhead(playheadTime)
+            }
+            .disabled(!canSplitAtPlayhead)
+            
+            Divider()
+            
             Button("Delete") {
                 projectManager.removeRegionFromTrack(region.id, trackId: track.id)
             }
@@ -441,6 +451,17 @@ struct AudioRegionView: View {
         updatedRegion.startTime = newStartTime
         
         projectManager.updateRegion(updatedRegion, trackId: track.id)
+    }
+    
+    // MARK: - Region Splitting
+    private var canSplitAtPlayhead: Bool {
+        let playheadTime = audioEngine.currentPosition.timeInterval
+        let regionEndTime = region.startTime + region.duration
+        return playheadTime > region.startTime && playheadTime < regionEndTime
+    }
+    
+    private func splitRegionAtPlayhead(_ playheadTime: TimeInterval) {
+        projectManager.splitRegionAtPosition(region.id, trackId: track.id, splitTime: playheadTime)
     }
 }
 

@@ -367,6 +367,63 @@ class ProjectManager: ObservableObject {
         }
     }
     
+    // MARK: - Region Splitting
+    func splitRegionAtPosition(_ regionId: UUID, trackId: UUID, splitTime: TimeInterval) {
+        guard var project = currentProject else { return }
+        
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
+              let regionIndex = project.tracks[trackIndex].regions.firstIndex(where: { $0.id == regionId }) else {
+            print("❌ SPLIT: Could not find track or region")
+            return
+        }
+        
+        let originalRegion = project.tracks[trackIndex].regions[regionIndex]
+        
+        // Validate split position is within the region
+        let regionEndTime = originalRegion.startTime + originalRegion.duration
+        guard splitTime > originalRegion.startTime && splitTime < regionEndTime else {
+            print("❌ SPLIT: Split time \(splitTime) is outside region bounds [\(originalRegion.startTime), \(regionEndTime)]")
+            return
+        }
+        
+        // Calculate split parameters
+        let timeIntoRegion = splitTime - originalRegion.startTime
+        let leftDuration = timeIntoRegion
+        let rightDuration = originalRegion.duration - timeIntoRegion
+        let rightOffset = originalRegion.offset + timeIntoRegion
+        
+        print("🔪 SPLIT: '\(originalRegion.audioFile.name)' at \(String(format: "%.2f", splitTime))s")
+        print("   📊 Original: start=\(String(format: "%.2f", originalRegion.startTime))s, duration=\(String(format: "%.2f", originalRegion.duration))s, offset=\(String(format: "%.2f", originalRegion.offset))s")
+        print("   ⬅️ Left: start=\(String(format: "%.2f", originalRegion.startTime))s, duration=\(String(format: "%.2f", leftDuration))s, offset=\(String(format: "%.2f", originalRegion.offset))s")
+        print("   ➡️ Right: start=\(String(format: "%.2f", splitTime))s, duration=\(String(format: "%.2f", rightDuration))s, offset=\(String(format: "%.2f", rightOffset))s")
+        
+        // Create left region (original region modified)
+        var leftRegion = originalRegion
+        leftRegion.duration = leftDuration
+        
+        // Create right region (new region)
+        let rightRegion = AudioRegion(
+            audioFile: originalRegion.audioFile,
+            startTime: splitTime,
+            duration: rightDuration,
+            fadeIn: 0, // Reset fades for split regions
+            fadeOut: originalRegion.fadeOut,
+            gain: originalRegion.gain,
+            isLooped: originalRegion.isLooped,
+            offset: rightOffset
+        )
+        
+        // Replace original region with left region and add right region
+        project.tracks[trackIndex].regions[regionIndex] = leftRegion
+        project.tracks[trackIndex].addRegion(rightRegion)
+        
+        // Update project
+        currentProject = project
+        saveCurrentProject()
+        
+        print("✅ SPLIT: Created 2 regions from 1")
+    }
+    
     func updateRegion(_ region: AudioRegion, trackId: UUID) {
         guard var project = currentProject else { return }
         
