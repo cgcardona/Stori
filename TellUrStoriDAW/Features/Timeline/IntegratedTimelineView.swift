@@ -154,6 +154,13 @@ struct IntegratedTimelineView: View {
     }
     
     var body: some View {
+        // [V2-ANALYSIS] Create TimelineActions bundle with real functions
+        let actions = TimelineActions(
+            matchTempoToRegion: matchTempoToRegion,
+            matchPitchToRegion: matchPitchToRegion,
+            autoMatchSelectedRegions: autoMatchSelectedRegions
+        )
+        
         ZStack(alignment: .top) {
             // Main timeline content
             VStack(spacing: 0) {
@@ -284,6 +291,7 @@ struct IntegratedTimelineView: View {
                 .allowsHitTesting(false)
             }
         }
+        .environment(\.timelineActions, actions) // [V2-ANALYSIS] Provide actions to all child views
         .onChange(of: projectManager.currentProject) { _, newProject in
             // Force UI refresh when project changes (including new tracks)
             refreshTrigger = UUID()
