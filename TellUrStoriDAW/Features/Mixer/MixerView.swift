@@ -38,7 +38,7 @@ struct MixerView: View {
                             TrackChannelStrip(
                                 trackId: track.id,
                                 buses: buses,
-                                isSelected: selectedTrackId == track.id,
+                                selectedTrackId: $selectedTrackId,
                                 audioEngine: audioEngine,
                                 projectManager: projectManager,
                                 onSelect: { selectedTrackId = track.id },
@@ -49,6 +49,7 @@ struct MixerView: View {
                                     removeBus(busId)
                                 }
                             )
+                            .id("\(track.id)-mixer-\(selectedTrackId?.uuidString ?? "none")")
                         }
                         
                         // Bus Channel Strips
@@ -149,12 +150,17 @@ struct MixerView: View {
 struct TrackChannelStrip: View {
     let trackId: UUID  // Store ID instead of track snapshot
     let buses: [MixerBus]
-    let isSelected: Bool
+    @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
     let onCreateBus: (String) -> UUID  // Returns the created bus ID
     let onRemoveBus: (UUID) -> Void
+    
+    // Computed property that will refresh when selectedTrackId binding changes
+    private var isSelected: Bool {
+        selectedTrackId == trackId
+    }
     
     // Computed property to get current track state reactively
     private var track: AudioTrack {
@@ -188,7 +194,9 @@ struct TrackChannelStrip: View {
                 .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
         )
         .onTapGesture {
+            print("🎛️ Mixer Channel Tapped: \(track.name) (\(trackId))")
             onSelect()
+            print("🎛️ Mixer Channel Selection Called")
         }
         .contextMenu {
             Button("Show Sends") {

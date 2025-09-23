@@ -370,6 +370,9 @@ struct MainDAWView: View {
         .animation(.easeInOut(duration: 0.3), value: showingLibrary)
         .animation(.easeInOut(duration: 0.3), value: showingInspector)
         .animation(.easeInOut(duration: 0.3), value: showingMixer)
+        .onChange(of: selectedTrackId) { oldValue, newValue in
+            print("🎯 MainDAWView: selectedTrackId changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+        }
     }
 }
 

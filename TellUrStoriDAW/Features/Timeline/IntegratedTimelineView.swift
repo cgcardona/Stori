@@ -171,7 +171,7 @@ struct IntegratedTimelineView: View {
             ForEach(project?.tracks ?? []) { audioTrack in
                 IntegratedTrackHeader(
                     trackId: audioTrack.id,
-                    isSelected: selectedTrackId == audioTrack.id,
+                    selectedTrackId: $selectedTrackId,
                     height: effectiveTrackHeight,
                     audioEngine: audioEngine,
                     projectManager: projectManager,
@@ -179,7 +179,7 @@ struct IntegratedTimelineView: View {
                         selectedTrackId = audioTrack.id
                     }
                 )
-                .id(audioTrack.id)
+                .id("\(audioTrack.id)-\(selectedTrackId?.uuidString ?? "none")")
             }
         }
         .frame(width: headerWidth)
@@ -209,7 +209,7 @@ struct IntegratedTimelineView: View {
                 ForEach(project?.tracks ?? []) { audioTrack in
                     IntegratedTrackRow(
                         audioTrack: audioTrack,
-                        isSelected: selectedTrackId == audioTrack.id,
+                        selectedTrackId: $selectedTrackId,
                         height: effectiveTrackHeight,
                         pixelsPerSecond: pixelsPerSecond,
                         audioEngine: audioEngine,
@@ -218,7 +218,7 @@ struct IntegratedTimelineView: View {
                             selectedTrackId = audioTrack.id
                         }
                     )
-                    .id(audioTrack.id)
+                    .id("\(audioTrack.id)-row-\(selectedTrackId?.uuidString ?? "none")")
                 }
             }
         }
@@ -231,11 +231,16 @@ struct IntegratedTimelineView: View {
 
 struct IntegratedTrackHeader: View {
     let trackId: UUID  // Store ID instead of track snapshot
-    let isSelected: Bool
+    @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
     let height: CGFloat
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
+    
+    // Computed property that will refresh when selectedTrackId binding changes
+    private var isSelected: Bool {
+        selectedTrackId == trackId
+    }
     
     // Computed property to get current track state reactively
     private var audioTrack: AudioTrack {
@@ -246,6 +251,7 @@ struct IntegratedTrackHeader: View {
     @State private var showingAIGeneration = false
     
     var body: some View {
+        let _ = print("🎯 IntegratedTrackHeader: \(audioTrack.name) isSelected=\(isSelected)")
         HStack(spacing: 8) {
             // Track icon and color indicator
             HStack(spacing: 6) {
@@ -336,7 +342,9 @@ struct IntegratedTrackHeader: View {
         .background(trackRowBackground)
         .contentShape(Rectangle())
         .onTapGesture {
+            print("🎯 Track Header Tapped: \(audioTrack.name) (\(trackId))")
             onSelect()
+            print("🎯 Track Header Selection Called")
         }
         .sheet(isPresented: $showingAIGeneration) {
             AIGenerationView(targetTrack: audioTrack, projectManager: projectManager)
@@ -439,8 +447,10 @@ struct IntegratedTrackHeader: View {
     }
     
     private var trackRowBackground: some View {
-        Rectangle()
-            .fill(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+        let backgroundColor = isSelected ? Color.blue.opacity(0.1) : Color.clear
+        let _ = print("🎨 trackRowBackground: \(audioTrack.name) isSelected=\(isSelected) → \(isSelected ? "BLUE" : "CLEAR")")
+        return Rectangle()
+            .fill(backgroundColor)
             .overlay(
                 Rectangle()
                     .stroke(Color.gray.opacity(0.3), lineWidth: 0.5),
@@ -560,12 +570,17 @@ struct IntegratedGridBackground: View {
 
 struct IntegratedTrackRow: View {
     let audioTrack: AudioTrack
-    let isSelected: Bool
+    @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
     let height: CGFloat
     let pixelsPerSecond: CGFloat
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
+    
+    // Computed property that will refresh when selectedTrackId binding changes
+    private var isSelected: Bool {
+        selectedTrackId == audioTrack.id
+    }
     
     var body: some View {
         ZStack(alignment: .topLeading) {
