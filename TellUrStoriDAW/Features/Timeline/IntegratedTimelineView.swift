@@ -28,6 +28,41 @@ struct IntegratedTimelineView: View {
     // Force refresh state to trigger UI updates when project changes
     @State private var refreshTrigger: UUID = UUID()
     
+    // MARK: - Region Management
+    
+    /// Move an audio region to a new start time on the timeline
+    private func moveRegion(regionId: UUID, newStartTime: TimeInterval) {
+        guard var project = projectManager.currentProject else { return }
+        
+        // Find the track and region to update
+        for trackIndex in project.tracks.indices {
+            if let regionIndex = project.tracks[trackIndex].regions.firstIndex(where: { $0.id == regionId }) {
+                let region = project.tracks[trackIndex].regions[regionIndex]
+                let oldStartTime = region.startTime
+                
+                print("💾 MOVE REGION: '\(region.audioFile.name)'")
+                print("   ⏰ Old startTime: \(String(format: "%.2f", oldStartTime))s")
+                print("   ⏰ New startTime: \(String(format: "%.2f", newStartTime))s")
+                print("   📏 Duration: \(String(format: "%.2f", region.duration))s")
+                print("   📍 Old position: [\(String(format: "%.1f", oldStartTime * 100)), \(String(format: "%.1f", (oldStartTime + region.duration) * 100))]px")
+                print("   📍 New position: [\(String(format: "%.1f", newStartTime * 100)), \(String(format: "%.1f", (newStartTime + region.duration) * 100))]px")
+                
+                // Update the region's start time
+                project.tracks[trackIndex].regions[regionIndex].startTime = newStartTime
+                project.modifiedAt = Date()
+                
+                // Update the project manager (AudioEngine will pick up changes automatically)
+                projectManager.currentProject = project
+                
+                // Save the project to persist changes
+                projectManager.saveCurrentProject()
+                
+                print("✅ REGION MOVED: Successfully updated position")
+                break
+            }
+        }
+    }
+    
     // Layout constants adapted from layout-test-1
     private let headerWidth: CGFloat = 280
     private let rulerHeight: CGFloat = 44
@@ -158,9 +193,7 @@ struct IntegratedTimelineView: View {
         .onChange(of: projectManager.currentProject) { _, newProject in
             // Force UI refresh when project changes (including new tracks)
             refreshTrigger = UUID()
-            if let newProject = newProject {
-                print("🔄 IntegratedTimelineView: Project changed, refreshing UI with \(newProject.tracks.count) tracks")
-            }
+            // Project changed, refreshing UI
         }
         .id(refreshTrigger) // Force complete view refresh when project changes
     }
@@ -219,7 +252,8 @@ struct IntegratedTimelineView: View {
                         projectManager: projectManager,
                         onSelect: {
                             selectedTrackId = audioTrack.id
-                        }
+                        },
+                        onRegionMove: moveRegion
                     )
                     .id("\(audioTrack.id)-row-\(selectedTrackId?.uuidString ?? "none")")
                 }
@@ -255,7 +289,7 @@ struct IntegratedTrackHeader: View {
     @State private var showingAIGeneration = false
     
     var body: some View {
-        let _ = print("🎯 IntegratedTrackHeader: \(audioTrack.name) isSelected=\(isSelected)")
+        // let _ = print("🎯 IntegratedTrackHeader: \(audioTrack.name) isSelected=\(isSelected)")
         HStack(spacing: 8) {
             // Track icon and color indicator
             HStack(spacing: 6) {
@@ -453,7 +487,7 @@ struct IntegratedTrackHeader: View {
     
     private var trackRowBackground: some View {
         let backgroundColor = isSelected ? Color.blue.opacity(0.1) : Color.clear
-        let _ = print("🎨 trackRowBackground: \(audioTrack.name) isSelected=\(isSelected) → \(isSelected ? "BLUE" : "CLEAR")")
+        // let _ = print("🎨 trackRowBackground: \(audioTrack.name) isSelected=\(isSelected) → \(isSelected ? "BLUE" : "CLEAR")")
         return Rectangle()
             .fill(backgroundColor)
             .overlay(
@@ -582,6 +616,7 @@ struct IntegratedTrackRow: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
+    let onRegionMove: (UUID, TimeInterval) -> Void  // Region move callback
     
     // Computed property that will refresh when selectedTrackId binding changes
     private var isSelected: Bool {
@@ -596,7 +631,7 @@ struct IntegratedTrackRow: View {
             
             // Audio regions
             ForEach(audioTrack.regions) { region in
-                IntegratedAudioRegion(
+                PositionedAudioRegion(
                     region: region,
                     pixelsPerSecond: pixelsPerSecond,
                     trackHeight: height,
@@ -604,11 +639,8 @@ struct IntegratedTrackRow: View {
                     onRegionSelect: { regionId in
                         selectedRegionId = regionId
                         selectedTrackId = audioTrack.id  // Also select the parent track
-                    }
-                )
-                .offset(
-                    x: region.startTime * pixelsPerSecond,
-                    y: 8
+                    },
+                    onRegionMove: onRegionMove
                 )
             }
         }
@@ -621,6 +653,51 @@ struct IntegratedTrackRow: View {
     }
 }
 
+// MARK: - Positioned Audio Region Wrapper
+
+struct PositionedAudioRegion: View {
+    let region: AudioRegion
+    let pixelsPerSecond: CGFloat
+    let trackHeight: CGFloat
+    @Binding var selectedRegionId: UUID?
+    let onRegionSelect: (UUID) -> Void
+    let onRegionMove: (UUID, TimeInterval) -> Void
+    
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDragging: Bool = false
+    
+    var body: some View {
+        let baseX = region.startTime * pixelsPerSecond
+        let regionWidth = region.duration * pixelsPerSecond
+        
+        // Debug logging for region positioning
+        if isDragging {
+            let totalX = baseX + dragOffset
+            let _ = print("🎯 REGION DRAG: '\(region.audioFile.name)'")
+            let _ = print("   📏 Width: \(String(format: "%.1f", regionWidth))px (duration: \(String(format: "%.2f", region.duration))s)")
+            let _ = print("   📍 Base X: \(String(format: "%.1f", baseX))px (startTime: \(String(format: "%.2f", region.startTime))s)")
+            let _ = print("   👆 Drag Offset: \(String(format: "%.1f", dragOffset))px")
+            let _ = print("   🎯 Final X: \(String(format: "%.1f", totalX))px")
+            let _ = print("   📐 Region bounds: [\(String(format: "%.1f", totalX)), \(String(format: "%.1f", totalX + regionWidth))]")
+        }
+        
+        return IntegratedAudioRegion(
+            region: region,
+            pixelsPerSecond: pixelsPerSecond,
+            trackHeight: trackHeight,
+            selectedRegionId: $selectedRegionId,
+            onRegionSelect: onRegionSelect,
+            onRegionMove: onRegionMove,
+            dragOffset: $dragOffset,
+            isDragging: $isDragging
+        )
+        .offset(
+            x: baseX + (isDragging ? dragOffset : 0),
+            y: 8
+        )
+    }
+}
+
 // MARK: - Integrated Audio Region
 
 struct IntegratedAudioRegion: View {
@@ -629,6 +706,11 @@ struct IntegratedAudioRegion: View {
     let trackHeight: CGFloat
     @Binding var selectedRegionId: UUID?  // Selection binding
     let onRegionSelect: (UUID) -> Void    // Selection callback
+    let onRegionMove: (UUID, TimeInterval) -> Void  // Drag callback
+    
+    // Drag state (now passed from parent)
+    @Binding var dragOffset: CGFloat
+    @Binding var isDragging: Bool
     
     private var regionWidth: CGFloat {
         region.duration * pixelsPerSecond
@@ -727,6 +809,45 @@ struct IntegratedAudioRegion: View {
         .onTapGesture {
             onRegionSelect(region.id)
         }
+        .gesture(
+            DragGesture(coordinateSpace: .global)
+                .onChanged { value in
+                    if !isDragging {
+                        isDragging = true
+                        onRegionSelect(region.id)  // Select region when drag starts
+                        print("🚀 DRAG STARTED: '\(region.audioFile.name)' at startTime: \(String(format: "%.2f", region.startTime))s")
+                        print("🎯 INITIAL LOCATION: \(String(format: "%.1f", value.startLocation.x))px")
+                    }
+                    
+                    // Use absolute position difference instead of translation to avoid feedback loop
+                    let absoluteOffset = value.location.x - value.startLocation.x
+                    let offsetChange = absoluteOffset - dragOffset
+                    
+                    print("📱 DRAG UPDATE: offset: \(String(format: "%.1f", absoluteOffset))px (Δ: \(String(format: "%.1f", offsetChange))px)")
+                    print("🌍 GLOBAL COORDS: start=\(String(format: "%.1f", value.startLocation.x)), current=\(String(format: "%.1f", value.location.x))")
+                    
+                    dragOffset = absoluteOffset
+                }
+                .onEnded { value in
+                    let absoluteOffset = value.location.x - value.startLocation.x
+                    print("🏁 DRAG ENDED: final absolute offset: \(String(format: "%.1f", absoluteOffset))px")
+                    
+                    isDragging = false
+                    
+                    // Calculate new start time based on absolute position difference
+                    let timeOffset = absoluteOffset / pixelsPerSecond
+                    let newStartTime = max(0, region.startTime + timeOffset)
+                    
+                    // Snap to grid (optional - can be refined later)
+                    let snappedStartTime = round(newStartTime * 4) / 4  // Snap to quarter seconds
+                    
+                    print("⏰ TIME CALC: timeOffset: \(String(format: "%.2f", timeOffset))s, newStartTime: \(String(format: "%.2f", newStartTime))s, snapped: \(String(format: "%.2f", snappedStartTime))s")
+                    
+                    // Reset visual offset and apply actual position change
+                    dragOffset = 0
+                    onRegionMove(region.id, snappedStartTime)
+                }
+        )
         .clipped()
     }
     
