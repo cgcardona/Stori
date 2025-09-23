@@ -356,10 +356,7 @@ struct IntegratedTimelineView: View {
                         onSelect: {
                             selectedTrackId = audioTrack.id
                         },
-                        onRegionMove: moveRegion,
-                        onMatchTempo: matchTempoToRegion,
-                        onMatchPitch: matchPitchToRegion,
-                        onAutoMatch: autoMatchSelectedRegions
+                        onRegionMove: moveRegion
                     )
                     .id("\(audioTrack.id)-row-\(selectedTrackId?.uuidString ?? "none")")
                 }
@@ -773,11 +770,6 @@ struct IntegratedTrackRow: View {
     let onSelect: () -> Void
     let onRegionMove: (UUID, TimeInterval) -> Void  // Region move callback
     
-    // [V2-ANALYSIS] Pitch/Tempo matching callbacks
-    let onMatchTempo: (UUID) -> Void
-    let onMatchPitch: (UUID) -> Void
-    let onAutoMatch: () -> Void
-    
     // Computed property that will refresh when selectedTrackId binding changes
     private var isSelected: Bool {
         selectedTrackId == audioTrack.id
@@ -799,10 +791,7 @@ struct IntegratedTrackRow: View {
                     onRegionMove: onRegionMove,
                     audioEngine: audioEngine,
                     projectManager: projectManager,
-                    trackId: audioTrack.id,
-                    onMatchTempo: onMatchTempo,
-                    onMatchPitch: onMatchPitch,
-                    onAutoMatch: onAutoMatch
+                    trackId: audioTrack.id
                 )
             }
         }
@@ -827,11 +816,6 @@ struct PositionedAudioRegion: View {
     @ObservedObject var projectManager: ProjectManager
     let trackId: UUID
     
-    // [V2-ANALYSIS] Pitch/Tempo matching callbacks
-    let onMatchTempo: (UUID) -> Void
-    let onMatchPitch: (UUID) -> Void
-    let onAutoMatch: () -> Void
-    
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging: Bool = false
     
@@ -855,10 +839,7 @@ struct PositionedAudioRegion: View {
             isDragging: $isDragging,
             audioEngine: audioEngine,
             projectManager: projectManager,
-            trackId: trackId,
-            onMatchTempo: onMatchTempo,
-            onMatchPitch: onMatchPitch,
-            onAutoMatch: onAutoMatch
+            trackId: trackId
         )
         .offset(
             x: baseX + (isDragging ? dragOffset : 0),
@@ -885,10 +866,8 @@ struct IntegratedAudioRegion: View {
     @ObservedObject var projectManager: ProjectManager
     let trackId: UUID
     
-    // [V2-ANALYSIS] Pitch/Tempo matching callbacks
-    let onMatchTempo: (UUID) -> Void
-    let onMatchPitch: (UUID) -> Void
-    let onAutoMatch: () -> Void
+    // [V2-ANALYSIS] Access to timeline actions via Environment
+    @Environment(\.timelineActions) var timelineActions
     
     private var regionWidth: CGFloat {
         region.duration * pixelsPerSecond
@@ -1131,17 +1110,17 @@ struct IntegratedAudioRegion: View {
             if selection.selectedRegionIds.count > 1 {
                 Menu("Pitch & Tempo Matching") {
                     Button("Match Tempo to This Region") {
-                        onMatchTempo(region.id)
+                        timelineActions.matchTempoToRegion(region.id)
                     }
                     
                     Button("Match Pitch to This Region") {
-                        onMatchPitch(region.id)
+                        timelineActions.matchPitchToRegion(region.id)
                     }
                     
                     Divider()
                     
                     Button("Auto-Match All Selected") {
-                        onAutoMatch()
+                        timelineActions.autoMatchSelectedRegions()
                     }
                     
                     Divider()
