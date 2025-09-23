@@ -676,6 +676,7 @@ struct NewProjectView: View {
                             .fill(Color(.controlBackgroundColor))
                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                     )
+                    .keyboardShortcut(.escape, modifiers: [])  // Enable Escape key
                     
                     Button(action: createProject) {
                         HStack(spacing: 8) {
@@ -703,6 +704,7 @@ struct NewProjectView: View {
                         .cornerRadius(8)
                         .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
                     }
+                    .keyboardShortcut(.return, modifiers: [])  // Enable Enter key
                     .disabled(isCreating || projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding(.horizontal, 32)
