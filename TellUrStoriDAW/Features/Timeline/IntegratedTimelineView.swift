@@ -65,7 +65,7 @@ struct IntegratedTimelineView: View {
     
     // Layout constants adapted from layout-test-1
     private let headerWidth: CGFloat = 280
-    private let rulerHeight: CGFloat = 44
+    private let rulerHeight: CGFloat = 60
     private let trackRowHeight: CGFloat = 80
     
     // Dynamic sizing based on zoom
@@ -115,7 +115,7 @@ struct IntegratedTimelineView: View {
                         // Synchronized track headers
                         SynchronizedScrollView(
                             axes: .vertical,
-                            showsIndicators: true,
+                            showsIndicators: false,
                             contentSize: CGSize(width: headerWidth, height: contentSize.height),
                             normalizedX: .constant(0),
                             normalizedY: $scrollSync.verticalScrollPosition,
@@ -139,7 +139,7 @@ struct IntegratedTimelineView: View {
                         // Timeline ruler (horizontal scrolling only)
                         SynchronizedScrollView(
                             axes: .horizontal,
-                            showsIndicators: true,
+                            showsIndicators: false,
                             contentSize: CGSize(width: contentSize.width, height: rulerHeight),
                             normalizedX: $scrollSync.horizontalScrollPosition,
                             normalizedY: .constant(0),
@@ -160,7 +160,7 @@ struct IntegratedTimelineView: View {
                         // Tracks area (both axes - master scroll view)
                         SynchronizedScrollView(
                             axes: .both,
-                            showsIndicators: true,
+                            showsIndicators: false,
                             contentSize: contentSize,
                             normalizedX: $scrollSync.horizontalScrollPosition,
                             normalizedY: $scrollSync.verticalScrollPosition,
@@ -226,7 +226,8 @@ struct IntegratedTimelineView: View {
             IntegratedTimelineRuler(
                 currentPosition: audioEngine.currentPosition.timeInterval,
                 pixelsPerSecond: pixelsPerSecond,
-                contentWidth: contentSize.width
+                contentWidth: contentSize.width,
+                height: rulerHeight
             )
             
             // Cycle overlay - now in the same scroll context as the ruler
@@ -520,6 +521,7 @@ struct IntegratedTimelineRuler: View {
     let currentPosition: TimeInterval
     let pixelsPerSecond: CGFloat
     let contentWidth: CGFloat
+    let height: CGFloat
     @EnvironmentObject var audioEngine: AudioEngine
     
     var body: some View {
@@ -539,7 +541,7 @@ struct IntegratedTimelineRuler: View {
                 .frame(width: 2)
                 .offset(x: currentPosition * pixelsPerSecond)
         }
-        .frame(width: contentWidth, height: 44)
+        .frame(width: contentWidth, height: height)
         .contentShape(Rectangle())
         .background(
             GeometryReader { geo in
@@ -568,7 +570,7 @@ struct IntegratedTimelineRuler: View {
             if second % 10 == 0 {
                 // Major markers every 10 seconds - tallest with labels
                 let majorPath = Path { path in
-                    path.move(to: CGPoint(x: x, y: size.height - 20))
+                    path.move(to: CGPoint(x: x, y: 25))
                     path.addLine(to: CGPoint(x: x, y: size.height))
                 }
                 context.stroke(majorPath, with: .color(.primary), lineWidth: 1.5)
@@ -587,17 +589,17 @@ struct IntegratedTimelineRuler: View {
             } else if second % 5 == 0 {
                 // Medium markers every 5 seconds
                 let mediumPath = Path { path in
-                    path.move(to: CGPoint(x: x, y: size.height - 15))
+                    path.move(to: CGPoint(x: x, y: 35))
                     path.addLine(to: CGPoint(x: x, y: size.height))
                 }
                 context.stroke(mediumPath, with: .color(.primary.opacity(0.7)), lineWidth: 1)
             } else {
-                // Minor markers every 1 second
+                // Minor markers every 1 second - positioned from top
                 let minorPath = Path { path in
-                    path.move(to: CGPoint(x: x, y: size.height - 8))
+                    path.move(to: CGPoint(x: x, y: 45))
                     path.addLine(to: CGPoint(x: x, y: size.height))
                 }
-                context.stroke(minorPath, with: .color(.secondary.opacity(0.6)), lineWidth: 0.5)
+                context.stroke(minorPath, with: .color(.primary.opacity(0.4)), lineWidth: 1.0)
             }
         }
     }
