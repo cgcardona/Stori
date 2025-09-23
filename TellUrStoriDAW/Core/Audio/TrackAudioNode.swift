@@ -19,6 +19,9 @@ class TrackAudioNode {
     let eqNode: AVAudioUnitEQ
     let effectsChain: [AVAudioNode] = []
     
+    // MARK: [V2-PITCH/TEMPO] Unit
+    let timePitchUnit = AVAudioUnitTimePitch()
+    
     // MARK: - Professional Channel Strip (deprecated - using AVAudioConnectionPoint approach)
     // var channelStrip: ChannelStripNode? // Removed - replaced by AVAudioConnectionPoint multi-destination
     
@@ -122,6 +125,19 @@ class TrackAudioNode {
         eqNode.bands[2].gain = clampedLow  // Low
         
         print("🎛️ EQ updated for track \(id): High=\(clampedHigh)dB, Mid=\(clampedMid)dB, Low=\(clampedLow)dB")
+    }
+    
+    // MARK: [V2-PITCH/TEMPO] Controls
+    func setPitchShift(_ cents: Float) { // -2400...+2400
+        timePitchUnit.pitch = cents / 100.0 // AU uses semitones
+    }
+
+    func setPlaybackRate(_ rate: Float) {  // 0.5...2.0
+        timePitchUnit.rate = rate
+    }
+
+    func setOverlap(_ overlap: Float) {    // 3...32 (Apple docs)
+        timePitchUnit.overlap = overlap
     }
     
     // MARK: - Level Monitoring

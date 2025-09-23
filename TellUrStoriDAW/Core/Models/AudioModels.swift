@@ -193,6 +193,12 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     var displayName: String {
         audioFile.name
     }
+    
+    // MARK: [V2-MULTISELECT] Analysis + Matching
+    var detectedTempo: Double? = nil
+    var detectedKey: String? = nil   // e.g. "C Major", "A Minor"
+    var pitchShiftCents: Float = 0.0 // -2400...+2400 (2 oct)
+    var tempoRate: Float = 1.0       // 0.5...2.0
 }
 
 // MARK: - Audio File

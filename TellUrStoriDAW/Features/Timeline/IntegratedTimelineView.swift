@@ -12,10 +12,13 @@ struct IntegratedTimelineView: View {
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     
+    // [V2-ANALYSIS] Audio analysis service for tempo/pitch detection
+    @StateObject private var analysisService = AudioAnalysisService()
+    
     // Computed property to get current project reactively
     private var project: AudioProject? { projectManager.currentProject }
     @Binding var selectedTrackId: UUID?
-    @State private var selectedRegionId: UUID?  // Audio region selection state
+    @StateObject private var selection = SelectionManager() // [V2-MULTISELECT]
     let horizontalZoom: Double
     let verticalZoom: Double
     let onAddTrack: () -> Void
@@ -62,6 +65,22 @@ struct IntegratedTimelineView: View {
             }
         }
     }
+
+    // TEMP: Build-unblock wrappers. These will be replaced by the Environment actions.
+    private func matchTempoToRegion(_ targetRegionId: UUID) {
+        // TODO: wire to real analysis
+        print("matchTempoToRegion(_:) called for \(targetRegionId)")
+    }
+
+    private func matchPitchToRegion(_ targetRegionId: UUID) {
+        // TODO: wire to real analysis
+        print("matchPitchToRegion(_:) called for \(targetRegionId)")
+    }
+
+    private func autoMatchSelectedRegions() {
+        // TODO: wire to real analysis
+        print("autoMatchSelectedRegions() called")
+    }
     
     // Layout constants adapted from layout-test-1
     private let headerWidth: CGFloat = 280
@@ -71,6 +90,9 @@ struct IntegratedTimelineView: View {
     // Dynamic sizing based on zoom
     private var effectiveTrackHeight: CGFloat { trackRowHeight * CGFloat(verticalZoom) }
     private var pixelsPerSecond: CGFloat { 100 * CGFloat(horizontalZoom) }
+    
+    // [V2-MULTISELECT] Marquee selection state
+    @State private var marqueeStart: CGPoint? = nil
     
     // Content sizing for scroll sync
     private var contentSize: CGSize {
@@ -83,9 +105,59 @@ struct IntegratedTimelineView: View {
         return CGSize(width: width, height: height)
     }
     
+    // [V2-MULTISELECT] Marquee drag gesture
+    private var marqueeGesture: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .modifiers(.command) // Cmd+drag for marquee
+            .onChanged { value in
+                if marqueeStart == nil {
+                    marqueeStart = value.startLocation
+                    selection.isMarqueeActive = true
+                }
+                let origin = marqueeStart!
+                let rect = CGRect(
+                    x: min(origin.x, value.location.x),
+                    y: min(origin.y, value.location.y),
+                    width: abs(value.location.x - origin.x),
+                    height: abs(value.location.y - origin.y)
+                )
+                selection.marqueeRect = rect
+            }
+            .onEnded { _ in
+                defer {
+                    selection.isMarqueeActive = false
+                    selection.marqueeRect = .zero
+                    marqueeStart = nil
+                }
+                // Hit-test regions
+                let ids = (project?.tracks ?? []).flatMap { track -> [UUID] in
+                    track.regions.compactMap { region in
+                        let frame = CGRect(
+                            x: region.startTime * pixelsPerSecond,
+                            y: CGFloat(indexOfTrack(track)) * effectiveTrackHeight + CGFloat(8),
+                            width: region.duration * pixelsPerSecond,
+                            height: effectiveTrackHeight - 16
+                        )
+                        return frame.intersects(selection.marqueeRect) ? region.id : nil
+                    }
+                }
+                selection.selectedRegionIds.formUnion(ids)
+                if selection.selectionAnchor == nil {
+                    selection.selectionAnchor = selection.selectedRegionIds.first
+                }
+            }
+    }
+    
+    // [V2-MULTISELECT] Helper to find track index
+    private func indexOfTrack(_ track: AudioTrack) -> Int {
+        (project?.tracks.firstIndex(where: { $0.id == track.id }) ?? 0)
+    }
+    
     var body: some View {
-        VStack(spacing: 0) {
-            if project != nil {
+        ZStack(alignment: .top) {
+            // Main timeline content
+            VStack(spacing: 0) {
+                if project != nil {
                 HStack(spacing: 0) {
                     // LEFT: Track Headers Column (vertical scrolling only)
                     VStack(spacing: 0) {
@@ -181,16 +253,37 @@ struct IntegratedTimelineView: View {
                 .onChange(of: scrollSync.horizontalScrollPosition) { _, newValue in
                     scrollSync.setHorizontalPosition(newValue)
                 }
-            } else {
-                EmptyTimelineView(
-                    onCreateProject: onCreateProject,
-                    onOpenProject: onOpenProject,
-                    projectManager: projectManager
-                )
+                } else {
+                    EmptyTimelineView(
+                        onCreateProject: onCreateProject,
+                        onOpenProject: onOpenProject,
+                        projectManager: projectManager
+                    )
+                }
+            }
+            .frame(minHeight: 300)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            // [V2-MULTISELECT] Selection count badge - FIXED POSITION at top
+            if selection.selectedRegionIds.count > 1 {
+                HStack {
+                    Spacer()
+                    Text("\(selection.selectedRegionIds.count) regions selected")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.blue)
+                        )
+                        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                    Spacer()
+                }
+                .padding(.top, 8)
+                .allowsHitTesting(false)
             }
         }
-        .frame(minHeight: 300)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: projectManager.currentProject) { _, newProject in
             // Force UI refresh when project changes (including new tracks)
             refreshTrigger = UUID()
@@ -204,10 +297,9 @@ struct IntegratedTimelineView: View {
     private var trackHeadersContent: some View {
         LazyVStack(spacing: 0) {
             ForEach(project?.tracks ?? []) { audioTrack in
-                IntegratedTrackHeader(
-                    trackId: audioTrack.id,
-                    selectedTrackId: $selectedTrackId,
-                    selectedRegionId: $selectedRegionId,
+                    IntegratedTrackHeader(
+                        trackId: audioTrack.id,
+                        selectedTrackId: $selectedTrackId,
                     height: effectiveTrackHeight,
                     audioEngine: audioEngine,
                     projectManager: projectManager,
@@ -248,7 +340,7 @@ struct IntegratedTimelineView: View {
                     IntegratedTrackRow(
                         audioTrack: audioTrack,
                         selectedTrackId: $selectedTrackId,
-                        selectedRegionId: $selectedRegionId,
+                        selection: selection, // [V2-MULTISELECT]
                         height: effectiveTrackHeight,
                         pixelsPerSecond: pixelsPerSecond,
                         audioEngine: audioEngine,
@@ -256,14 +348,42 @@ struct IntegratedTimelineView: View {
                         onSelect: {
                             selectedTrackId = audioTrack.id
                         },
-                        onRegionMove: moveRegion
+                        onRegionMove: moveRegion,
+                        onMatchTempo: matchTempoToRegion,
+                        onMatchPitch: matchPitchToRegion,
+                        onAutoMatch: autoMatchSelectedRegions
                     )
                     .id("\(audioTrack.id)-row-\(selectedTrackId?.uuidString ?? "none")")
                 }
             }
+            
+            // [V2-MULTISELECT] Marquee selection overlay
+            if selection.isMarqueeActive {
+                Rectangle()
+                    .fill(Color.blue.opacity(0.10))
+                    .overlay(
+                        Rectangle()
+                            .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4,3]))
+                            .foregroundColor(.blue)
+                    )
+                    .frame(width: selection.marqueeRect.width, height: selection.marqueeRect.height)
+                    .position(x: selection.marqueeRect.midX, y: selection.marqueeRect.midY)
+            }
+            
         }
         .frame(width: contentSize.width, height: contentSize.height)
         .background(Color(NSColor.textBackgroundColor))
+        .contentShape(Rectangle())
+        .gesture(marqueeGesture)
+        .onReceive(NotificationCenter.default.publisher(for: .init("SelectAllRegions"))) { _ in
+            // [V2-MULTISELECT] Select All
+            let allIds = (project?.tracks.flatMap { $0.regions.map(\.id) } ?? [])
+            selection.selectAll(allIds)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("ClearSelection"))) { _ in
+            // [V2-MULTISELECT] Clear Selection
+            selection.clear()
+        }
     }
 }
 
@@ -272,7 +392,6 @@ struct IntegratedTimelineView: View {
 struct IntegratedTrackHeader: View {
     let trackId: UUID  // Store ID instead of track snapshot
     @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
-    @Binding var selectedRegionId: UUID?  // Region selection binding
     let height: CGFloat
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
@@ -384,7 +503,6 @@ struct IntegratedTrackHeader: View {
         .contentShape(Rectangle())
         .onTapGesture {
             print("🎯 Track Header Tapped: \(audioTrack.name) (\(trackId))")
-            selectedRegionId = nil  // Clear region selection when clicking track header
             onSelect()
             print("🎯 Track Header Selection Called")
         }
@@ -639,13 +757,18 @@ struct IntegratedGridBackground: View {
 struct IntegratedTrackRow: View {
     let audioTrack: AudioTrack
     @Binding var selectedTrackId: UUID?  // Direct binding for reactive updates
-    @Binding var selectedRegionId: UUID?  // Region selection binding
+    @ObservedObject var selection: SelectionManager   // [V2-MULTISELECT]
     let height: CGFloat
     let pixelsPerSecond: CGFloat
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let onSelect: () -> Void
     let onRegionMove: (UUID, TimeInterval) -> Void  // Region move callback
+    
+    // [V2-ANALYSIS] Pitch/Tempo matching callbacks
+    let onMatchTempo: (UUID) -> Void
+    let onMatchPitch: (UUID) -> Void
+    let onAutoMatch: () -> Void
     
     // Computed property that will refresh when selectedTrackId binding changes
     private var isSelected: Bool {
@@ -664,22 +787,21 @@ struct IntegratedTrackRow: View {
                     region: region,
                     pixelsPerSecond: pixelsPerSecond,
                     trackHeight: height,
-                    selectedRegionId: $selectedRegionId,
-                    onRegionSelect: { regionId in
-                        selectedRegionId = regionId
-                        selectedTrackId = audioTrack.id  // Also select the parent track
-                    },
+                    selection: selection, // [V2-MULTISELECT]
                     onRegionMove: onRegionMove,
                     audioEngine: audioEngine,
                     projectManager: projectManager,
-                    trackId: audioTrack.id
+                    trackId: audioTrack.id,
+                    onMatchTempo: onMatchTempo,
+                    onMatchPitch: onMatchPitch,
+                    onAutoMatch: onAutoMatch
                 )
             }
         }
         .frame(height: height)
         .contentShape(Rectangle())
         .onTapGesture {
-            selectedRegionId = nil  // Clear region selection when clicking track
+            selection.clear()  // [V2-MULTISELECT] Clear region selection when clicking track
             onSelect()
         }
     }
@@ -691,12 +813,16 @@ struct PositionedAudioRegion: View {
     let region: AudioRegion
     let pixelsPerSecond: CGFloat
     let trackHeight: CGFloat
-    @Binding var selectedRegionId: UUID?
-    let onRegionSelect: (UUID) -> Void
+    @ObservedObject var selection: SelectionManager // [V2-MULTISELECT]
     let onRegionMove: (UUID, TimeInterval) -> Void
     @ObservedObject var audioEngine: AudioEngine
     @ObservedObject var projectManager: ProjectManager
     let trackId: UUID
+    
+    // [V2-ANALYSIS] Pitch/Tempo matching callbacks
+    let onMatchTempo: (UUID) -> Void
+    let onMatchPitch: (UUID) -> Void
+    let onAutoMatch: () -> Void
     
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging: Bool = false
@@ -715,14 +841,16 @@ struct PositionedAudioRegion: View {
             region: region,
             pixelsPerSecond: pixelsPerSecond,
             trackHeight: trackHeight,
-            selectedRegionId: $selectedRegionId,
-            onRegionSelect: onRegionSelect,
+            selection: selection, // [V2-MULTISELECT]
             onRegionMove: onRegionMove,
             dragOffset: $dragOffset,
             isDragging: $isDragging,
             audioEngine: audioEngine,
             projectManager: projectManager,
-            trackId: trackId
+            trackId: trackId,
+            onMatchTempo: onMatchTempo,
+            onMatchPitch: onMatchPitch,
+            onAutoMatch: onAutoMatch
         )
         .offset(
             x: baseX + (isDragging ? dragOffset : 0),
@@ -737,8 +865,7 @@ struct IntegratedAudioRegion: View {
     let region: AudioRegion
     let pixelsPerSecond: CGFloat
     let trackHeight: CGFloat
-    @Binding var selectedRegionId: UUID?  // Selection binding
-    let onRegionSelect: (UUID) -> Void    // Selection callback
+    @ObservedObject var selection: SelectionManager // [V2-MULTISELECT]
     let onRegionMove: (UUID, TimeInterval) -> Void  // Drag callback
     
     // Drag state (now passed from parent)
@@ -750,6 +877,11 @@ struct IntegratedAudioRegion: View {
     @ObservedObject var projectManager: ProjectManager
     let trackId: UUID
     
+    // [V2-ANALYSIS] Pitch/Tempo matching callbacks
+    let onMatchTempo: (UUID) -> Void
+    let onMatchPitch: (UUID) -> Void
+    let onAutoMatch: () -> Void
+    
     private var regionWidth: CGFloat {
         region.duration * pixelsPerSecond
     }
@@ -760,7 +892,35 @@ struct IntegratedAudioRegion: View {
     
     // Computed property for selection state
     private var isSelected: Bool {
-        selectedRegionId == region.id
+        let selected = selection.isSelected(region.id) // [V2-MULTISELECT]
+        // Debug logging for selection state
+        if selected {
+            print("🔵 REGION SELECTED: \(region.audioFile.name) - ID: \(region.id)")
+        }
+        return selected
+    }
+    
+    // [V2-MULTISELECT] Helper to get ordered region IDs in this track
+    private func audioTrackRegionOrder() -> [UUID] {
+        (projectManager.currentProject?
+            .tracks.first(where: { $0.id == trackId })?
+            .regions.sorted(by: { $0.startTime < $1.startTime })
+            .map(\.id)) ?? []
+    }
+    
+    // [V2-MULTISELECT] Get all regions across all tracks, ordered by start time
+    private func allRegionsOrder() -> [UUID] {
+        guard let project = projectManager.currentProject else { return [] }
+        
+        let allRegions = project.tracks.flatMap { track in
+            track.regions.map { region in
+                (id: region.id, startTime: region.startTime)
+            }
+        }
+        
+        return allRegions
+            .sorted(by: { $0.startTime < $1.startTime })
+            .map(\.id)
     }
     
     var body: some View {
@@ -844,15 +1004,38 @@ struct IntegratedAudioRegion: View {
         .scaleEffect(isSelected ? 1.03 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onRegionSelect(region.id)
-        }
+        // [V2-MULTISELECT] Exclusive gesture handling to prevent conflicts
+        .gesture(
+            // Cmd+click = toggle (highest priority)
+            TapGesture().modifiers(.command).onEnded {
+                print("🔄 CMD+CLICK: Toggling region \(region.id)")
+                selection.toggle(region.id)
+            }
+            .exclusively(before:
+                // Shift+click = range selection
+                TapGesture().modifiers(.shift).onEnded {
+                    print("🔄 SHIFT+CLICK: Range selecting to region \(region.id)")
+                    let ids = allRegionsOrder()
+                    selection.selectRange(in: ids, to: region.id)
+                }
+                .exclusively(before:
+                    // Plain click = select only (lowest priority)
+                    TapGesture().onEnded {
+                        print("🔄 PLAIN CLICK: Selecting only region \(region.id)")
+                        selection.selectOnly(region.id)
+                    }
+                )
+            )
+        )
         .gesture(
             DragGesture(coordinateSpace: .global)
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
-                        onRegionSelect(region.id)  // Select region when drag starts
+                        // [V2-MULTISELECT] Select region when drag starts (if not already selected)
+                        if !selection.isSelected(region.id) {
+                            selection.selectOnly(region.id)
+                        }
                         // print("🚀 DRAG STARTED: '\(region.audioFile.name)' at startTime: \(String(format: "%.2f", region.startTime))s")
                     }
                     
@@ -936,6 +1119,43 @@ struct IntegratedAudioRegion: View {
             
             Divider()
             
+            // [V2-MULTISELECT] Pitch/Tempo Matching (only show when multiple regions selected)
+            if selection.selectedRegionIds.count > 1 {
+                Menu("Pitch & Tempo Matching") {
+                    Button("Match Tempo to This Region") {
+                        onMatchTempo(region.id)
+                    }
+                    
+                    Button("Match Pitch to This Region") {
+                        onMatchPitch(region.id)
+                    }
+                    
+                    Divider()
+                    
+                    Button("Auto-Match All Selected") {
+                        onAutoMatch()
+                    }
+                    
+                    Divider()
+                    
+                    Menu("Advanced Matching") {
+                        Button("Sync to Project Tempo") {
+                            syncSelectedToProjectTempo()
+                        }
+                        
+                        Button("Harmonize Selected Regions") {
+                            harmonizeSelectedRegions()
+                        }
+                        
+                        Button("Reset Pitch & Tempo") {
+                            resetPitchTempoForSelected()
+                        }
+                    }
+                }
+                
+                Divider()
+            }
+            
             Button("Fade In...") {
                 // TODO: Implement fade in
             }
@@ -968,6 +1188,293 @@ struct IntegratedAudioRegion: View {
             offset: region.offset
         )
         projectManager.addRegionToTrack(duplicatedRegion, trackId: trackId)
+    }
+    
+    // MARK: [V2-MULTISELECT] Pitch/Tempo Matching Actions
+    
+    private func matchTempoToRegion(_ targetRegionId: UUID) {
+        print("🎵 TEMPO MATCH: Starting tempo matching to region \(targetRegionId)")
+        print("   Selected regions: \(selection.selectedRegionIds)")
+        
+        Task { @MainActor in
+            guard let project = projectManager.currentProject else {
+                print("🎵 TEMPO MATCH: No project available")
+                return
+            }
+            
+            // Find target region and its audio file
+            guard let targetRegion = findRegion(targetRegionId, in: project) else {
+                print("🎵 TEMPO MATCH: Target region not found")
+                return
+            }
+            let targetFile = targetRegion.audioFile
+            
+            // Analyze target region tempo
+            print("🎵 TEMPO MATCH: Analyzing target region tempo...")
+            // TODO: Implement real analysis - temporarily stubbed
+            let targetTempo: Double? = 120.0 // Stub tempo
+            guard let targetTempo = targetTempo else {
+                print("🎵 TEMPO MATCH: Could not detect target tempo")
+                return
+            }
+            
+            // Update target region with detected tempo
+            updateRegionTempo(targetRegionId, tempo: targetTempo)
+            
+            // Process other selected regions
+            let otherRegionIds = selection.selectedRegionIds.subtracting([targetRegionId])
+            print("🎵 TEMPO MATCH: Processing \(otherRegionIds.count) other regions...")
+            
+            for regionId in otherRegionIds {
+                guard let region = findRegion(regionId, in: project) else {
+                    print("🎵 TEMPO MATCH: Skipping region \(regionId) - not found")
+                    continue
+                }
+                let audioFile = region.audioFile
+                
+                // Detect region's current tempo
+                // TODO: Implement real analysis - temporarily stubbed
+                let regionTempo: Double? = 120.0 // Stub tempo
+                updateRegionTempo(regionId, tempo: regionTempo)
+                
+                // Calculate tempo adjustment
+                let tempoRate: Float
+                if let regionTempo = regionTempo {
+                    tempoRate = Float(targetTempo / regionTempo)
+                    print("🎵 TEMPO MATCH: Region \(regionId) - detected: \(regionTempo) BPM, rate: \(tempoRate)")
+                } else {
+                    tempoRate = 1.0
+                    print("🎵 TEMPO MATCH: Region \(regionId) - could not detect tempo, using rate: 1.0")
+                }
+                
+                // Apply tempo adjustment to the track
+                updateRegionTempoRate(regionId, rate: tempoRate)
+                applyTempoRateToTrack(regionId, rate: tempoRate)
+            }
+            
+            print("🎵 TEMPO MATCH: Completed tempo matching to \(targetTempo) BPM")
+        }
+    }
+    
+    private func matchPitchToRegion(_ targetRegionId: UUID) {
+        print("🎵 PITCH MATCH: Starting pitch matching to region \(targetRegionId)")
+        print("   Selected regions: \(selection.selectedRegionIds)")
+        
+        Task { @MainActor in
+            guard let project = projectManager.currentProject else {
+                print("🎵 PITCH MATCH: No project available")
+                return
+            }
+            
+            // Find target region and its audio file
+            guard let targetRegion = findRegion(targetRegionId, in: project) else {
+                print("🎵 PITCH MATCH: Target region not found")
+                return
+            }
+            let targetFile = targetRegion.audioFile
+            
+            // Analyze target region key
+            print("🎵 PITCH MATCH: Analyzing target region key...")
+            // TODO: Implement real analysis - temporarily stubbed
+            let targetKey: String? = "C Major" // Stub key
+            guard let targetKey = targetKey else {
+                print("🎵 PITCH MATCH: Could not detect target key")
+                return
+            }
+            
+            // Update target region with detected key
+            updateRegionKey(targetRegionId, key: targetKey)
+            
+            // Process other selected regions
+            let otherRegionIds = selection.selectedRegionIds.subtracting([targetRegionId])
+            print("🎵 PITCH MATCH: Processing \(otherRegionIds.count) other regions...")
+            
+            for regionId in otherRegionIds {
+                guard let region = findRegion(regionId, in: project) else {
+                    print("🎵 PITCH MATCH: Skipping region \(regionId) - not found")
+                    continue
+                }
+                let audioFile = region.audioFile
+                
+                // Detect region's current key
+                // TODO: Implement real analysis - temporarily stubbed
+                let regionKey: String? = "C Major" // Stub key
+                updateRegionKey(regionId, key: regionKey)
+                
+                // Calculate pitch adjustment (simplified - real implementation would need music theory)
+                let pitchShift: Float
+                if let regionKey = regionKey {
+                    pitchShift = calculatePitchShift(from: regionKey, to: targetKey)
+                    print("🎵 PITCH MATCH: Region \(regionId) - detected: \(regionKey), shift: \(pitchShift) cents")
+                } else {
+                    pitchShift = 0.0
+                    print("🎵 PITCH MATCH: Region \(regionId) - could not detect key, using shift: 0.0")
+                }
+                
+                // Apply pitch adjustment to the track
+                updateRegionPitchShift(regionId, cents: pitchShift)
+                applyPitchShiftToTrack(regionId, cents: pitchShift)
+            }
+            
+            print("🎵 PITCH MATCH: Completed pitch matching to \(targetKey)")
+        }
+    }
+    
+    private func autoMatchSelectedRegions() {
+        print("🎵 [STUB] Auto-Match Selected Regions")
+        print("   Selected regions: \(selection.selectedRegionIds)")
+        // TODO Phase 3: Implement intelligent auto-matching
+        // 1. Analyze all selected regions for tempo and key
+        // 2. Determine optimal target tempo and key
+        // 3. Apply smart adjustments to create harmonic/rhythmic coherence
+    }
+    
+    // MARK: - Helper Functions for Audio Analysis
+    
+    private func findRegion(_ regionId: UUID, in project: AudioProject) -> AudioRegion? {
+        for track in project.tracks {
+            if let region = track.regions.first(where: { $0.id == regionId }) {
+                return region
+            }
+        }
+        return nil
+    }
+    
+    private func updateRegionTempo(_ regionId: UUID, tempo: Double?) {
+        guard let project = projectManager.currentProject else { return }
+        
+        for trackIndex in project.tracks.indices {
+            if let regionIndex = project.tracks[trackIndex].regions.firstIndex(where: { $0.id == regionId }) {
+                projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].detectedTempo = tempo
+                print("🎵 UPDATE: Region \(regionId) tempo set to \(tempo?.description ?? "nil")")
+                return
+            }
+        }
+    }
+    
+    private func updateRegionKey(_ regionId: UUID, key: String?) {
+        guard let project = projectManager.currentProject else { return }
+        
+        for trackIndex in project.tracks.indices {
+            if let regionIndex = project.tracks[trackIndex].regions.firstIndex(where: { $0.id == regionId }) {
+                projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].detectedKey = key
+                print("🎵 UPDATE: Region \(regionId) key set to \(key ?? "nil")")
+                return
+            }
+        }
+    }
+    
+    private func updateRegionTempoRate(_ regionId: UUID, rate: Float) {
+        guard let project = projectManager.currentProject else { return }
+        
+        for trackIndex in project.tracks.indices {
+            if let regionIndex = project.tracks[trackIndex].regions.firstIndex(where: { $0.id == regionId }) {
+                projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].tempoRate = rate
+                print("🎵 UPDATE: Region \(regionId) tempo rate set to \(rate)")
+                return
+            }
+        }
+    }
+    
+    private func updateRegionPitchShift(_ regionId: UUID, cents: Float) {
+        guard let project = projectManager.currentProject else { return }
+        
+        for trackIndex in project.tracks.indices {
+            if let regionIndex = project.tracks[trackIndex].regions.firstIndex(where: { $0.id == regionId }) {
+                projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].pitchShiftCents = cents
+                print("🎵 UPDATE: Region \(regionId) pitch shift set to \(cents) cents")
+                return
+            }
+        }
+    }
+    
+    private func applyTempoRateToTrack(_ regionId: UUID, rate: Float) {
+        guard let project = projectManager.currentProject else { return }
+        
+        // Find which track contains this region
+        for track in project.tracks {
+            if track.regions.contains(where: { $0.id == regionId }) {
+                if let trackNode = audioEngine.getTrackNode(for: track.id) {
+                    trackNode.setPlaybackRate(rate)
+                    print("🎵 APPLY: Applied tempo rate \(rate) to track \(track.name)")
+                } else {
+                    print("🎵 APPLY: Warning - no audio node found for track \(track.id)")
+                }
+                return
+            }
+        }
+    }
+    
+    private func applyPitchShiftToTrack(_ regionId: UUID, cents: Float) {
+        guard let project = projectManager.currentProject else { return }
+        
+        // Find which track contains this region
+        for track in project.tracks {
+            if track.regions.contains(where: { $0.id == regionId }) {
+                if let trackNode = audioEngine.getTrackNode(for: track.id) {
+                    trackNode.setPitchShift(cents)
+                    print("🎵 APPLY: Applied pitch shift \(cents) cents to track \(track.name)")
+                } else {
+                    print("🎵 APPLY: Warning - no audio node found for track \(track.id)")
+                }
+                return
+            }
+        }
+    }
+    
+    private func calculatePitchShift(from sourceKey: String, to targetKey: String) -> Float {
+        // Simplified pitch shift calculation - real implementation would use music theory
+        // This is a placeholder that returns 0 for same key, random shift for different keys
+        
+        if sourceKey == targetKey {
+            return 0.0
+        }
+        
+        // Extract root notes (simplified)
+        let sourceRoot = String(sourceKey.prefix(1))
+        let targetRoot = String(targetKey.prefix(1))
+        
+        let noteOrder = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        
+        guard let sourceIndex = noteOrder.firstIndex(of: sourceRoot),
+              let targetIndex = noteOrder.firstIndex(of: targetRoot) else {
+            return 0.0
+        }
+        
+        // Calculate semitone difference
+        var semitones = targetIndex - sourceIndex
+        if semitones > 6 { semitones -= 12 }
+        if semitones < -6 { semitones += 12 }
+        
+        // Convert to cents (100 cents per semitone)
+        return Float(semitones * 100)
+    }
+    
+    private func syncSelectedToProjectTempo() {
+        print("🎵 [STUB] Sync Selected to Project Tempo")
+        print("   Selected regions: \(selection.selectedRegionIds)")
+        // TODO Phase 2: Implement project tempo sync
+        // 1. Get project tempo from ProjectManager
+        // 2. Calculate tempo adjustments for each selected region
+        // 3. Apply tempo rate changes to match project BPM
+    }
+    
+    private func harmonizeSelectedRegions() {
+        print("🎵 [STUB] Harmonize Selected Regions")
+        print("   Selected regions: \(selection.selectedRegionIds)")
+        // TODO Phase 3: Implement harmonic analysis and adjustment
+        // 1. Analyze keys of all selected regions
+        // 2. Determine optimal harmonic relationships
+        // 3. Apply pitch shifts to create musical harmony
+    }
+    
+    private func resetPitchTempoForSelected() {
+        print("🎵 [STUB] Reset Pitch & Tempo for Selected")
+        print("   Selected regions: \(selection.selectedRegionIds)")
+        // TODO Phase 2: Implement reset functionality
+        // 1. Set pitchShiftCents = 0.0 for all selected regions
+        // 2. Set tempoRate = 1.0 for all selected regions
+        // 3. Apply changes via TrackAudioNode pitch/tempo controls
     }
 }
 

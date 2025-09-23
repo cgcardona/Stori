@@ -255,10 +255,8 @@ class AudioEngine: ObservableObject {
             for trackId in removedTrackIds {
                 if let trackNode = trackNodes[trackId] {
                     print("🗑️ Removing audio node for deleted track: \(trackId)")
-                    engine.disconnectNodeInput(trackNode.panNode)
-                    engine.disconnectNodeInput(trackNode.volumeNode)
-                    engine.disconnectNodeInput(trackNode.eqNode)
-                    engine.disconnectNodeInput(trackNode.playerNode)
+                    // [BUGFIX] Safe node disconnection with existence checks
+                    safeDisconnectTrackNode(trackNode)
                     trackNodes.removeValue(forKey: trackId)
                 }
             }
@@ -283,8 +281,14 @@ class AudioEngine: ObservableObject {
         updateSoloState()
     }
     
+    // [V2-ANALYSIS] Public access to track nodes for pitch/tempo adjustments
+    func getTrackNode(for trackId: UUID) -> TrackAudioNode? {
+        return trackNodes[trackId]
+    }
+    
     private func createTrackNode(for track: AudioTrack) -> TrackAudioNode {
         let playerNode = AVAudioPlayerNode()
+        let timePitch = AVAudioUnitTimePitch()  // [V2-PITCH/TEMPO]
         let eqNode = AVAudioUnitEQ(numberOfBands: 3)
         let volumeNode = AVAudioMixerNode()
         let panNode = AVAudioMixerNode()
@@ -313,11 +317,12 @@ class AudioEngine: ObservableObject {
         
         // Attach nodes to engine
         engine.attach(playerNode)
+        engine.attach(timePitch)            // [V2-PITCH/TEMPO]
         engine.attach(eqNode)
         engine.attach(volumeNode)
         engine.attach(panNode)
         
-        // Connect the audio chain: player -> EQ -> volume -> pan -> main mixer
+        // Connect the audio chain: player -> timePitch -> EQ -> volume -> pan -> main mixer
         do {
             // ChatGPT Fix: Use format negotiation inside graph, device format only at boundaries
             let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
@@ -325,7 +330,8 @@ class AudioEngine: ObservableObject {
             print("   Device format: \(deviceFormat)")
             
             // Let AVAudioEngine negotiate formats inside the graph
-            engine.connect(playerNode, to: eqNode, format: nil)
+            engine.connect(playerNode, to: timePitch, format: nil)        // [V2-PITCH/TEMPO]
+            engine.connect(timePitch,  to: eqNode,    format: nil)        // [V2-PITCH/TEMPO]
             engine.connect(eqNode, to: volumeNode, format: nil)
             engine.connect(volumeNode, to: panNode, format: nil)
             
@@ -366,6 +372,10 @@ class AudioEngine: ObservableObject {
         trackNode.setMuted(track.mixerSettings.isMuted)
         trackNode.setSolo(track.mixerSettings.isSolo)
         
+        // [V2-PITCH/TEMPO] Initialize timePitch unit with defaults
+        trackNode.timePitchUnit.rate = 1.0
+        trackNode.timePitchUnit.overlap = 8.0
+        
         // Load audio regions for this track
         for region in track.regions {
             loadAudioRegion(region, trackNode: trackNode)
@@ -381,25 +391,9 @@ class AudioEngine: ObservableObject {
         for (trackId, trackNode) in trackNodes {
             print("Cleaning up track node: \(trackId)")
             
-            // The TrackAudioNode deinit will handle tap removal safely now
-            // Just disconnect and detach the nodes from the engine
-            do {
-                if engine.attachedNodes.contains(trackNode.panNode) {
-                    engine.disconnectNodeInput(trackNode.panNode)
-                    engine.detach(trackNode.panNode)
-                }
-                if engine.attachedNodes.contains(trackNode.volumeNode) {
-                    engine.disconnectNodeInput(trackNode.volumeNode)
-                    engine.detach(trackNode.volumeNode)
-                }
-                if engine.attachedNodes.contains(trackNode.playerNode) {
-                    engine.disconnectNodeInput(trackNode.playerNode)
-                    engine.detach(trackNode.playerNode)
-                }
-                print("Successfully cleaned up track node: \(trackId)")
-            } catch {
-                print("Error clearing track node \(trackId): \(error)")
-            }
+            // [BUGFIX] Use safe disconnection method
+            safeDisconnectTrackNode(trackNode)
+            print("Successfully cleaned up track node: \(trackId)")
         }
         
         // Clear the collections
@@ -551,6 +545,41 @@ class AudioEngine: ObservableObject {
     // MARK: - Track Send Management
     private var trackSendIds: [String: UUID] = [:]  // Key: "trackId-busId" -> sendId
     
+    // MARK: [BUGFIX] Safe Node Disconnection
+    private func safeDisconnectTrackNode(_ trackNode: TrackAudioNode) {
+        print("🛡️ SAFE DISCONNECT: Safely disconnecting track node...")
+        
+        // Check and disconnect each node only if it's actually connected
+        let nodesToDisconnect: [(node: AVAudioNode, name: String)] = [
+            (trackNode.panNode, "panNode"),
+            (trackNode.volumeNode, "volumeNode"), 
+            (trackNode.eqNode, "eqNode"),
+            (trackNode.timePitchUnit, "timePitchUnit"),
+            (trackNode.playerNode, "playerNode")
+        ]
+        
+        for (node, name) in nodesToDisconnect {
+            if engine.attachedNodes.contains(node) {
+                do {
+                    // Stop player nodes before disconnecting
+                    if let playerNode = node as? AVAudioPlayerNode, playerNode.isPlaying {
+                        playerNode.stop()
+                    }
+                    
+                    engine.disconnectNodeInput(node)
+                    engine.detach(node)
+                    print("🛡️ SAFE DISCONNECT: Successfully disconnected \(name)")
+                } catch {
+                    print("⚠️ SAFE DISCONNECT: Failed to disconnect \(name): \(error)")
+                }
+            } else {
+                print("🛡️ SAFE DISCONNECT: \(name) not attached, skipping")
+            }
+        }
+        
+        print("🛡️ SAFE DISCONNECT: Track node disconnection complete")
+    }
+
     // MARK: - Safe Graph Mutation (ChatGPT's Critical Section Pattern)
     private func modifyGraphSafely(_ work: () throws -> Void) rethrows {
         // ChatGPT Fix: Suspend all timers and transport during graph mutation
@@ -1312,14 +1341,8 @@ class AudioEngine: ObservableObject {
         
         // Remove track node
         if let trackNode = trackNodes[trackId] {
-            engine.disconnectNodeInput(trackNode.panNode)
-            engine.disconnectNodeInput(trackNode.volumeNode)
-            engine.disconnectNodeInput(trackNode.playerNode)
-            
-            engine.detach(trackNode.panNode)
-            engine.detach(trackNode.volumeNode)
-            engine.detach(trackNode.playerNode)
-            
+            // [BUGFIX] Use safe disconnection method
+            safeDisconnectTrackNode(trackNode)
             trackNodes.removeValue(forKey: trackId)
         }
         
