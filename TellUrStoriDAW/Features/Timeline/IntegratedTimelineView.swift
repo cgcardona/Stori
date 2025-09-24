@@ -1343,12 +1343,15 @@ struct IntegratedAudioRegion: View {
                 }
             }
             
-            // Waveform visualization (placeholder for now)
-            // TODO: Implement waveform data extraction from AudioRegion
-            WaveformVisualization(data: generatePlaceholderWaveform())
-                .opacity(isSelected ? 0.2 : 0.4)
-                .padding(.horizontal, 4)
-                .padding(.top, isSelected ? 20 : 0) // Offset for selection header
+            // Professional waveform visualization using real audio data
+            ProfessionalWaveformView(
+                audioFile: region.audioFile,
+                style: .bars,
+                color: .white
+            )
+            .opacity(isSelected ? 0.3 : 0.6)
+            .padding(.horizontal, 4)
+            .padding(.top, isSelected ? 20 : 0) // Offset for selection header
         }
         .frame(width: regionWidth, height: regionHeight)
         .shadow(
@@ -1439,11 +1442,6 @@ struct IntegratedAudioRegion: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
     
-    private func generatePlaceholderWaveform() -> [Float] {
-        // Generate placeholder waveform data for visualization
-        let sampleCount = 100
-        return (0..<sampleCount).map { _ in Float.random(in: -1...1) }
-    }
     
     // MARK: - Context Menu
     private var regionContextMenu: some View {
@@ -1854,31 +1852,6 @@ struct IntegratedAudioRegion: View {
     }
 }
 
-// MARK: - Waveform Visualization
-
-struct WaveformVisualization: View {
-    let data: [Float]
-    
-    var body: some View {
-        Canvas { context, size in
-            let sampleCount = min(data.count, Int(size.width / 2))
-            let centerY = size.height / 2
-            let widthPerSample = size.width / CGFloat(sampleCount)
-            
-            for i in 0..<sampleCount {
-                let x = CGFloat(i) * widthPerSample
-                let amplitude = CGFloat(abs(data[i])) * centerY
-                
-                let path = Path { path in
-                    path.move(to: CGPoint(x: x, y: centerY - amplitude))
-                    path.addLine(to: CGPoint(x: x, y: centerY + amplitude))
-                }
-                
-                context.stroke(path, with: .color(.white.opacity(0.7)), lineWidth: 1)
-            }
-        }
-    }
-}
 
 // MARK: - Add Track Button Style
 

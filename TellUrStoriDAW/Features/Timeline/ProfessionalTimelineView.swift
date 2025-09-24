@@ -276,10 +276,14 @@ struct ProfessionalAudioRegion: View {
                         )
                 )
             
-            // Waveform visualization
-            WaveformView(audioFile: region.audioFile)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .opacity(0.8)
+            // Professional waveform visualization
+            ProfessionalWaveformView(
+                audioFile: region.audioFile,
+                style: .bars,
+                color: .white
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .opacity(0.8)
             
             // Selection overlay
             if let selectionRange = selectionRange {

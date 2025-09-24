@@ -13,6 +13,9 @@ import Accelerate
 @MainActor
 class AudioAnalyzer: ObservableObject {
     
+    /// Shared instance for consistent waveform caching across the app
+    static let shared = AudioAnalyzer()
+    
     /// Represents waveform data for visualization
     struct WaveformData {
         let samples: [Float]
@@ -251,4 +254,34 @@ extension AudioAnalyzer.WaveformData {
         
         return barHeights
     }
+    
+    /// Generate professional waveform visualization optimized for DAW use
+    func professionalWaveformBars(for size: CGSize, style: WaveformStyle = .bars) -> [WaveformBar] {
+        let barCount = Int(size.width / 2) // 2 pixels per bar for crisp rendering
+        let barHeights = self.barHeights(for: size.width, barCount: barCount)
+        
+        return barHeights.enumerated().map { index, height in
+            WaveformBar(
+                x: CGFloat(index) * (size.width / CGFloat(barCount)),
+                height: height * size.height * 0.8, // 80% of available height
+                amplitude: Float(height)
+            )
+        }
+    }
+}
+
+// MARK: - Professional Waveform Components
+
+/// Represents a single bar in the waveform visualization
+struct WaveformBar {
+    let x: CGFloat
+    let height: CGFloat
+    let amplitude: Float // 0.0 to 1.0
+}
+
+/// Waveform visualization styles
+enum WaveformStyle {
+    case bars       // Vertical bars (Logic Pro style)
+    case line       // Continuous line
+    case filled     // Filled area under curve
 }

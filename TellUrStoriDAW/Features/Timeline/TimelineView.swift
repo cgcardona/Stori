@@ -367,9 +367,13 @@ struct AudioRegionView: View {
                         .stroke(track.color.color, lineWidth: 1)
                 )
             
-            // Waveform visualization (simplified)
-            WaveformView(audioFile: region.audioFile)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+            // Professional waveform visualization
+            ProfessionalWaveformView(
+                audioFile: region.audioFile,
+                style: .bars,
+                color: .white
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             
             // Region info
             VStack(alignment: .leading) {

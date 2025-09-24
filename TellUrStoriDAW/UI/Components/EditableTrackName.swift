@@ -117,27 +117,3 @@ struct EditableTrackName: View {
         print("🏷️ EDIT: Cancelled track name edit")
     }
 }
-
-#Preview {
-    // Create a mock project manager for preview
-    let mockProjectManager = ProjectManager()
-    let mockTrack = AudioTrack(name: "Sample Track", color: .blue)
-    
-    VStack(spacing: 20) {
-        EditableTrackName(
-            trackId: mockTrack.id,
-            projectManager: mockProjectManager,
-            font: .headline,
-            foregroundColor: .primary
-        )
-        
-        EditableTrackName(
-            trackId: mockTrack.id,
-            projectManager: mockProjectManager,
-            font: .system(size: 9, weight: .medium),
-            foregroundColor: .secondary,
-            alignment: .center
-        )
-    }
-    .padding()
-}

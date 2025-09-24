@@ -353,17 +353,3 @@ struct TimelineGrid: View {
         }
     }
 }
-
-#Preview {
-    SynchronizedTimelineView(
-        project: nil,
-        audioEngine: AudioEngine(),
-        projectManager: ProjectManager(),
-        selectedTrackId: .constant(nil),
-        horizontalZoom: 1.0,
-        verticalZoom: 1.0,
-        onAddTrack: {},
-        onCreateProject: {},
-        onOpenProject: {}
-    )
-}

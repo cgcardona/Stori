@@ -318,11 +318,3 @@ struct CustomColorPickerSheet: View {
     }
 }
 
-#Preview {
-    EditableTrackColor(
-        trackId: UUID(),
-        projectManager: ProjectManager(),
-        width: 4,
-        height: 30
-    )
-}
