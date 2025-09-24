@@ -68,18 +68,18 @@ struct IntegratedTimelineView: View {
             }
         }
     }
-
+    
     // TEMP: Build-unblock wrappers. These will be replaced by the Environment actions.
     private func matchTempoToRegion(_ targetRegionId: UUID) {
         // TODO: wire to real analysis
         print("matchTempoToRegion(_:) called for \(targetRegionId)")
     }
-
+    
     private func matchPitchToRegion(_ targetRegionId: UUID) {
         // TODO: wire to real analysis
         print("matchPitchToRegion(_:) called for \(targetRegionId)")
     }
-
+    
     private func autoMatchSelectedRegions() {
         // TODO: wire to real analysis
         print("autoMatchSelectedRegions() called")
@@ -162,7 +162,7 @@ struct IntegratedTimelineView: View {
             matchTempoToRegion: { targetRegionId in
                 Task { @MainActor in
                     guard let project = projectManager.currentProject else { return }
-
+                    
                     // Helpers (local to keep change atomic)
                     func findRegion(_ id: UUID) -> (trackIndex: Int, regionIndex: Int)? {
                         for ti in project.tracks.indices {
@@ -183,7 +183,7 @@ struct IntegratedTimelineView: View {
                             }
                         }
                     }
-
+                    
                     // Target region + tempo
                     guard let (tTi, tRi) = findRegion(targetRegionId) else {
                         print("🎵 TEMPO ANALYSIS: Target region not found.")
@@ -199,16 +199,16 @@ struct IntegratedTimelineView: View {
                     projectManager.currentProject!.tracks[tTi].regions[tRi].detectedTempo = targetTempo
                     projectManager.saveCurrentProject()
                     print("🎵 DETECTED TEMPO: \(String(format: "%.1f", targetTempo)) BPM for region \(targetRegion.id)")
-
+                    
                     // Other selected regions → detect → compute rate → write model → apply to node
                     let others = selection.selectedRegionIds.subtracting([targetRegionId])
                     for regionId in others {
                         guard let (ti, ri) = findRegion(regionId) else { continue }
                         let r = projectManager.currentProject!.tracks[ti].regions[ri]
-
+                        
                         let regionTempo = await analysisService.detectTempo(r.audioFile)
                         projectManager.currentProject!.tracks[ti].regions[ri].detectedTempo = regionTempo
-
+                        
                         let rate: Float
                         if let regionTempo {
                             rate = Float(targetTempo / regionTempo)
@@ -217,20 +217,20 @@ struct IntegratedTimelineView: View {
                             rate = 1.0
                             print("🎵 APPLYING TEMPO: No detected tempo for \(regionId); using rate 1.000")
                         }
-
+                        
                         // Update model + engine
                         projectManager.currentProject!.tracks[ti].regions[ri].tempoRate = rate
                         await applyTempoRate(to: regionId, rate: rate)
                     }
-
+                    
                     projectManager.saveCurrentProject()
                 }
             },
-
+            
             matchPitchToRegion: { targetRegionId in
                 Task { @MainActor in
                     guard let project = projectManager.currentProject else { return }
-
+                    
                     // Helpers
                     func findRegion(_ id: UUID) -> (trackIndex: Int, regionIndex: Int)? {
                         for ti in project.tracks.indices {
@@ -262,7 +262,7 @@ struct IntegratedTimelineView: View {
                         if st < -6 { st += 12 }
                         return Float(st * 100)
                     }
-
+                    
                     // Target region + key
                     guard let (tTi, tRi) = findRegion(targetRegionId) else {
                         print("🎵 PITCH ANALYSIS: Target region not found.")
@@ -277,16 +277,16 @@ struct IntegratedTimelineView: View {
                     projectManager.currentProject!.tracks[tTi].regions[tRi].detectedKey = targetKey
                     projectManager.saveCurrentProject()
                     print("🎵 DETECTED KEY: \(targetKey) for region \(targetRegion.id)")
-
+                    
                     // Others → detect → compute cents → write + apply
                     let others = selection.selectedRegionIds.subtracting([targetRegionId])
                     for regionId in others {
                         guard let (ti, ri) = findRegion(regionId) else { continue }
                         let r = projectManager.currentProject!.tracks[ti].regions[ri]
-
+                        
                         let regionKey = await analysisService.detectKey(r.audioFile)
                         projectManager.currentProject!.tracks[ti].regions[ri].detectedKey = regionKey
-
+                        
                         let shiftCents: Float
                         if let regionKey {
                             shiftCents = cents(from: regionKey, to: targetKey)
@@ -295,15 +295,15 @@ struct IntegratedTimelineView: View {
                             shiftCents = 0
                             print("🎵 APPLYING PITCH: No key for \(regionId); using 0¢")
                         }
-
+                        
                         projectManager.currentProject!.tracks[ti].regions[ri].pitchShiftCents = shiftCents
                         await applyPitch(to: regionId, cents: shiftCents)
                     }
-
+                    
                     projectManager.saveCurrentProject()
                 }
             },
-
+            
             autoMatchSelectedRegions: {
                 Task { @MainActor in
                     guard projectManager.currentProject != nil else { return }
@@ -319,7 +319,7 @@ struct IntegratedTimelineView: View {
                     
                     // First do tempo matching (inline implementation)
                     guard let project = projectManager.currentProject else { return }
-
+                    
                     // Helpers (local to keep change atomic)
                     func findRegion(_ id: UUID) -> (trackIndex: Int, regionIndex: Int)? {
                         for ti in project.tracks.indices {
@@ -362,7 +362,7 @@ struct IntegratedTimelineView: View {
                         if st < -6 { st += 12 }
                         return Float(st * 100)
                     }
-
+                    
                     // TEMPO MATCHING
                     guard let (tTi, tRi) = findRegion(anchor) else {
                         print("🎵 AUTO-MATCH TEMPO: Target region not found.")
@@ -377,16 +377,16 @@ struct IntegratedTimelineView: View {
                     }
                     projectManager.currentProject!.tracks[tTi].regions[tRi].detectedTempo = targetTempo
                     print("🎵 AUTO-MATCH DETECTED TEMPO: \(String(format: "%.1f", targetTempo)) BPM for region \(targetRegion.id)")
-
+                    
                     // Other selected regions → detect → compute rate → write model → apply to node
                     let others = selection.selectedRegionIds.subtracting([anchor])
                     for regionId in others {
                         guard let (ti, ri) = findRegion(regionId) else { continue }
                         let r = projectManager.currentProject!.tracks[ti].regions[ri]
-
+                        
                         let regionTempo = await analysisService.detectTempo(r.audioFile)
                         projectManager.currentProject!.tracks[ti].regions[ri].detectedTempo = regionTempo
-
+                        
                         let rate: Float
                         if let regionTempo {
                             rate = Float(targetTempo / regionTempo)
@@ -395,12 +395,12 @@ struct IntegratedTimelineView: View {
                             rate = 1.0
                             print("🎵 AUTO-MATCH APPLYING TEMPO: No detected tempo for \(regionId); using rate 1.000")
                         }
-
+                        
                         // Update model + engine
                         projectManager.currentProject!.tracks[ti].regions[ri].tempoRate = rate
                         await applyTempoRate(to: regionId, rate: rate)
                     }
-
+                    
                     // PITCH MATCHING
                     let targetRegionForPitch = projectManager.currentProject!.tracks[tTi].regions[tRi]
                     print("🎵 AUTO-MATCH PITCH: Analyzing region \(targetRegionForPitch.id)...")
@@ -410,15 +410,15 @@ struct IntegratedTimelineView: View {
                     }
                     projectManager.currentProject!.tracks[tTi].regions[tRi].detectedKey = targetKey
                     print("🎵 AUTO-MATCH DETECTED KEY: \(targetKey) for region \(targetRegionForPitch.id)")
-
+                    
                     // Others → detect → compute cents → write + apply
                     for regionId in others {
                         guard let (ti, ri) = findRegion(regionId) else { continue }
                         let r = projectManager.currentProject!.tracks[ti].regions[ri]
-
+                        
                         let regionKey = await analysisService.detectKey(r.audioFile)
                         projectManager.currentProject!.tracks[ti].regions[ri].detectedKey = regionKey
-
+                        
                         let shiftCents: Float
                         if let regionKey {
                             shiftCents = cents(from: regionKey, to: targetKey)
@@ -427,11 +427,11 @@ struct IntegratedTimelineView: View {
                             shiftCents = 0
                             print("🎵 AUTO-MATCH APPLYING PITCH: No key for \(regionId); using 0¢")
                         }
-
+                        
                         projectManager.currentProject!.tracks[ti].regions[ri].pitchShiftCents = shiftCents
                         await applyPitch(to: regionId, cents: shiftCents)
                     }
-
+                    
                     projectManager.saveCurrentProject()
                 }
             },
@@ -517,101 +517,101 @@ struct IntegratedTimelineView: View {
             // Main timeline content
             VStack(spacing: 0) {
                 if project != nil {
-                HStack(spacing: 0) {
-                    // LEFT: Track Headers Column (vertical scrolling only)
-                    VStack(spacing: 0) {
-                        // Header spacer with professional Add Track button
-                        HStack(spacing: 0) {
-                            // Professional Add Track button with hover states
-                            Button(action: onAddTrack) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.primary)
+                    HStack(spacing: 0) {
+                        // LEFT: Track Headers Column (vertical scrolling only)
+                        VStack(spacing: 0) {
+                            // Header spacer with professional Add Track button
+                            HStack(spacing: 0) {
+                                // Professional Add Track button with hover states
+                                Button(action: onAddTrack) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.primary)
+                                }
+                                .buttonStyle(AddTrackButtonStyle())
+                                .frame(width: 32, height: rulerHeight)
+                                .help("Add Track (⇧⌘N)")
+                                
+                                // Remaining header space
+                                Rectangle()
+                                    .fill(Color(NSColor.controlBackgroundColor))
+                                    .frame(height: rulerHeight)
                             }
-                            .buttonStyle(AddTrackButtonStyle())
-                            .frame(width: 32, height: rulerHeight)
-                            .help("Add Track (⇧⌘N)")
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1),
+                                alignment: .bottom
+                            )
                             
-                            // Remaining header space
-                            Rectangle()
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .frame(height: rulerHeight)
+                            // Synchronized track headers
+                            SynchronizedScrollView(
+                                axes: .vertical,
+                                showsIndicators: false,
+                                contentSize: CGSize(width: headerWidth, height: contentSize.height),
+                                normalizedX: .constant(0),
+                                normalizedY: $scrollSync.verticalScrollPosition,
+                                isUpdatingX: { false },
+                                isUpdatingY: { scrollSync.isUpdatingVertical },
+                                onUserScrollX: { _ in },
+                                onUserScrollY: { scrollSync.updateVerticalPosition($0) }
+                            ) {
+                                AnyView(trackHeadersContent)
+                            }
                         }
-                        .overlay(
-                            Rectangle()
-                                .stroke(Color.gray.opacity(0.3), lineWidth: 1),
-                            alignment: .bottom
-                        )
+                        .frame(width: headerWidth)
                         
-                        // Synchronized track headers
-                        SynchronizedScrollView(
-                            axes: .vertical,
-                            showsIndicators: false,
-                            contentSize: CGSize(width: headerWidth, height: contentSize.height),
-                            normalizedX: .constant(0),
-                            normalizedY: $scrollSync.verticalScrollPosition,
-                            isUpdatingX: { false },
-                            isUpdatingY: { scrollSync.isUpdatingVertical },
-                            onUserScrollX: { _ in },
-                            onUserScrollY: { scrollSync.updateVerticalPosition($0) }
-                        ) {
-                            AnyView(trackHeadersContent)
-                        }
-                    }
-                    .frame(width: headerWidth)
-                    
-                    // Vertical separator
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(width: 1)
-                    
-                    // RIGHT: Timeline Ruler + Tracks Area
-                    VStack(spacing: 0) {
-                        // Timeline ruler (horizontal scrolling only)
-                        SynchronizedScrollView(
-                            axes: .horizontal,
-                            showsIndicators: false,
-                            contentSize: CGSize(width: contentSize.width, height: rulerHeight),
-                            normalizedX: $scrollSync.horizontalScrollPosition,
-                            normalizedY: .constant(0),
-                            isUpdatingX: { scrollSync.isUpdatingHorizontal },
-                            isUpdatingY: { false },
-                            onUserScrollX: { scrollSync.updateHorizontalPosition($0) },
-                            onUserScrollY: { _ in }
-                        ) {
-                            AnyView(timelineRulerContent)
-                        }
-                        .frame(height: rulerHeight)
-                        
-                        // Horizontal separator
+                        // Vertical separator
                         Rectangle()
                             .fill(Color.gray.opacity(0.3))
-                            .frame(height: 1)
+                            .frame(width: 1)
                         
-                        // Tracks area (both axes - master scroll view)
-                        SynchronizedScrollView(
-                            axes: .both,
-                            showsIndicators: false,
-                            contentSize: contentSize,
-                            normalizedX: $scrollSync.horizontalScrollPosition,
-                            normalizedY: $scrollSync.verticalScrollPosition,
-                            isUpdatingX: { scrollSync.isUpdatingHorizontal },
-                            isUpdatingY: { scrollSync.isUpdatingVertical },
-                            onUserScrollX: { scrollSync.updateHorizontalPosition($0) },
-                            onUserScrollY: { scrollSync.updateVerticalPosition($0) }
-                        ) {
-                            AnyView(tracksAreaContent)
+                        // RIGHT: Timeline Ruler + Tracks Area
+                        VStack(spacing: 0) {
+                            // Timeline ruler (horizontal scrolling only)
+                            SynchronizedScrollView(
+                                axes: .horizontal,
+                                showsIndicators: false,
+                                contentSize: CGSize(width: contentSize.width, height: rulerHeight),
+                                normalizedX: $scrollSync.horizontalScrollPosition,
+                                normalizedY: .constant(0),
+                                isUpdatingX: { scrollSync.isUpdatingHorizontal },
+                                isUpdatingY: { false },
+                                onUserScrollX: { scrollSync.updateHorizontalPosition($0) },
+                                onUserScrollY: { _ in }
+                            ) {
+                                AnyView(timelineRulerContent)
+                            }
+                            .frame(height: rulerHeight)
+                            
+                            // Horizontal separator
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(height: 1)
+                            
+                            // Tracks area (both axes - master scroll view)
+                            SynchronizedScrollView(
+                                axes: .both,
+                                showsIndicators: false,
+                                contentSize: contentSize,
+                                normalizedX: $scrollSync.horizontalScrollPosition,
+                                normalizedY: $scrollSync.verticalScrollPosition,
+                                isUpdatingX: { scrollSync.isUpdatingHorizontal },
+                                isUpdatingY: { scrollSync.isUpdatingVertical },
+                                onUserScrollX: { scrollSync.updateHorizontalPosition($0) },
+                                onUserScrollY: { scrollSync.updateVerticalPosition($0) }
+                            ) {
+                                AnyView(tracksAreaContent)
+                            }
                         }
+                        .coordinateSpace(name: "timelineRoot")
                     }
-                    .coordinateSpace(name: "timelineRoot")
-                }
-                .background(Color(NSColor.windowBackgroundColor))
-                .onChange(of: scrollSync.verticalScrollPosition) { _, newValue in
-                    scrollSync.setVerticalPosition(newValue)
-                }
-                .onChange(of: scrollSync.horizontalScrollPosition) { _, newValue in
-                    scrollSync.setHorizontalPosition(newValue)
-                }
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .onChange(of: scrollSync.verticalScrollPosition) { _, newValue in
+                        scrollSync.setVerticalPosition(newValue)
+                    }
+                    .onChange(of: scrollSync.horizontalScrollPosition) { _, newValue in
+                        scrollSync.setHorizontalPosition(newValue)
+                    }
                 } else {
                     EmptyTimelineView(
                         onCreateProject: onCreateProject,
@@ -657,9 +657,9 @@ struct IntegratedTimelineView: View {
     private var trackHeadersContent: some View {
         LazyVStack(spacing: 0) {
             ForEach(project?.tracks ?? []) { audioTrack in
-                    IntegratedTrackHeader(
-                        trackId: audioTrack.id,
-                        selectedTrackId: $selectedTrackId,
+                IntegratedTrackHeader(
+                    trackId: audioTrack.id,
+                    selectedTrackId: $selectedTrackId,
                     height: effectiveTrackHeight,
                     audioEngine: audioEngine,
                     projectManager: projectManager,
@@ -769,101 +769,108 @@ struct IntegratedTrackHeader: View {
     
     var body: some View {
         // let _ = print("🎯 IntegratedTrackHeader: \(audioTrack.name) isSelected=\(isSelected)")
-        HStack(spacing: 8) {
-            // Track icon and color indicator
-            HStack(spacing: 6) {
-                EditableTrackColor(
-                    trackId: trackId,
-                    projectManager: projectManager,
-                    width: 4,
-                    height: height * 0.6,
-                    cornerRadius: 2
-                )
-                
-                Image(systemName: trackIcon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.primary)
-                    .frame(width: 20)
-            }
-            .frame(width: 30) // Fixed width for icon section
+        HStack(spacing: 0) {
+            // Color sliver on far left edge
+            Rectangle()
+                .fill(audioTrack.color.color)
+                .frame(width: 3)
             
-            // Track name and type - Give this more space
-            VStack(alignment: .leading, spacing: 2) {
-                EditableTrackName(
-                    trackId: trackId,
-                    projectManager: projectManager,
-                    font: .system(size: 13, weight: .medium),
-                    foregroundColor: .primary,
-                    alignment: .leading,
-                    lineLimit: 1,
-                    truncationMode: .tail
-                )
-                
-                Text("Audio")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-            .frame(minWidth: 80, maxWidth: 120) // Give track name more space
-            
-            Spacer()
-            
-            // Control buttons section - Make more compact
-            HStack(spacing: 2) {
-                // Record button
-                recordButton
-                
-                // Mute button
-                muteButton
-                
-                // Solo button  
-                soloButton
-                
-                // Volume slider (more compact)
-                VStack(spacing: 1) {
-                    Text("V")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                    
-                    Slider(
-                        value: Binding(
-                            get: { Double(audioTrack.mixerSettings.volume) },
-                            set: { newValue in
-                                audioEngine.updateTrackVolume(trackId: audioTrack.id, volume: Float(newValue))
-                                projectManager.saveCurrentProject()
-                            }
-                        ),
-                        in: 0...1
+            HStack(spacing: 8) {
+                // Track icon and color indicator
+                HStack(spacing: 6) {
+                    EditableTrackColor(
+                        trackId: trackId,
+                        projectManager: projectManager,
+                        width: 4,
+                        height: height * 0.6,
+                        cornerRadius: 2
                     )
-                    .frame(width: 30)
-                    .controlSize(.mini)
-                }
-                
-                // Pan control (more compact)
-                VStack(spacing: 1) {
-                    Text("P")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
                     
-                    Slider(
-                        value: Binding(
-                            get: { Double(audioTrack.mixerSettings.pan) },
-                            set: { newValue in
-                                audioEngine.updateTrackPan(trackId: audioTrack.id, pan: Float(newValue))
-                                projectManager.saveCurrentProject()
-                            }
-                        ),
-                        in: -1...1
-                    )
-                    .frame(width: 30)
-                    .controlSize(.mini)
+                    Image(systemName: trackIcon)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(width: 20)
                 }
+                .frame(width: 30) // Fixed width for icon section
                 
-                // AI Generation button
-                aiGenerationButton
+                // Track name and type - Give this more space
+                VStack(alignment: .leading, spacing: 2) {
+                    EditableTrackName(
+                        trackId: trackId,
+                        projectManager: projectManager,
+                        font: .system(size: 13, weight: .medium),
+                        foregroundColor: .primary,
+                        alignment: .leading,
+                        lineLimit: 1,
+                        truncationMode: .tail
+                    )
+                    
+                    Text("Audio")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .frame(minWidth: 80, maxWidth: 120) // Give track name more space
                 
-                // Delete button
-                deleteButton
-            }
+                Spacer()
+                
+                // Control buttons section - Make more compact
+                HStack(spacing: 2) {
+                    // Record button
+                    recordButton
+                    
+                    // Mute button
+                    muteButton
+                    
+                    // Solo button  
+                    soloButton
+                    
+                    // Volume slider (more compact)
+                    VStack(spacing: 1) {
+                        Text("V")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        
+                        Slider(
+                            value: Binding(
+                                get: { Double(audioTrack.mixerSettings.volume) },
+                                set: { newValue in
+                                    audioEngine.updateTrackVolume(trackId: audioTrack.id, volume: Float(newValue))
+                                    projectManager.saveCurrentProject()
+                                }
+                            ),
+                            in: 0...1
+                        )
+                        .frame(width: 30)
+                        .controlSize(.mini)
+                    }
+                    
+                    // Pan control (more compact)
+                    VStack(spacing: 1) {
+                        Text("P")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        
+                        Slider(
+                            value: Binding(
+                                get: { Double(audioTrack.mixerSettings.pan) },
+                                set: { newValue in
+                                    audioEngine.updateTrackPan(trackId: audioTrack.id, pan: Float(newValue))
+                                    projectManager.saveCurrentProject()
+                                }
+                            ),
+                            in: -1...1
+                        )
+                        .frame(width: 30)
+                        .controlSize(.mini)
+                    }
+                    
+                    // AI Generation button
+                    aiGenerationButton
+                    
+                    // Delete button
+                    deleteButton
+                }
+            } // Close inner HStack
         }
         .padding(.horizontal, 12)
         .frame(height: height)
@@ -1309,7 +1316,7 @@ struct IntegratedAudioRegion: View {
                                             .font(.system(size: 9, weight: .medium))
                                             .foregroundColor(.white.opacity(0.9))
                                     }
-                                    .padding(.horizontal, 6)
+                                        .padding(.horizontal, 6)
                                 )
                             Spacer()
                         }
@@ -1359,21 +1366,21 @@ struct IntegratedAudioRegion: View {
                 print("🔄 CMD+CLICK: Toggling region \(region.id)")
                 selection.toggle(region.id)
             }
-            .exclusively(before:
-                // Shift+click = range selection
-                TapGesture().modifiers(.shift).onEnded {
-                    print("🔄 SHIFT+CLICK: Range selecting to region \(region.id)")
-                    let ids = allRegionsOrder()
-                    selection.selectRange(in: ids, to: region.id)
-                }
                 .exclusively(before:
-                    // Plain click = select only (lowest priority)
-                    TapGesture().onEnded {
-                        print("🔄 PLAIN CLICK: Selecting only region \(region.id)")
-                        selection.selectOnly(region.id)
-                    }
-                )
-            )
+                                // Shift+click = range selection
+                             TapGesture().modifiers(.shift).onEnded {
+                                 print("🔄 SHIFT+CLICK: Range selecting to region \(region.id)")
+                                 let ids = allRegionsOrder()
+                                 selection.selectRange(in: ids, to: region.id)
+                             }
+                    .exclusively(before:
+                                    // Plain click = select only (lowest priority)
+                                 TapGesture().onEnded {
+                                     print("🔄 PLAIN CLICK: Selecting only region \(region.id)")
+                                     selection.selectOnly(region.id)
+                                 }
+                                )
+                            )
         )
         .gesture(
             DragGesture(coordinateSpace: .global)
@@ -1418,10 +1425,12 @@ struct IntegratedAudioRegion: View {
     }
     
     private var regionColor: Color {
-        // Generate consistent color based on region name
-        let colors: [Color] = [.blue, .green, .orange, .purple, .red, .cyan, .pink, .yellow]
-        let index = abs(region.audioFile.name.hashValue) % colors.count
-        return colors[index]
+        // Use the track's color for consistency
+        guard let project = projectManager.currentProject,
+              let track = project.tracks.first(where: { $0.id == trackId }) else {
+            return .blue // Fallback color
+        }
+        return track.color.color
     }
     
     private func formatDuration(_ duration: TimeInterval) -> String {
