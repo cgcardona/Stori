@@ -222,6 +222,7 @@ final class AudioAnalysisService: ObservableObject {
         // Simple onset detection using spectral flux
         let onsets = detectOnsets(channelData, frameCount: frameCount, sampleRate: Float(buffer.format.sampleRate))
         
+        print("🎵 TEMPO: Detected \(onsets.count) onsets in \(frameCount) frames (\(Float(frameCount)/Float(buffer.format.sampleRate))s)")
         if onsets.count < 4 {
             print("🎵 TEMPO: Not enough onsets detected (\(onsets.count))")
             return nil
@@ -289,36 +290,63 @@ final class AudioAnalysisService: ObservableObject {
     
     private func detectOnsets(_ samples: UnsafePointer<Float>, frameCount: Int, sampleRate: Float) -> [Double] {
         var onsets: [Double] = []
-        let windowSize = 1024
+        let windowSize = 2048  // Larger window for better frequency resolution
         let hopSize = 512
         
-        var previousSpectralEnergy: Float = 0
+        var spectralFluxHistory: [Float] = []
+        let historyLength = 10  // For adaptive thresholding
         
         for windowStart in stride(from: 0, to: frameCount - windowSize, by: hopSize) {
             let windowEnd = min(windowStart + windowSize, frameCount)
             let windowSamples = Array(UnsafeBufferPointer(start: samples + windowStart, count: windowEnd - windowStart))
             
-            // Calculate spectral energy
-            let spectralEnergy = windowSamples.map { $0 * $0 }.reduce(0, +)
+            // Calculate RMS energy (more stable than sum of squares)
+            let rmsEnergy = sqrt(windowSamples.map { $0 * $0 }.reduce(0, +) / Float(windowSamples.count))
             
-            // Detect onset as significant increase in spectral energy
-            if spectralEnergy > previousSpectralEnergy * 1.5 && spectralEnergy > 0.001 {
-                let timeStamp = Double(windowStart) / Double(sampleRate)
+            // Calculate spectral flux (difference from previous frame)
+            let spectralFlux: Float
+            if let lastEnergy = spectralFluxHistory.last {
+                spectralFlux = max(0, rmsEnergy - lastEnergy)  // Only positive changes
+            } else {
+                spectralFlux = rmsEnergy
+            }
+            
+            spectralFluxHistory.append(rmsEnergy)
+            if spectralFluxHistory.count > historyLength {
+                spectralFluxHistory.removeFirst()
+            }
+            
+            // Adaptive threshold based on recent history
+            let meanFlux = spectralFluxHistory.reduce(0, +) / Float(spectralFluxHistory.count)
+            let threshold = meanFlux * 0.3  // Much lower threshold for onset detection
+            
+            // Detect onset with minimum time separation
+            let timeStamp = Double(windowStart) / Double(sampleRate)
+            let minOnsetSeparation = 0.1  // Minimum 100ms between onsets
+            
+            if spectralFlux > threshold && 
+               spectralFlux > 0.005 &&  // Lower minimum energy threshold
+               (onsets.isEmpty || timeStamp - onsets.last! > minOnsetSeparation) {
                 onsets.append(timeStamp)
             }
             
-            previousSpectralEnergy = spectralEnergy
+            // Debug: Log first few windows to diagnose thresholding
+            if windowStart < 5 * hopSize {
+                print("🎵 DEBUG: Window \(windowStart/hopSize): RMS=\(String(format: "%.4f", rmsEnergy)), Flux=\(String(format: "%.4f", spectralFlux)), Threshold=\(String(format: "%.4f", threshold))")
+            }
         }
         
         return onsets
     }
     
     private func findDominantTempo(from intervals: [Double]) -> Double {
-        // Convert intervals to BPM
-        let bpms = intervals.map { 60.0 / $0 }
+        // Convert intervals to BPM and filter reasonable range
+        let bpms = intervals.map { 60.0 / $0 }.filter { $0 >= 60.0 && $0 <= 200.0 }
         
-        // Create histogram bins
-        let binSize: Double = 2.0
+        guard !bpms.isEmpty else { return 120.0 }
+        
+        // Create histogram with smaller bins for better accuracy
+        let binSize: Double = 1.0
         var histogram: [Double: Int] = [:]
         
         for bpm in bpms {
@@ -326,9 +354,19 @@ final class AudioAnalysisService: ObservableObject {
             histogram[bin, default: 0] += 1
         }
         
-        // Find most frequent BPM
-        let dominantBin = histogram.max { $0.value < $1.value }?.key ?? 120.0
-        return dominantBin
+        // Find most frequent BPM with tie-breaking
+        let sortedBins = histogram.sorted { 
+            if $0.value == $1.value {
+                // Prefer tempos closer to common ranges (120-140 BPM)
+                let idealRange = 120.0...140.0
+                let dist0 = idealRange.contains($0.key) ? 0 : min(abs($0.key - 120), abs($0.key - 140))
+                let dist1 = idealRange.contains($1.key) ? 0 : min(abs($1.key - 120), abs($1.key - 140))
+                return dist0 < dist1
+            }
+            return $0.value > $1.value
+        }
+        
+        return sortedBins.first?.key ?? 120.0
     }
     
     private func extractChromaFeatures(_ samples: UnsafePointer<Float>, frameCount: Int, sampleRate: Float) -> [Float] {

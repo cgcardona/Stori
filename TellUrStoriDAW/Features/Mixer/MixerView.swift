@@ -210,15 +210,21 @@ struct TrackChannelStrip: View {
     
     private var trackHeaderSection: some View {
         VStack(spacing: 4) {
-            // Track Icon
-            Circle()
-                .fill(track.color.color)
-                .frame(width: 20, height: 20)
-                .overlay(
-                    Image(systemName: "waveform")
-                        .font(.system(size: 8))
-                        .foregroundColor(.white)
+            // Track Icon with Editable Color
+            ZStack {
+                EditableTrackColor(
+                    trackId: trackId,
+                    projectManager: projectManager,
+                    width: 20,
+                    height: 20,
+                    cornerRadius: 10 // Make it circular
                 )
+                
+                Image(systemName: "waveform")
+                    .font(.system(size: 8))
+                    .foregroundColor(.white)
+                    .allowsHitTesting(false) // Allow taps to pass through to color picker
+            }
             
             // Sends Toggle
             Button(action: { showingSends.toggle() }) {
@@ -374,11 +380,15 @@ struct TrackChannelStrip: View {
     
     private var trackNameSection: some View {
         VStack(spacing: 2) {
-            Text(track.name)
-                .font(.system(size: 9, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.center)
+            EditableTrackName(
+                trackId: trackId,
+                projectManager: projectManager,
+                font: .system(size: 9, weight: .medium),
+                foregroundColor: .primary,
+                alignment: .center,
+                lineLimit: 1,
+                truncationMode: .tail
+            )
         }
         .padding(.horizontal, 4)
         .padding(.bottom, 4)

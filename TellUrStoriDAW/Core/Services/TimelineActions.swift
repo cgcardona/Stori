@@ -5,6 +5,11 @@ struct TimelineActions {
     var matchTempoToRegion: (_ targetRegionId: UUID) -> Void = { _ in }
     var matchPitchToRegion: (_ targetRegionId: UUID) -> Void = { _ in }
     var autoMatchSelectedRegions: () -> Void = { }
+    
+    // 🎧 Audio Export Actions
+    var exportOriginalAudio: (_ regionId: UUID) -> Void = { _ in }
+    var exportProcessedAudio: (_ regionId: UUID) -> Void = { _ in }
+    var exportAudioComparison: (_ regionId: UUID) -> Void = { _ in }
 }
 
 private struct TimelineActionsKey: EnvironmentKey {

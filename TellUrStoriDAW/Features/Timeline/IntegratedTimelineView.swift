@@ -15,6 +15,9 @@ struct IntegratedTimelineView: View {
     // [V2-ANALYSIS] Audio analysis service for tempo/pitch detection
     @StateObject private var analysisService = AudioAnalysisService()
     
+    // [V2-EXPORT] Audio export service for before/after comparison
+    @StateObject private var exportService = AudioExportService()
+    
     // Computed property to get current project reactively
     private var project: AudioProject? { projectManager.currentProject }
     @Binding var selectedTrackId: UUID?
@@ -154,11 +157,360 @@ struct IntegratedTimelineView: View {
     }
     
     var body: some View {
-        // [V2-ANALYSIS] Create TimelineActions bundle with real functions
+        // [V2-ANALYSIS] Real TimelineActions wired to analysis + audio engine
         let actions = TimelineActions(
-            matchTempoToRegion: matchTempoToRegion,
-            matchPitchToRegion: matchPitchToRegion,
-            autoMatchSelectedRegions: autoMatchSelectedRegions
+            matchTempoToRegion: { targetRegionId in
+                Task { @MainActor in
+                    guard let project = projectManager.currentProject else { return }
+
+                    // Helpers (local to keep change atomic)
+                    func findRegion(_ id: UUID) -> (trackIndex: Int, regionIndex: Int)? {
+                        for ti in project.tracks.indices {
+                            if let ri = project.tracks[ti].regions.firstIndex(where: { $0.id == id }) {
+                                return (ti, ri)
+                            }
+                        }
+                        return nil
+                    }
+                    @MainActor func applyTempoRate(to regionId: UUID, rate: Float) {
+                        guard let project = projectManager.currentProject else { return }
+                        for track in project.tracks {
+                            if track.regions.contains(where: { $0.id == regionId }),
+                               let node = audioEngine.getTrackNode(for: track.id) {
+                                node.setPlaybackRate(rate)    // AVAudioUnitTimePitch.rate
+                                print("🎵 AUDIO ENGINE: Applied tempo rate \(rate) to track \(track.name)")
+                                return
+                            }
+                        }
+                    }
+
+                    // Target region + tempo
+                    guard let (tTi, tRi) = findRegion(targetRegionId) else {
+                        print("🎵 TEMPO ANALYSIS: Target region not found.")
+                        return
+                    }
+                    let targetRegion = projectManager.currentProject!.tracks[tTi].regions[tRi]
+                    print("🎵 TEMPO ANALYSIS: Analyzing region \(targetRegion.id)...")
+                    let targetTempo = await analysisService.detectTempo(targetRegion.audioFile) // BPM
+                    guard let targetTempo else {
+                        print("🎵 TEMPO ANALYSIS: No tempo detected for \(targetRegion.id)")
+                        return
+                    }
+                    projectManager.currentProject!.tracks[tTi].regions[tRi].detectedTempo = targetTempo
+                    projectManager.saveCurrentProject()
+                    print("🎵 DETECTED TEMPO: \(String(format: "%.1f", targetTempo)) BPM for region \(targetRegion.id)")
+
+                    // Other selected regions → detect → compute rate → write model → apply to node
+                    let others = selection.selectedRegionIds.subtracting([targetRegionId])
+                    for regionId in others {
+                        guard let (ti, ri) = findRegion(regionId) else { continue }
+                        let r = projectManager.currentProject!.tracks[ti].regions[ri]
+
+                        let regionTempo = await analysisService.detectTempo(r.audioFile)
+                        projectManager.currentProject!.tracks[ti].regions[ri].detectedTempo = regionTempo
+
+                        let rate: Float
+                        if let regionTempo {
+                            rate = Float(targetTempo / regionTempo)
+                            print("🎵 APPLYING TEMPO: Adjusting region \(regionId) from \(String(format: "%.1f", regionTempo)) → \(String(format: "%.1f", targetTempo)) BPM (rate: \(String(format: "%.3f", rate)))")
+                        } else {
+                            rate = 1.0
+                            print("🎵 APPLYING TEMPO: No detected tempo for \(regionId); using rate 1.000")
+                        }
+
+                        // Update model + engine
+                        projectManager.currentProject!.tracks[ti].regions[ri].tempoRate = rate
+                        await applyTempoRate(to: regionId, rate: rate)
+                    }
+
+                    projectManager.saveCurrentProject()
+                }
+            },
+
+            matchPitchToRegion: { targetRegionId in
+                Task { @MainActor in
+                    guard let project = projectManager.currentProject else { return }
+
+                    // Helpers
+                    func findRegion(_ id: UUID) -> (trackIndex: Int, regionIndex: Int)? {
+                        for ti in project.tracks.indices {
+                            if let ri = project.tracks[ti].regions.firstIndex(where: { $0.id == id }) {
+                                return (ti, ri)
+                            }
+                        }
+                        return nil
+                    }
+                    @MainActor func applyPitch(to regionId: UUID, cents: Float) {
+                        guard let project = projectManager.currentProject else { return }
+                        for track in project.tracks {
+                            if track.regions.contains(where: { $0.id == regionId }),
+                               let node = audioEngine.getTrackNode(for: track.id) {
+                                node.setPitchShift(cents)      // AVAudioUnitTimePitch.pitch (in semitones; we convert inside)
+                                print("🎵 AUDIO ENGINE: Applied pitch shift \(cents)¢ to track \(track.name)")
+                                return
+                            }
+                        }
+                    }
+                    func cents(from sourceKey: String, to targetKey: String) -> Float {
+                        // simple, same as existing helper elsewhere
+                        let order = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+                        let s = String(sourceKey.prefix(while: { $0 != " " })) // root
+                        let t = String(targetKey.prefix(while: { $0 != " " }))
+                        guard let si = order.firstIndex(of: s), let ti = order.firstIndex(of: t) else { return 0 }
+                        var st = ti - si
+                        if st > 6 { st -= 12 }
+                        if st < -6 { st += 12 }
+                        return Float(st * 100)
+                    }
+
+                    // Target region + key
+                    guard let (tTi, tRi) = findRegion(targetRegionId) else {
+                        print("🎵 PITCH ANALYSIS: Target region not found.")
+                        return
+                    }
+                    let targetRegion = projectManager.currentProject!.tracks[tTi].regions[tRi]
+                    print("🎵 PITCH ANALYSIS: Analyzing region \(targetRegion.id)...")
+                    guard let targetKey = await analysisService.detectKey(targetRegion.audioFile) else {
+                        print("🎵 PITCH ANALYSIS: No key detected for \(targetRegion.id)")
+                        return
+                    }
+                    projectManager.currentProject!.tracks[tTi].regions[tRi].detectedKey = targetKey
+                    projectManager.saveCurrentProject()
+                    print("🎵 DETECTED KEY: \(targetKey) for region \(targetRegion.id)")
+
+                    // Others → detect → compute cents → write + apply
+                    let others = selection.selectedRegionIds.subtracting([targetRegionId])
+                    for regionId in others {
+                        guard let (ti, ri) = findRegion(regionId) else { continue }
+                        let r = projectManager.currentProject!.tracks[ti].regions[ri]
+
+                        let regionKey = await analysisService.detectKey(r.audioFile)
+                        projectManager.currentProject!.tracks[ti].regions[ri].detectedKey = regionKey
+
+                        let shiftCents: Float
+                        if let regionKey {
+                            shiftCents = cents(from: regionKey, to: targetKey)
+                            print("🎵 APPLYING PITCH: \(regionId) \(regionKey) → \(targetKey) (\(shiftCents)¢)")
+                        } else {
+                            shiftCents = 0
+                            print("🎵 APPLYING PITCH: No key for \(regionId); using 0¢")
+                        }
+
+                        projectManager.currentProject!.tracks[ti].regions[ri].pitchShiftCents = shiftCents
+                        await applyPitch(to: regionId, cents: shiftCents)
+                    }
+
+                    projectManager.saveCurrentProject()
+                }
+            },
+
+            autoMatchSelectedRegions: {
+                Task { @MainActor in
+                    guard projectManager.currentProject != nil else { return }
+                    guard let anchor = selection.selectionAnchor else {
+                        print("🎵 AUTO-MATCH: No anchor region; select at least two regions.")
+                        return
+                    }
+                    // Simple, deterministic behavior: use the first-selected (anchor) as the target
+                    print("🎵 AUTO-MATCH: Using anchor \(anchor) as reference (tempo + pitch).")
+                    
+                    // We can't reference 'actions' here due to capture order, so we'll duplicate the logic
+                    // This is a temporary solution - in a real implementation we'd restructure this differently
+                    
+                    // First do tempo matching (inline implementation)
+                    guard let project = projectManager.currentProject else { return }
+
+                    // Helpers (local to keep change atomic)
+                    func findRegion(_ id: UUID) -> (trackIndex: Int, regionIndex: Int)? {
+                        for ti in project.tracks.indices {
+                            if let ri = project.tracks[ti].regions.firstIndex(where: { $0.id == id }) {
+                                return (ti, ri)
+                            }
+                        }
+                        return nil
+                    }
+                    @MainActor func applyTempoRate(to regionId: UUID, rate: Float) {
+                        guard let project = projectManager.currentProject else { return }
+                        for track in project.tracks {
+                            if track.regions.contains(where: { $0.id == regionId }),
+                               let node = audioEngine.getTrackNode(for: track.id) {
+                                node.setPlaybackRate(rate)    // AVAudioUnitTimePitch.rate
+                                print("🎵 AUDIO ENGINE: Applied tempo rate \(rate) to track \(track.name)")
+                                return
+                            }
+                        }
+                    }
+                    @MainActor func applyPitch(to regionId: UUID, cents: Float) {
+                        guard let project = projectManager.currentProject else { return }
+                        for track in project.tracks {
+                            if track.regions.contains(where: { $0.id == regionId }),
+                               let node = audioEngine.getTrackNode(for: track.id) {
+                                node.setPitchShift(cents)      // AVAudioUnitTimePitch.pitch (in semitones; we convert inside)
+                                print("🎵 AUDIO ENGINE: Applied pitch shift \(cents)¢ to track \(track.name)")
+                                return
+                            }
+                        }
+                    }
+                    func cents(from sourceKey: String, to targetKey: String) -> Float {
+                        // simple, same as existing helper elsewhere
+                        let order = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+                        let s = String(sourceKey.prefix(while: { $0 != " " })) // root
+                        let t = String(targetKey.prefix(while: { $0 != " " }))
+                        guard let si = order.firstIndex(of: s), let ti = order.firstIndex(of: t) else { return 0 }
+                        var st = ti - si
+                        if st > 6 { st -= 12 }
+                        if st < -6 { st += 12 }
+                        return Float(st * 100)
+                    }
+
+                    // TEMPO MATCHING
+                    guard let (tTi, tRi) = findRegion(anchor) else {
+                        print("🎵 AUTO-MATCH TEMPO: Target region not found.")
+                        return
+                    }
+                    let targetRegion = projectManager.currentProject!.tracks[tTi].regions[tRi]
+                    print("🎵 AUTO-MATCH TEMPO: Analyzing region \(targetRegion.id)...")
+                    let targetTempo = await analysisService.detectTempo(targetRegion.audioFile) // BPM
+                    guard let targetTempo else {
+                        print("🎵 AUTO-MATCH TEMPO: No tempo detected for \(targetRegion.id)")
+                        return
+                    }
+                    projectManager.currentProject!.tracks[tTi].regions[tRi].detectedTempo = targetTempo
+                    print("🎵 AUTO-MATCH DETECTED TEMPO: \(String(format: "%.1f", targetTempo)) BPM for region \(targetRegion.id)")
+
+                    // Other selected regions → detect → compute rate → write model → apply to node
+                    let others = selection.selectedRegionIds.subtracting([anchor])
+                    for regionId in others {
+                        guard let (ti, ri) = findRegion(regionId) else { continue }
+                        let r = projectManager.currentProject!.tracks[ti].regions[ri]
+
+                        let regionTempo = await analysisService.detectTempo(r.audioFile)
+                        projectManager.currentProject!.tracks[ti].regions[ri].detectedTempo = regionTempo
+
+                        let rate: Float
+                        if let regionTempo {
+                            rate = Float(targetTempo / regionTempo)
+                            print("🎵 AUTO-MATCH APPLYING TEMPO: Adjusting region \(regionId) from \(String(format: "%.1f", regionTempo)) → \(String(format: "%.1f", targetTempo)) BPM (rate: \(String(format: "%.3f", rate)))")
+                        } else {
+                            rate = 1.0
+                            print("🎵 AUTO-MATCH APPLYING TEMPO: No detected tempo for \(regionId); using rate 1.000")
+                        }
+
+                        // Update model + engine
+                        projectManager.currentProject!.tracks[ti].regions[ri].tempoRate = rate
+                        await applyTempoRate(to: regionId, rate: rate)
+                    }
+
+                    // PITCH MATCHING
+                    let targetRegionForPitch = projectManager.currentProject!.tracks[tTi].regions[tRi]
+                    print("🎵 AUTO-MATCH PITCH: Analyzing region \(targetRegionForPitch.id)...")
+                    guard let targetKey = await analysisService.detectKey(targetRegionForPitch.audioFile) else {
+                        print("🎵 AUTO-MATCH PITCH: No key detected for \(targetRegionForPitch.id)")
+                        return
+                    }
+                    projectManager.currentProject!.tracks[tTi].regions[tRi].detectedKey = targetKey
+                    print("🎵 AUTO-MATCH DETECTED KEY: \(targetKey) for region \(targetRegionForPitch.id)")
+
+                    // Others → detect → compute cents → write + apply
+                    for regionId in others {
+                        guard let (ti, ri) = findRegion(regionId) else { continue }
+                        let r = projectManager.currentProject!.tracks[ti].regions[ri]
+
+                        let regionKey = await analysisService.detectKey(r.audioFile)
+                        projectManager.currentProject!.tracks[ti].regions[ri].detectedKey = regionKey
+
+                        let shiftCents: Float
+                        if let regionKey {
+                            shiftCents = cents(from: regionKey, to: targetKey)
+                            print("🎵 AUTO-MATCH APPLYING PITCH: \(regionId) \(regionKey) → \(targetKey) (\(shiftCents)¢)")
+                        } else {
+                            shiftCents = 0
+                            print("🎵 AUTO-MATCH APPLYING PITCH: No key for \(regionId); using 0¢")
+                        }
+
+                        projectManager.currentProject!.tracks[ti].regions[ri].pitchShiftCents = shiftCents
+                        await applyPitch(to: regionId, cents: shiftCents)
+                    }
+
+                    projectManager.saveCurrentProject()
+                }
+            },
+            
+            // 🎧 Audio Export Actions
+            exportOriginalAudio: { regionId in
+                Task { @MainActor in
+                    guard let project = projectManager.currentProject else { return }
+                    
+                    // Find the region
+                    for track in project.tracks {
+                        if let region = track.regions.first(where: { $0.id == regionId }) {
+                            do {
+                                let exportURL = try await exportService.exportOriginal(region.audioFile, regionId: regionId)
+                                print("🎧 EXPORT: Original audio exported to \(exportURL.lastPathComponent)")
+                                exportService.revealExportDirectory()
+                            } catch {
+                                print("🎧 EXPORT ERROR: Failed to export original - \(error)")
+                            }
+                            return
+                        }
+                    }
+                    print("🎧 EXPORT ERROR: Region \(regionId) not found")
+                }
+            },
+            
+            exportProcessedAudio: { regionId in
+                Task { @MainActor in
+                    guard let project = projectManager.currentProject else { return }
+                    
+                    // Find the region and its processing settings
+                    for track in project.tracks {
+                        if let region = track.regions.first(where: { $0.id == regionId }) {
+                            do {
+                                let exportURL = try await exportService.exportProcessed(
+                                    region.audioFile,
+                                    regionId: regionId,
+                                    tempoRate: region.tempoRate,
+                                    pitchShiftCents: region.pitchShiftCents
+                                )
+                                print("🎧 EXPORT: Processed audio exported to \(exportURL.lastPathComponent)")
+                                exportService.revealExportDirectory()
+                            } catch {
+                                print("🎧 EXPORT ERROR: Failed to export processed - \(error)")
+                            }
+                            return
+                        }
+                    }
+                    print("🎧 EXPORT ERROR: Region \(regionId) not found")
+                }
+            },
+            
+            exportAudioComparison: { regionId in
+                Task { @MainActor in
+                    guard let project = projectManager.currentProject else { return }
+                    
+                    // Find the region and export both versions
+                    for track in project.tracks {
+                        if let region = track.regions.first(where: { $0.id == regionId }) {
+                            do {
+                                let (originalURL, processedURL) = try await exportService.exportComparison(
+                                    region.audioFile,
+                                    regionId: regionId,
+                                    tempoRate: region.tempoRate,
+                                    pitchShiftCents: region.pitchShiftCents
+                                )
+                                print("🎧 EXPORT: Comparison export complete!")
+                                print("🎧   Original: \(originalURL.lastPathComponent)")
+                                print("🎧   Processed: \(processedURL.lastPathComponent)")
+                                exportService.revealExportDirectory()
+                            } catch {
+                                print("🎧 EXPORT ERROR: Failed to export comparison - \(error)")
+                            }
+                            return
+                        }
+                    }
+                    print("🎧 EXPORT ERROR: Region \(regionId) not found")
+                }
+            }
         )
         
         ZStack(alignment: .top) {
@@ -420,32 +772,43 @@ struct IntegratedTrackHeader: View {
         HStack(spacing: 8) {
             // Track icon and color indicator
             HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(trackColor)
-                    .frame(width: 4, height: height * 0.6)
+                EditableTrackColor(
+                    trackId: trackId,
+                    projectManager: projectManager,
+                    width: 4,
+                    height: height * 0.6,
+                    cornerRadius: 2
+                )
                 
                 Image(systemName: trackIcon)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.primary)
                     .frame(width: 20)
             }
+            .frame(width: 30) // Fixed width for icon section
             
-            // Track name and type
+            // Track name and type - Give this more space
             VStack(alignment: .leading, spacing: 2) {
-                Text(audioTrack.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                EditableTrackName(
+                    trackId: trackId,
+                    projectManager: projectManager,
+                    font: .system(size: 13, weight: .medium),
+                    foregroundColor: .primary,
+                    alignment: .leading,
+                    lineLimit: 1,
+                    truncationMode: .tail
+                )
                 
                 Text("Audio")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
+            .frame(minWidth: 80, maxWidth: 120) // Give track name more space
             
             Spacer()
             
-            // Control buttons section
-            HStack(spacing: 4) {
+            // Control buttons section - Make more compact
+            HStack(spacing: 2) {
                 // Record button
                 recordButton
                 
@@ -455,10 +818,10 @@ struct IntegratedTrackHeader: View {
                 // Solo button  
                 soloButton
                 
-                // Volume slider (compact)
-                VStack(spacing: 2) {
-                    Text("Vol")
-                        .font(.caption2)
+                // Volume slider (more compact)
+                VStack(spacing: 1) {
+                    Text("V")
+                        .font(.system(size: 8))
                         .foregroundColor(.secondary)
                     
                     Slider(
@@ -471,14 +834,14 @@ struct IntegratedTrackHeader: View {
                         ),
                         in: 0...1
                     )
-                    .frame(width: 40)
+                    .frame(width: 30)
                     .controlSize(.mini)
                 }
                 
-                // Pan control (compact)
-                VStack(spacing: 2) {
-                    Text("Pan")
-                        .font(.caption2)
+                // Pan control (more compact)
+                VStack(spacing: 1) {
+                    Text("P")
+                        .font(.system(size: 8))
                         .foregroundColor(.secondary)
                     
                     Slider(
@@ -491,7 +854,7 @@ struct IntegratedTrackHeader: View {
                         ),
                         in: -1...1
                     )
-                    .frame(width: 40)
+                    .frame(width: 30)
                     .controlSize(.mini)
                 }
                 
@@ -517,10 +880,8 @@ struct IntegratedTrackHeader: View {
     }
     
     private var trackColor: Color {
-        // Generate consistent color based on track name/id
-        let colors: [Color] = [.red, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple, .pink, .brown]
-        let index = abs(audioTrack.name.hashValue) % colors.count
-        return colors[index].opacity(0.8)
+        // Use the track's assigned color
+        return audioTrack.color.color
     }
     
     private var trackIcon: String {
@@ -1142,6 +1503,25 @@ struct IntegratedAudioRegion: View {
                 
                 Divider()
             }
+            
+            // 🎧 Audio Export Options
+            Menu("Export Audio") {
+                Button("Export Original") {
+                    timelineActions.exportOriginalAudio(region.id)
+                }
+                
+                Button("Export Processed") {
+                    timelineActions.exportProcessedAudio(region.id)
+                }
+                
+                Divider()
+                
+                Button("Export Comparison (Both)") {
+                    timelineActions.exportAudioComparison(region.id)
+                }
+            }
+            
+            Divider()
             
             Button("Fade In...") {
                 // TODO: Implement fade in
