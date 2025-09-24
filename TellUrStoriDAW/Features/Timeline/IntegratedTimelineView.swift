@@ -1127,6 +1127,9 @@ struct PositionedAudioRegion: View {
 // MARK: - Integrated Audio Region
 
 struct IntegratedAudioRegion: View {
+    private let regionCorner: CGFloat = 4
+    private let selectionStroke: CGFloat = 3
+    private let headerHeight: CGFloat = 20
     let region: AudioRegion
     let pixelsPerSecond: CGFloat
     let trackHeight: CGFloat
@@ -1196,59 +1199,46 @@ struct IntegratedAudioRegion: View {
                         .stroke(regionColor, lineWidth: 1)
                 )
             
-            // Selection border overlay (professional style)
+            // Logic Pro-style header (always present, styling changes based on selection)
+            VStack {
+                Rectangle()
+                    .fill(isSelected ? Color.blue : regionColor.opacity(0.8))
+                    .frame(height: headerHeight)
+                    .overlay(
+                        HStack(spacing: 6) {
+                            Text(region.audioFile.name)
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.black)
+                                .lineLimit(1)
+                                .truncationMode(.tail)   // ⬅️ never cut the head
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.leading, 4)
+
+                            Spacer(minLength: 4)
+
+                            Text(formatDuration(region.duration))
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.black.opacity(0.7))
+                                .lineLimit(1)
+                        }
+                            .padding(.leading, regionCorner)
+                            .padding(.trailing, 6)
+                            .padding(.top, 1) // small vertical clearance from the top curve
+                    )
+                Spacer()
+            }
+            .zIndex(2)  // ⬅️ ensure header stays above waveform
+            
+            // Selection border overlay (only when selected)
             if isSelected {
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color.blue, lineWidth: 3)
+                RoundedRectangle(cornerRadius: regionCorner)
+                    .stroke(Color.blue, lineWidth: selectionStroke)
                     .background(
-                        // Subtle glow effect
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: regionCorner)
                             .stroke(Color.blue.opacity(0.3), lineWidth: 6)
                             .blur(radius: 2)
                     )
-                    .overlay(
-                        // Selection header bar (inverted style)
-                        VStack {
-                            Rectangle()
-                                .fill(Color.blue)
-                                .frame(height: 20)
-                                .overlay(
-                                    HStack {
-                                        Text(region.audioFile.name)
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundColor(.white)
-                                            .lineLimit(1)
-                                        Spacer()
-                                        // Add duration in selection header
-                                        Text(formatDuration(region.duration))
-                                            .font(.system(size: 9, weight: .medium))
-                                            .foregroundColor(.white.opacity(0.9))
-                                    }
-                                        .padding(.horizontal, 6)
-                                )
-                            Spacer()
-                        }
-                    )
-            }
-            
-            // Region content (only show when not selected to avoid overlap)
-            if !isSelected {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(region.audioFile.name)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                        
-                        Text(formatDuration(region.duration))
-                            .font(.system(size: 9))
-                            .foregroundColor(.white.opacity(0.8))
-                    }
-                    .padding(.leading, 6)
-                    .padding(.top, 4)
-                    
-                    Spacer()
-                }
+                    .zIndex(1)  // ⬅️ behind header but above waveform
             }
             
             // Professional waveform visualization using real audio data
@@ -1259,7 +1249,8 @@ struct IntegratedAudioRegion: View {
             )
             .opacity(isSelected ? 0.3 : 0.6)
             .padding(.horizontal, 4)
-            .padding(.top, isSelected ? 20 : 0) // Offset for selection header
+            .padding(.top, headerHeight) // Always offset for header (now always present)
+            .zIndex(0)  // ⬅️ below the header
         }
         .frame(width: regionWidth, height: regionHeight)
         .shadow(
@@ -1267,7 +1258,7 @@ struct IntegratedAudioRegion: View {
             radius: isSelected ? 6 : 2,
             x: 0, y: isSelected ? 3 : 1
         )
-        .scaleEffect(isSelected ? 1.03 : 1.0)
+        .scaleEffect(1.0)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
         .contentShape(Rectangle())
         // [V2-MULTISELECT] Exclusive gesture handling to prevent conflicts
@@ -1332,7 +1323,7 @@ struct IntegratedAudioRegion: View {
         .contextMenu {
             regionContextMenu
         }
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 4)) // replaces .clipped()
     }
     
     private var regionColor: Color {
