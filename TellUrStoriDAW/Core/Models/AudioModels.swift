@@ -18,21 +18,44 @@ enum TrackType: String, Codable, CaseIterable {
 }
 
 // MARK: - Track Color
-enum TrackColor: String, Codable, CaseIterable {
-    case blue = "#3B82F6"
-    case red = "#EF4444"
-    case green = "#10B981"
-    case yellow = "#F59E0B"
-    case purple = "#8B5CF6"
-    case pink = "#EC4899"
-    case orange = "#F97316"
-    case teal = "#14B8A6"
-    case indigo = "#6366F1"
-    case gray = "#6B7280"
+enum TrackColor: Codable, Equatable, Hashable {
+    case blue
+    case red
+    case green
+    case yellow
+    case purple
+    case pink
+    case orange
+    case teal
+    case indigo
+    case gray
+    case custom(String) // Custom hex color
+    
+    var rawValue: String {
+        switch self {
+        case .blue: return "#3B82F6"
+        case .red: return "#EF4444"
+        case .green: return "#10B981"
+        case .yellow: return "#F59E0B"
+        case .purple: return "#8B5CF6"
+        case .pink: return "#EC4899"
+        case .orange: return "#F97316"
+        case .teal: return "#14B8A6"
+        case .indigo: return "#6366F1"
+        case .gray: return "#6B7280"
+        case .custom(let hex): return hex
+        }
+    }
     
     var color: Color {
         Color(hex: self.rawValue)
     }
+    
+    // Static predefined colors for picker
+    static let allPredefinedCases: [TrackColor] = [
+        .blue, .red, .green, .yellow, .purple,
+        .pink, .orange, .teal, .indigo, .gray
+    ]
 }
 
 // MARK: - Time Signature

@@ -7,6 +7,37 @@
 
 import SwiftUI
 
+// MARK: - Color Extension for Hex Conversion
+extension Color {
+    /// Convert SwiftUI Color to hex string
+    func toHex() -> String {
+        // Convert to UIColor/NSColor to get RGB components
+        #if canImport(UIKit)
+        let uiColor = UIColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #else
+        let nsColor = NSColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        
+        nsColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #endif
+        
+        let r = Int(red * 255)
+        let g = Int(green * 255)
+        let b = Int(blue * 255)
+        
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
+}
+
 struct EditableTrackColor: View {
     let trackId: UUID
     @ObservedObject var projectManager: ProjectManager
@@ -70,20 +101,21 @@ struct EditableTrackColorPicker: View {
     let selectedColor: TrackColor
     let onColorSelected: (TrackColor) -> Void
     
-    private let colors = TrackColor.allCases
+    private let colors = TrackColor.allPredefinedCases
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 5)
     
     @State private var showingCustomColorPicker = false
     @State private var customColor = Color.blue
     
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
+            // Header with professional styling
             Text("Choose Track Color")
-                .font(.headline)
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.primary)
             
-            // Predefined Colors Grid
-            LazyVGrid(columns: columns, spacing: 8) {
+            // Predefined Colors Grid with better spacing
+            LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(colors, id: \.self) { color in
                     ColorSwatch(
                         color: color,
@@ -94,16 +126,20 @@ struct EditableTrackColorPicker: View {
                     )
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 16)
             
-            Divider()
+            // Professional divider
+            Rectangle()
+                .fill(Color(.separatorColor))
+                .frame(height: 1)
+                .padding(.horizontal, 16)
             
-            // Custom Color Picker Button
+            // Custom Color Picker Button with DAW styling
             Button(action: {
                 showingCustomColorPicker = true
             }) {
-                HStack(spacing: 8) {
-                    // Rainbow gradient circle
+                HStack(spacing: 12) {
+                    // Rainbow gradient circle with better styling
                     Circle()
                         .fill(
                             AngularGradient(
@@ -111,43 +147,51 @@ struct EditableTrackColorPicker: View {
                                 center: .center
                             )
                         )
-                        .frame(width: 24, height: 24)
+                        .frame(width: 28, height: 28)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(.separatorColor), lineWidth: 1)
+                        )
                     
                     Text("Custom Color...")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 10)
                         .fill(Color(.controlBackgroundColor))
-                        .stroke(Color(.separatorColor), lineWidth: 1)
+                        .stroke(Color(.separatorColor), lineWidth: 0.5)
                 )
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 16)
         }
-        .frame(width: 280, height: 260)
+        .frame(width: 320, height: 300)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.windowBackgroundColor))
+        )
         .sheet(isPresented: $showingCustomColorPicker) {
             CustomColorPickerSheet(
                 initialColor: customColor,
                 onColorSelected: { color in
                     customColor = color
-                    // For now, we'll map to the closest predefined color
-                    // In a future enhancement, we could extend TrackColor to support custom colors
-                    let closestColor = findClosestTrackColor(to: color)
-                    onColorSelected(closestColor)
+                    // Create a custom TrackColor with the selected hex value
+                    let hexString = color.toHex()
+                    let customTrackColor = TrackColor.custom(hexString)
+                    onColorSelected(customTrackColor)
                     showingCustomColorPicker = false
                 }
             )
         }
-    }
-    
-    // Helper to find closest predefined color
-    private func findClosestTrackColor(to color: Color) -> TrackColor {
-        // Simple mapping - in a real implementation, you'd calculate color distance
-        // For now, return a reasonable default
-        return .blue
     }
 }
 
@@ -191,6 +235,7 @@ struct CustomColorPickerSheet: View {
     let onColorSelected: (Color) -> Void
     
     @State private var selectedColor: Color
+    @State private var showingColorPicker = false
     @Environment(\.dismiss) private var dismiss
     
     init(initialColor: Color, onColorSelected: @escaping (Color) -> Void) {
@@ -200,42 +245,76 @@ struct CustomColorPickerSheet: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
+            // Header with professional styling
             Text("Custom Track Color")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(.primary)
             
-            // Color Preview
-            RoundedRectangle(cornerRadius: 12)
+            // Color Preview - larger and more prominent
+            RoundedRectangle(cornerRadius: 16)
                 .fill(selectedColor)
-                .frame(width: 80, height: 80)
+                .frame(width: 120, height: 120)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(Color(.separatorColor), lineWidth: 1)
                 )
+                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
             
-            // Native Color Picker
-            ColorPicker("Select Color", selection: $selectedColor, supportsOpacity: false)
-                .labelsHidden()
-                .scaleEffect(1.2)
+            // Native Color Picker with consistent styling
+            VStack(spacing: 12) {
+                Text("Select Color")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Button(action: {
+                    showingColorPicker = true
+                }) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(selectedColor)
+                        .frame(width: 60, height: 32)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(.separatorColor), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showingColorPicker) {
+                    ColorPicker("Select Color", selection: $selectedColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .padding()
+                        .frame(width: 280, height: 200)
+                }
+            }
             
             Spacer()
             
-            // Action Buttons
-            HStack(spacing: 12) {
+            // Action Buttons with DAW styling
+            HStack(spacing: 16) {
                 Button("Cancel") {
+                    showingColorPicker = false
                     dismiss()
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.large)
+                .frame(minWidth: 100)
                 
                 Button("Choose Color") {
+                    showingColorPicker = false
                     onColorSelected(selectedColor)
+                    dismiss()
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(minWidth: 100)
             }
         }
-        .padding(24)
-        .frame(width: 320, height: 400)
+        .padding(32)
+        .frame(width: 380, height: 460)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(.windowBackgroundColor))
+        )
     }
 }
 

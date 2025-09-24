@@ -167,7 +167,7 @@ struct TrackChannelStrip: View {
         projectManager.currentProject?.tracks.first { $0.id == trackId } ?? AudioTrack(name: "Unknown", color: .gray)
     }
     
-    @State private var showingSends = false
+    @State private var showingSends = true
     @State private var sendLevels: [UUID: Double] = [:]
     
     var body: some View {
@@ -175,8 +175,14 @@ struct TrackChannelStrip: View {
             // Track Header
             trackHeaderSection
             
-            // Enhanced Sends Section (always visible)
-            enhancedSendsSection
+            // Enhanced Sends Section (conditional visibility)
+            if showingSends {
+                enhancedSendsSection
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)
+                    ))
+            }
             
             // Fader Section (with more space)
             faderSection
@@ -227,10 +233,15 @@ struct TrackChannelStrip: View {
             }
             
             // Sends Toggle
-            Button(action: { showingSends.toggle() }) {
-                Image(systemName: showingSends ? "chevron.up" : "chevron.down")
+            Button(action: { 
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showingSends.toggle()
+                }
+            }) {
+                Image(systemName: "chevron.down")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(showingSends ? 180 : 0)) // Smooth chevron rotation
             }
             .buttonStyle(.plain)
             .help("Toggle Sends")

@@ -378,7 +378,7 @@ struct TrackContextMenu: View {
     let onColorChange: (TrackColor) -> Void
     
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             Button("Duplicate Track") {
                 onDuplicate()
             }
@@ -386,7 +386,7 @@ struct TrackContextMenu: View {
             Divider()
             
             Menu("Track Color") {
-                ForEach(TrackColor.allCases, id: \.self) { color in
+                ForEach(TrackColor.allPredefinedCases, id: \.self) { color in
                     Button(action: { onColorChange(color) }) {
                         HStack {
                             Circle()
@@ -418,6 +418,7 @@ struct TrackContextMenu: View {
         case .teal: return "Teal"
         case .indigo: return "Indigo"
         case .gray: return "Gray"
+        case .custom(_): return "Custom"
         }
     }
 }
@@ -449,7 +450,7 @@ struct TrackMenuPopover: View {
                 .foregroundColor(.secondary)
             
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 8) {
-                ForEach(TrackColor.allCases, id: \.self) { color in
+                ForEach(TrackColor.allPredefinedCases, id: \.self) { color in
                     Button(action: {
                         onColorChange(color)
                         dismiss()

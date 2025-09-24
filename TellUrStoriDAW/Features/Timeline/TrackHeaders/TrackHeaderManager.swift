@@ -47,7 +47,7 @@ class TrackHeaderManager: ObservableObject {
     
     // MARK: - Track Management
     func addTrack(name: String = "New Track", type: TrackType = .audio) {
-        let availableColors = TrackColor.allCases
+        let availableColors = TrackColor.allPredefinedCases
         let usedColors = Set(tracks.map { $0.color })
         let nextColor = availableColors.first { !usedColors.contains($0) } ?? .blue
         

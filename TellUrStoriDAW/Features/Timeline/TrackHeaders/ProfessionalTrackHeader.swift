@@ -586,7 +586,7 @@ struct TrackColorPicker: View {
                     .fontWeight(.semibold)
                 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 16) {
-                    ForEach(TrackColor.allCases, id: \.self) { color in
+                    ForEach(TrackColor.allPredefinedCases, id: \.self) { color in
                         Button(action: {
                             onColorSelected(color)
                             dismiss()
