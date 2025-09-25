@@ -518,9 +518,9 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 - Mobile companion app not yet available
 
 ### Recently Fixed
-- ✅ **Cycle/Loop Regression**: Fixed floating-point precision issue causing loop boundary misses (September 2025)
-- ✅ **Bus Tap Conflicts**: Fixed AVAudioEngine tap conflicts that were causing bus creation crashes (September 2025)
-- ✅ **Effects Processing**: Complete aux sends with real-time Reverb and Delay effects working (September 2025)
+- ✅ **Cycle/Loop Regression**: Fixed floating-point precision issue causing loop boundary misses
+- ✅ **Bus Tap Conflicts**: Fixed AVAudioEngine tap conflicts that were causing bus creation crashes
+- ✅ **Effects Processing**: Complete aux sends with real-time Reverb and Delay effects working
 
 ### Support & Reporting
 For bug reports and feature requests, please use our [GitHub Issues](https://github.com/yourusername/TellUrStoriDAW/issues) page.
@@ -623,15 +623,20 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🧹 **Recent Code Cleanup**
 
-**Dead Code Successfully Removed:**
+**Phase 1: Initial Cleanup - Essential Entity Extraction**
 - ✅ `DAWTrackHeader.swift` - Replaced by `IntegratedTrackHeader` in timeline
 - ✅ Old timeline implementations - Consolidated into `IntegratedTimelineView.swift`
 - ✅ Unused waveform components - Unified into `ProfessionalWaveformView.swift`
 
-**Essential Entities Extracted to Dedicated Files:**
-- ✅ `TrackHeaderManager.swift` - Professional track state management
-- ✅ `ProfessionalTrackHeader.swift` - Industry-standard track header UI
-- ✅ `DraggableTrackHeader.swift` - Drag-and-drop track reordering
+**Phase 2: Dead Code Removal (1,322 lines removed)**
+- ✅ `TrackHeaderManager.swift` (401 lines) - Never instantiated anywhere
+- ✅ `ProfessionalTrackHeader.swift` (642 lines) - Never used in active app
+- ✅ `DraggableTrackHeader.swift` (98 lines) - Never used, depended on unused components
+- ✅ `TrackDragDropHandler.swift` (181 lines) - Depended on deleted TrackHeaderManager
+
+**Current Active Implementation:**
+- ✅ `IntegratedTimelineView.swift` with `IntegratedTrackHeader` - Single, active timeline implementation
+- ✅ Clean, focused codebase with no unused track header components
 
 ## ✅ **Phase 3.6.5a: Reusable Editing Components Complete!**
 
