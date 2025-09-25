@@ -1309,7 +1309,15 @@ class AudioEngine: ObservableObject {
             // Add region to the recorded track
             if let trackIndex = project.tracks.firstIndex(where: { $0.id == recordingTrackId }) {
                 project.tracks[trackIndex].regions.append(audioRegion)
+                project.modifiedAt = Date()
                 currentProject = project
+                
+                // CRITICAL: Notify that project has been updated so SwiftUI views refresh
+                NotificationCenter.default.post(name: .projectUpdated, object: project)
+                
+                // Save the project to persist the recorded audio
+                // Note: This is done via notification to ProjectManager
+                NotificationCenter.default.post(name: .saveProject, object: nil)
                 
                 // Update track node with new region
                 if trackNodes[recordingTrackId] != nil {
@@ -1317,6 +1325,7 @@ class AudioEngine: ObservableObject {
                 }
                 
                 print("✅ Recording completed: \(audioFile.name) (\(String(format: "%.2f", recordingDuration))s)")
+                print("🔄 Project updated with new recorded region - UI should refresh")
             }
             
         } catch {

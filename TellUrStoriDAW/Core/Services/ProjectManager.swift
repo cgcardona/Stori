@@ -76,6 +76,16 @@ class ProjectManager: ObservableObject {
                 }
             }
         }
+        
+        NotificationCenter.default.addObserver(
+            forName: .saveProject,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.saveCurrentProject()
+            }
+        }
     }
     
     // MARK: - Directory Setup
