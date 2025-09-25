@@ -2623,7 +2623,7 @@ services:
   - Key signature and time signature displays
   - Cycle/loop region controls with visual indicators
   - Professional metronome controls with count-in options
-  - **File Renaming**: LogicProControlBar → DAWControlBar, LogicProTrackHeader → DAWTrackHeader
+  - **File Renaming**: LogicProControlBar → DAWControlBar, track headers → IntegratedTrackHeader
   - **Component Renaming**: All UI components now follow DAWComponentName convention
   - **Reference Updates**: Updated all imports, references, and documentation
 
