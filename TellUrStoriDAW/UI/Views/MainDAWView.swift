@@ -84,61 +84,81 @@ struct MainDAWView: View {
         }
     }
     
+    // MARK: - View Components
+    
+    private var tabBarView: some View {
+        HStack(spacing: 0) {
+            ForEach(MainTab.allCases, id: \.self) { tab in
+                Button(action: {
+                    selectedMainTab = tab
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: tab.iconName)
+                        Text(tab.title)
+                    }
+                    .font(.system(size: 14, weight: selectedMainTab == tab ? .semibold : .regular))
+                    .foregroundColor(selectedMainTab == tab ? .blue : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .background(Color(.controlBackgroundColor))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color(.separatorColor)),
+            alignment: .bottom
+        )
+    }
+    
+    private func tabContentView(geometry: GeometryProxy) -> some View {
+        Group {
+            switch selectedMainTab {
+            case .daw:
+                dawContentView(geometry: geometry)
+            case .marketplace:
+                MarketplaceView()
+            }
+        }
+    }
+    
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            if let currentProject = projectManager.currentProject {
+                EditableProjectTitle(
+                    projectName: currentProject.name,
+                    onNameChanged: { newName in
+                        handleProjectRename(to: newName)
+                    }
+                )
+            } else {
+                Text("TellUrStoriDAW")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+            }
+        }
+    }
+    
+    private var mainContent: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                tabBarView
+                tabContentView(geometry: geometry)
+            }
+        }
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Tab bar
-                HStack(spacing: 0) {
-                    ForEach(MainTab.allCases, id: \.self) { tab in
-                        Button(action: {
-                            selectedMainTab = tab
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: tab.iconName)
-                                Text(tab.title)
-                            }
-                            .font(.system(size: 14, weight: selectedMainTab == tab ? .semibold : .regular))
-                            .foregroundColor(selectedMainTab == tab ? .blue : .secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                }
-                .background(Color(.controlBackgroundColor))
-                .overlay(
-                    Rectangle()
-                        .frame(height: 1)
-                        .foregroundColor(Color(.separatorColor)),
-                    alignment: .bottom
-                )
-                
-                // Tab content
-                Group {
-                    switch selectedMainTab {
-                    case .daw:
-                        dawContentView(geometry: geometry)
-                    case .marketplace:
-                        MarketplaceView()
-                    }
-                }
+                tabBarView
+                tabContentView(geometry: geometry)
             }
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                if let currentProject = projectManager.currentProject {
-                    EditableProjectTitle(
-                        projectName: currentProject.name,
-                        onNameChanged: { newName in
-                            handleProjectRename(to: newName)
-                        }
-                    )
-                } else {
-                    Text("TellUrStoriDAW")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                }
-            }
+            toolbarContent
         }
         .sheet(isPresented: $showingNewProjectSheet) {
             NewProjectView(projectManager: projectManager)
@@ -146,79 +166,129 @@ struct MainDAWView: View {
         .sheet(isPresented: $showingProjectBrowser) {
             ProjectBrowserView(projectManager: projectManager)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleMixer)) { _ in
-            if selectedMainTab == .daw {
-                showingMixer.toggle()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleLibrary)) { _ in
-            if selectedMainTab == .daw {
-                showingLibrary.toggle()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleInspector)) { _ in
-            if selectedMainTab == .daw {
-                showingInspector.toggle()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
-            showingNewProjectSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
-            showingProjectBrowser = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
-            if projectManager.currentProject != nil {
-                projectManager.saveCurrentProject()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .newTrack)) { _ in
-            if projectManager.currentProject != nil && selectedMainTab == .daw {
-                addTrack()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .deleteTrack)) { _ in
-            if projectManager.currentProject != nil && selectedMainTab == .daw {
-                deleteSelectedTrack()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .skipToBeginning)) { _ in
-            if projectManager.currentProject != nil && selectedMainTab == .daw {
-                audioEngine.skipToBeginning()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .skipToEnd)) { _ in
-            if projectManager.currentProject != nil && selectedMainTab == .daw {
-                audioEngine.skipToEnd()
-            }
-        }
         .onAppear {
-            // Start the audio engine first
-            print("MainDAWView appeared, initializing audio engine...")
+            // Load the most recent project on app launch
+            Task {
+                await MainActor.run {
+                    projectManager.loadMostRecentProject()
+                }
+            }
+        }
+        .onChange(of: projectManager.currentProject) { oldProject, newProject in
+            if let project = newProject {
+                audioEngine.loadProject(project)
+            }
+        }
+    }
+}
+
+extension MainDAWView {
+    
+    private var leftPanelView: some View {
+        HStack(spacing: 0) {
+            DAWLibraryPanel()
+                .frame(width: libraryWidth)
             
-            // Give the audio engine a moment to initialize
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if let project = projectManager.currentProject {
-                    print("Loading existing project into audio engine...")
-                    audioEngine.loadProject(project)
-                } else {
-                    print("No existing project, audio engine ready for new project creation")
+            // Resize Handle
+            ResizeHandle(
+                orientation: .vertical,
+                onDrag: { delta in
+                    libraryWidth = max(200, min(400, libraryWidth + delta))
+                }
+            )
+        }
+        .transition(.move(edge: .leading))
+    }
+    
+    private var centerContentView: some View {
+        VStack(spacing: 0) {
+            // Timeline and tracks area
+            VStack(spacing: 0) {
+                // Zoom controls toolbar (only show when project exists)
+                if projectManager.currentProject != nil {
+                    ZoomControlsView(
+                        horizontalZoom: $horizontalZoom,
+                        verticalZoom: $verticalZoom
+                    )
+                }
+                
+                // Note: Timeline ruler now integrated within IntegratedTimelineView below
+                
+                // Integrated Timeline with synchronized scrolling
+                IntegratedTimelineView(
+                    audioEngine: audioEngine,
+                    projectManager: projectManager,
+                    selectedTrackId: $selectedTrackId,
+                    horizontalZoom: horizontalZoom,
+                    verticalZoom: verticalZoom,
+                    onAddTrack: { addTrack() },
+                    onCreateProject: { showingNewProjectSheet = true },
+                    onOpenProject: { showingProjectBrowser = true }
+                )
+            }
+            
+            // Bottom area: Mixer panel (when visible)
+            if showingMixer {
+                mixerPanelView
+            }
+        }
+    }
+    
+    private var rightPanelView: some View {
+        HStack(spacing: 0) {
+            // Resize Handle
+            ResizeHandle(
+                orientation: .vertical,
+                onDrag: { delta in
+                    inspectorWidth = max(250, min(500, inspectorWidth - delta))
+                }
+            )
+            
+            DAWInspectorPanel(
+                selectedTrackId: $selectedTrackId,
+                project: projectManager.currentProject,
+                audioEngine: audioEngine
+            )
+            .frame(width: inspectorWidth)
+        }
+        .transition(.move(edge: .trailing))
+    }
+    
+    private var mixerPanelView: some View {
+        VStack(spacing: 0) {
+            // Resize Handle
+            ResizeHandle(
+                orientation: .horizontal,
+                onDrag: { delta in
+                    // Leave 120px for control panel at bottom
+                    let screenHeight = NSScreen.main?.frame.height ?? 800
+                    let maxAllowedHeight = max(400, screenHeight - 200) // 200px for top UI + control panel
+                    mixerHeight = max(200, min(maxAllowedHeight, mixerHeight - delta))
+                }
+            )
+            
+            // Scrollable Mixer Content
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack {
+                        Spacer(minLength: 0)
+                        MixerView(
+                            audioEngine: audioEngine,
+                            projectManager: projectManager,
+                            selectedTrackId: $selectedTrackId
+                        )
+                        .padding(.bottom, 10) // Ensure bottom is visible
+                        .id("mixerBottom")
+                    }
+                }
+                .frame(height: mixerHeight)
+                .onAppear {
+                    // Scroll to bottom when mixer opens
+                    proxy.scrollTo("mixerBottom", anchor: .bottom)
                 }
             }
         }
-        .onChange(of: projectManager.currentProject) { oldValue, newValue in
-            if let project = newValue {
-                // Check if it's a completely different project (different ID)
-                if oldValue?.id != project.id {
-                    print("Loading new project into audio engine: \(project.name)")
-                    audioEngine.loadProject(project)
-                } else {
-                    // Same project but content changed - update the audio engine
-                    print("Updating audio engine with project changes: \(project.name)")
-                    audioEngine.updateCurrentProject(project)
-                }
-            }
-        }
+        .transition(.move(edge: .bottom))
     }
     
     private func dawContentView(geometry: GeometryProxy) -> some View {
@@ -227,106 +297,15 @@ struct MainDAWView: View {
             HStack(spacing: 0) {
                 // Left Panel: Library (when visible)
                 if showingLibrary {
-                    HStack(spacing: 0) {
-                        DAWLibraryPanel()
-                            .frame(width: libraryWidth)
-                        
-                        // Resize Handle
-                        ResizeHandle(
-                            orientation: .vertical,
-                            onDrag: { delta in
-                                libraryWidth = max(200, min(400, libraryWidth + delta))
-                            }
-                        )
-                    }
-                    .transition(.move(edge: .leading))
+                    leftPanelView
                 }
                 
                 // Center: Main DAW Content
-                VStack(spacing: 0) {
-                    // Timeline and tracks area
-                    VStack(spacing: 0) {
-                        // Zoom controls toolbar (only show when project exists)
-                        if projectManager.currentProject != nil {
-                            ZoomControlsView(
-                                horizontalZoom: $horizontalZoom,
-                                verticalZoom: $verticalZoom
-                            )
-                        }
-                        
-                        // Note: Timeline ruler now integrated within IntegratedTimelineView below
-                        
-                        // Integrated Timeline with synchronized scrolling
-                        IntegratedTimelineView(
-                            audioEngine: audioEngine,
-                            projectManager: projectManager,
-                            selectedTrackId: $selectedTrackId,
-                            horizontalZoom: horizontalZoom,
-                            verticalZoom: verticalZoom,
-                            onAddTrack: { addTrack() },
-                            onCreateProject: { showingNewProjectSheet = true },
-                            onOpenProject: { showingProjectBrowser = true }
-                        )
-                    }
-                    
-                    // Bottom area: Mixer panel (when visible)
-                    if showingMixer {
-                        VStack(spacing: 0) {
-                            // Resize Handle
-                            ResizeHandle(
-                                orientation: .horizontal,
-                                onDrag: { delta in
-                                    // Leave 120px for control panel at bottom
-                                    let screenHeight = NSScreen.main?.frame.height ?? 800
-                                    let maxAllowedHeight = max(400, screenHeight - 200) // 200px for top UI + control panel
-                                    mixerHeight = max(200, min(maxAllowedHeight, mixerHeight - delta))
-                                }
-                            )
-                            
-                            // Scrollable Mixer Content
-                            ScrollViewReader { proxy in
-                                ScrollView(.vertical, showsIndicators: true) {
-                                    VStack {
-                                        Spacer(minLength: 0)
-                                        MixerView(
-                                            audioEngine: audioEngine,
-                                            projectManager: projectManager,
-                                            selectedTrackId: $selectedTrackId
-                                        )
-                                        .padding(.bottom, 10) // Ensure bottom is visible
-                                        .id("mixerBottom")
-                                    }
-                                }
-                                .frame(height: mixerHeight)
-                                .onAppear {
-                                    // Scroll to bottom when mixer opens
-                                    proxy.scrollTo("mixerBottom", anchor: .bottom)
-                                }
-                            }
-                        }
-                        .transition(.move(edge: .bottom))
-                    }
-                }
+                centerContentView
                 
                 // Right Panel: Inspector (when visible)
                 if showingInspector {
-                    HStack(spacing: 0) {
-                        // Resize Handle
-                        ResizeHandle(
-                            orientation: .vertical,
-                            onDrag: { delta in
-                                inspectorWidth = max(250, min(500, inspectorWidth - delta))
-                            }
-                        )
-                        
-                        DAWInspectorPanel(
-                            selectedTrackId: $selectedTrackId,
-                            project: projectManager.currentProject,
-                            audioEngine: audioEngine
-                        )
-                        .frame(width: inspectorWidth)
-                    }
-                    .transition(.move(edge: .trailing))
+                    rightPanelView
                 }
             }
             

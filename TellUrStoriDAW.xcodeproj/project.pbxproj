@@ -7,19 +7,74 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		C00CFD2C2E6611E100FE5CE5 /* TellUrStoriDAW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TellUrStoriDAW.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0D691962E84DD91005A90A6 /* TellUrStoriDAW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TellUrStoriDAW.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0D691A62E84E0FB005A90A6 /* Exceptions for "TellUrStoriDAW" folder in "TellUrStoriDAW" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ContentView.swift,
+				Core/Audio/AudioAnalyzer.swift,
+				Core/Audio/AudioEngine.swift,
+				Core/Audio/BusAudioNode.swift,
+				Core/Audio/TrackAudioNode.swift,
+				Core/Models/AudioModels.swift,
+				Core/Services/AudioAnalysisService.swift,
+				Core/Services/AudioExportService.swift,
+				Core/Services/BlockchainClient.swift,
+				Core/Services/MusicGenClient.swift,
+				Core/Services/ProjectManager.swift,
+				Core/Services/SelectionManager.swift,
+				Core/Services/TimelineActions.swift,
+				Core/Utilities/ScrollSyncModel.swift,
+				Core/Utilities/SynchronizedScrollView.swift,
+				Features/AIGeneration/AIGenerationView.swift,
+				Features/AIGeneration/STEMMintingView.swift,
+				Features/Inspector/DAWInspectorPanel.swift,
+				Features/Library/DAWLibraryPanel.swift,
+				Features/Marketplace/MarketplaceView.swift,
+				Features/Mixer/BusSendComponents.swift,
+				Features/Mixer/MixerView.swift,
+				Features/Timeline/Components/CycleOverlay.swift,
+				Features/Timeline/Components/ProfessionalTimelineRuler.swift,
+				Features/Timeline/IntegratedTimelineView.swift,
+				Features/Transport/DAWControlBar.swift,
+				Features/Transport/DAWControlButton.swift,
+				Features/Transport/TransportButton.swift,
+				TellUrStoriDAWApp.swift,
+				UI/Components/EditableNumeric.swift,
+				UI/Components/EditableProjectTitle.swift,
+				UI/Components/EditableSlider.swift,
+				UI/Components/EditableText.swift,
+				UI/Components/EditableTrackColor.swift,
+				UI/Components/EditableTrackName.swift,
+				UI/Components/ProfessionalWaveformView.swift,
+				UI/Views/EmptyTimelineView.swift,
+				UI/Views/MainDAWView.swift,
+			);
+			target = C0D691952E84DD91005A90A6 /* TellUrStoriDAW */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C00CFD2E2E6611E100FE5CE5 /* TellUrStoriDAW */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0D691A62E84E0FB005A90A6 /* Exceptions for "TellUrStoriDAW" folder in "TellUrStoriDAW" target */,
+			);
 			path = TellUrStoriDAW;
+			sourceTree = "<group>";
+		};
+		C0D691972E84DD91005A90A6 /* TellUrStoriDAW-macOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "TellUrStoriDAW-macOS";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		C00CFD292E6611E100FE5CE5 /* Frameworks */ = {
+		C0D691932E84DD91005A90A6 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +88,7 @@
 			isa = PBXGroup;
 			children = (
 				C00CFD2E2E6611E100FE5CE5 /* TellUrStoriDAW */,
+				C0D691972E84DD91005A90A6 /* TellUrStoriDAW-macOS */,
 				C00CFD2D2E6611E100FE5CE5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +96,7 @@
 		C00CFD2D2E6611E100FE5CE5 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C00CFD2C2E6611E100FE5CE5 /* TellUrStoriDAW.app */,
+				C0D691962E84DD91005A90A6 /* TellUrStoriDAW.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,26 +104,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C00CFD2B2E6611E100FE5CE5 /* TellUrStoriDAW */ = {
+		C0D691952E84DD91005A90A6 /* TellUrStoriDAW */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C00CFD382E6611E100FE5CE5 /* Build configuration list for PBXNativeTarget "TellUrStoriDAW" */;
+			buildConfigurationList = C0D6919E2E84DD92005A90A6 /* Build configuration list for PBXNativeTarget "TellUrStoriDAW" */;
 			buildPhases = (
-				C00CFD282E6611E100FE5CE5 /* Sources */,
-				C00CFD292E6611E100FE5CE5 /* Frameworks */,
-				C00CFD2A2E6611E100FE5CE5 /* Resources */,
+				C0D691922E84DD91005A90A6 /* Sources */,
+				C0D691932E84DD91005A90A6 /* Frameworks */,
+				C0D691942E84DD91005A90A6 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				C00CFD2E2E6611E100FE5CE5 /* TellUrStoriDAW */,
+				C0D691972E84DD91005A90A6 /* TellUrStoriDAW-macOS */,
 			);
 			name = TellUrStoriDAW;
 			packageProductDependencies = (
 			);
-			productName = TellUrStoriDAW;
-			productReference = C00CFD2C2E6611E100FE5CE5 /* TellUrStoriDAW.app */;
+			productName = "TellUrStoriDAW-macOS";
+			productReference = C0D691962E84DD91005A90A6 /* TellUrStoriDAW.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -77,11 +133,11 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1640;
+				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
-					C00CFD2B2E6611E100FE5CE5 = {
-						CreatedOnToolsVersion = 16.4;
+					C0D691952E84DD91005A90A6 = {
+						CreatedOnToolsVersion = 26.0.1;
 					};
 				};
 			};
@@ -99,13 +155,13 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C00CFD2B2E6611E100FE5CE5 /* TellUrStoriDAW */,
+				C0D691952E84DD91005A90A6 /* TellUrStoriDAW */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C00CFD2A2E6611E100FE5CE5 /* Resources */ = {
+		C0D691942E84DD91005A90A6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -115,7 +171,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		C00CFD282E6611E100FE5CE5 /* Sources */ = {
+		C0D691922E84DD91005A90A6 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -241,81 +297,95 @@
 			};
 			name = Release;
 		};
-		C00CFD392E6611E100FE5CE5 /* Debug */ = {
+		C0D6919F2E84DD92005A90A6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = TellUrStoriDAW/TellUrStoriDAW.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = G5T4NYSE6Z;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 0.1;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TellUrStoriDAW/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = tellurstori.TellUrStoriDAW;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				XROS_DEPLOYMENT_TARGET = 2.5;
 			};
 			name = Debug;
 		};
-		C00CFD3A2E6611E100FE5CE5 /* Release */ = {
+		C0D691A02E84DD92005A90A6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = TellUrStoriDAW/TellUrStoriDAW.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = G5T4NYSE6Z;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 0.1;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TellUrStoriDAW/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = tellurstori.TellUrStoriDAW;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				XROS_DEPLOYMENT_TARGET = 2.5;
 			};
 			name = Release;
 		};
@@ -331,11 +401,11 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C00CFD382E6611E100FE5CE5 /* Build configuration list for PBXNativeTarget "TellUrStoriDAW" */ = {
+		C0D6919E2E84DD92005A90A6 /* Build configuration list for PBXNativeTarget "TellUrStoriDAW" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C00CFD392E6611E100FE5CE5 /* Debug */,
-				C00CFD3A2E6611E100FE5CE5 /* Release */,
+				C0D6919F2E84DD92005A90A6 /* Debug */,
+				C0D691A02E84DD92005A90A6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

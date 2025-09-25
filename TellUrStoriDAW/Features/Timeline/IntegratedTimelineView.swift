@@ -761,7 +761,12 @@ struct IntegratedTrackHeader: View {
     
     // Computed property to get current track state reactively
     private var audioTrack: AudioTrack {
-        projectManager.currentProject?.tracks.first { $0.id == trackId } ?? AudioTrack(name: "Unknown", color: .gray)
+        // Prefer the engine's project (the button updates this)
+        if let t = audioEngine.currentProject?.tracks.first(where: { $0.id == trackId }) {
+            return t
+        }
+        return projectManager.currentProject?.tracks.first { $0.id == trackId }
+            ?? AudioTrack(name: "Unknown", color: .gray)
     }
     
     // AI Generation state
@@ -909,7 +914,14 @@ struct IntegratedTrackHeader: View {
             // Toggle record enable for track
             let newState = !audioTrack.mixerSettings.isRecordEnabled
             audioEngine.updateTrackRecordEnable(audioTrack.id, newState)
-            projectManager.saveCurrentProject()
+            
+            // Mirror into PM so other views relying on projectManager also update
+            if var p = projectManager.currentProject,
+               let idx = p.tracks.firstIndex(where: { $0.id == audioTrack.id }) {
+                p.tracks[idx].mixerSettings.isRecordEnabled = newState
+                projectManager.currentProject = p
+                projectManager.saveCurrentProject()
+            }
         }) {
             Image(systemName: "record.circle")
                 .font(.system(size: 14, weight: .medium))

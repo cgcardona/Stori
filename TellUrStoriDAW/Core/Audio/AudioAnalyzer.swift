@@ -8,6 +8,7 @@
 import Foundation
 import AVFoundation
 import Accelerate
+import Combine
 
 /// Handles audio file analysis and waveform data generation
 @MainActor

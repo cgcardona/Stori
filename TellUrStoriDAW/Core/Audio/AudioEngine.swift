@@ -884,6 +884,14 @@ class AudioEngine: ObservableObject {
         stopPlayback()
     }
     
+    func togglePlayback() {
+        if transportState.isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+    
     func stop() {
         transportState = .stopped
         // Keep current playhead position instead of resetting to 0
@@ -1071,7 +1079,7 @@ class AudioEngine: ObservableObject {
         
         print("🎙️ START RECORD: Requesting microphone permission...")
         // Request microphone permission
-        requestMicrophonePermission { [weak self] granted in
+        requestMicPermission { [weak self] granted in
             DispatchQueue.main.async {
                 if granted {
                     print("✅ PERMISSION: Microphone access granted")
@@ -1081,6 +1089,23 @@ class AudioEngine: ObservableObject {
                     self?.stopRecording()
                 }
             }
+        }
+    }
+    
+    private func requestMicPermission(completion: @escaping (Bool) -> Void) {
+        // Verify NSMicrophoneUsageDescription is present at runtime
+        let usageDescription = Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") as? String
+        print("🎙️ NSMicrophoneUsageDescription = \(usageDescription ?? "MISSING")")
+        
+        if usageDescription == nil {
+            print("⚠️ WARNING: NSMicrophoneUsageDescription missing from Info.plist - permission dialog may not work")
+        }
+        
+        // Use AVCaptureDevice for macOS (AVAudioSession is iOS-only)
+        print("🎙️ Requesting microphone permission via AVCaptureDevice...")
+        AVCaptureDevice.requestAccess(for: .audio) { result in
+            print("🎙️ AVCaptureDevice permission result: \(result)")
+            completion(result)
         }
     }
     

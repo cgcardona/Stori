@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import AppKit
+import Combine
 
 /// Service for exporting audio regions with and without processing effects
 @MainActor

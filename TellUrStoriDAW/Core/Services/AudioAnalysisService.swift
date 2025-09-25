@@ -8,6 +8,7 @@
 import Foundation
 import AVFoundation
 import Accelerate
+import Combine
 
 @MainActor
 final class AudioAnalysisService: ObservableObject {
