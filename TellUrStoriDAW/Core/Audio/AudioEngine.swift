@@ -893,10 +893,27 @@ class AudioEngine: ObservableObject {
     }
     
     func record() {
-        print("🎙️ RECORD: Starting recording process...")
-        guard currentProject != nil else { 
+        print("🎙️ RECORD: ========== STARTING RECORDING PROCESS ==========")
+        print("🎙️ RECORD: Current transport state: \(transportState)")
+        print("🎙️ RECORD: Current recording state: \(isRecording)")
+        
+        guard let project = currentProject else { 
             print("❌ RECORD: No project loaded")
             return 
+        }
+        
+        print("🎙️ RECORD: Project loaded: \(project.name)")
+        print("🎙️ RECORD: Project has \(project.tracks.count) tracks")
+        
+        // Check for record-enabled tracks
+        let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
+        print("🎙️ RECORD: Found \(recordEnabledTracks.count) record-enabled tracks:")
+        for track in recordEnabledTracks {
+            print("   - \(track.name) (ID: \(track.id))")
+        }
+        
+        if recordEnabledTracks.isEmpty {
+            print("⚠️ RECORD: No tracks are record-enabled! Recording may not work properly.")
         }
         
         if transportState != .playing {
@@ -907,6 +924,7 @@ class AudioEngine: ObservableObject {
         print("🎙️ RECORD: Setting transport state to recording...")
         transportState = .recording
         isRecording = true
+        print("🎙️ RECORD: Calling startRecording()...")
         startRecording()
     }
     
@@ -1080,30 +1098,90 @@ class AudioEngine: ObservableObject {
         case .denied, .restricted:
             print("❌ PERMISSION: Microphone permission denied or restricted")
             print("💡 PERMISSION: Please grant microphone access in System Preferences > Security & Privacy > Microphone")
+            print("💡 PERMISSION: Or reset permissions with: tccutil reset Microphone tellurstori.TellUrStoriDAW")
+            
+            // Show alert to user about manual permission grant
+            DispatchQueue.main.async {
+                self.showPermissionAlert()
+            }
             completion(false)
         case .notDetermined:
             print("🎙️ PERMISSION: Permission not determined, requesting access...")
-            print("🎙️ PERMISSION: This should show a permission dialog...")
+            print("🎙️ PERMISSION: Attempting to show permission dialog...")
             
-            // Force the request to happen on the main thread
-            DispatchQueue.main.async {
-                AVCaptureDevice.requestAccess(for: .audio) { granted in
-                    print("🎙️ PERMISSION: Permission request completed with result: \(granted)")
-                    DispatchQueue.main.async {
-                        if granted {
-                            print("✅ PERMISSION: Microphone permission granted by user")
-                        } else {
-                            print("❌ PERMISSION: Microphone permission denied by user")
-                            print("💡 PERMISSION: If no dialog appeared, try running from Finder instead of Xcode")
-                        }
-                        completion(granted)
-                    }
-                }
-            }
+            // Try multiple approaches for permission request
+            self.requestPermissionWithFallbacks(completion: completion)
+            
         @unknown default:
             print("❌ PERMISSION: Unknown permission state: \(status)")
             completion(false)
         }
+    }
+    
+    private func requestPermissionWithFallbacks(completion: @escaping (Bool) -> Void) {
+        print("🎙️ FALLBACK: Trying primary permission request...")
+        
+        // Primary approach: Standard AVCaptureDevice request
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            print("🎙️ PRIMARY REQUEST: Result = \(granted)")
+            
+            if granted {
+                DispatchQueue.main.async {
+                    print("✅ PERMISSION: Microphone permission granted by user")
+                    completion(true)
+                }
+                return
+            }
+            
+            // If denied, try alternative approach
+            print("🎙️ FALLBACK: Primary request failed, trying alternative...")
+            DispatchQueue.main.async {
+                self.tryAlternativePermissionRequest(completion: completion)
+            }
+        }
+    }
+    
+    private func tryAlternativePermissionRequest(completion: @escaping (Bool) -> Void) {
+        print("🎙️ ALTERNATIVE: Attempting alternative permission request...")
+        
+        // Alternative approach for macOS: Try to access input node directly
+        // This might trigger permission dialog on macOS
+        do {
+            let inputNode = engine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
+            print("✅ ALTERNATIVE: Successfully accessed input node with format: \(inputFormat)")
+            
+            // Check permission again after accessing input
+            let newStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+            print("🎙️ ALTERNATIVE: New status after input access: \(newStatus)")
+            
+            if newStatus == .authorized {
+                completion(true)
+            } else {
+                print("❌ ALTERNATIVE: Still not authorized, showing manual instructions")
+                self.showPermissionAlert()
+                completion(false)
+            }
+            
+        } catch {
+            print("❌ ALTERNATIVE: Input node access failed: \(error)")
+            self.showPermissionAlert()
+            completion(false)
+        }
+    }
+    
+    private func showPermissionAlert() {
+        print("🚨 PERMISSION ALERT: Showing manual permission instructions")
+        print("📋 INSTRUCTIONS:")
+        print("   1. Open System Preferences > Security & Privacy > Privacy")
+        print("   2. Select 'Microphone' from the left sidebar")
+        print("   3. Check the box next to 'TellUrStoriDAW'")
+        print("   4. Restart the app")
+        print("   OR")
+        print("   5. Run: tccutil reset Microphone tellurstori.TellUrStoriDAW")
+        print("   6. Try recording again")
+        
+        // TODO: Show actual macOS alert dialog here if needed
     }
     
     private func setupRecording() {
@@ -1217,7 +1295,7 @@ class AudioEngine: ObservableObject {
                 currentProject = project
                 
                 // Update track node with new region
-                if let trackNode = trackNodes[recordingTrackId] {
+                if trackNodes[recordingTrackId] != nil {
                     // The track node will pick up the new region on next playback
                 }
                 

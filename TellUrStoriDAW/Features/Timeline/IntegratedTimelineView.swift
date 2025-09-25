@@ -905,9 +905,10 @@ struct IntegratedTrackHeader: View {
     
     private var recordButton: some View {
         Button(action: {
+            print("🔴 INTEGRATED HEADER: Record button clicked for track \(audioTrack.id)")
             // Toggle record enable for track
             let newState = !audioTrack.mixerSettings.isRecordEnabled
-            audioEngine.updateTrackRecordEnabled(trackId: audioTrack.id, isRecordEnabled: newState)
+            audioEngine.updateTrackRecordEnable(audioTrack.id, newState)
             projectManager.saveCurrentProject()
         }) {
             Image(systemName: "record.circle")
