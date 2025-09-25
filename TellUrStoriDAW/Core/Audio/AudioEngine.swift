@@ -7,6 +7,7 @@
 
 import Foundation
 import AVFoundation
+import AVKit
 import Combine
 
 // MARK: - Audio Engine Manager
@@ -31,6 +32,11 @@ class AudioEngine: ObservableObject {
     private var startTime: TimeInterval = 0
     private var pausedTime: TimeInterval = 0
     private var soloTracks: Set<UUID> = []
+    
+    // MARK: - Recording Properties
+    private var recordingFile: AVAudioFile?
+    private var recordingStartTime: TimeInterval = 0
+    private var recordingTrackId: UUID?
     
     // MARK: - Current Project
     @Published var currentProject: AudioProject?
@@ -887,22 +893,34 @@ class AudioEngine: ObservableObject {
     }
     
     func record() {
-        guard currentProject != nil else { return }
+        print("🎙️ RECORD: Starting recording process...")
+        guard currentProject != nil else { 
+            print("❌ RECORD: No project loaded")
+            return 
+        }
         
         if transportState != .playing {
+            print("🎙️ RECORD: Starting playback first...")
             play()
         }
         
+        print("🎙️ RECORD: Setting transport state to recording...")
         transportState = .recording
         isRecording = true
         startRecording()
     }
     
     func stopRecording() {
+        print("🎙️ STOP RECORD: Stopping recording...")
         if transportState == .recording {
+            print("🎙️ STOP RECORD: Processing recorded audio...")
+            stopRecordingInternal()
             transportState = .stopped
             isRecording = false
             stopPlayback()
+            print("🎙️ STOP RECORD: Recording stopped successfully")
+        } else {
+            print("❌ STOP RECORD: Not currently recording (state: \(transportState))")
         }
     }
     
@@ -1027,14 +1045,193 @@ class AudioEngine: ObservableObject {
     
     // MARK: - Recording Implementation
     private func startRecording() {
-        // Implement recording logic
-        // This would involve setting up input nodes and recording to files
-        print("Recording started")
+        print("🎙️ START RECORD: Checking project...")
+        guard currentProject != nil else {
+            print("❌ Cannot start recording: No project loaded")
+            return
+        }
+        
+        print("🎙️ START RECORD: Requesting microphone permission...")
+        // Request microphone permission
+        requestMicrophonePermission { [weak self] granted in
+            DispatchQueue.main.async {
+                if granted {
+                    print("✅ PERMISSION: Microphone access granted")
+                    self?.setupRecording()
+                } else {
+                    print("❌ PERMISSION: Microphone permission denied")
+                    self?.stopRecording()
+                }
+            }
+        }
+    }
+    
+    private func requestMicrophonePermission(completion: @escaping (Bool) -> Void) {
+        print("🎙️ PERMISSION: Checking microphone permission status...")
+        
+        // Check current permission status
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        print("🎙️ PERMISSION: Current status: \(status) (rawValue: \(status.rawValue))")
+        
+        switch status {
+        case .authorized:
+            print("✅ PERMISSION: Microphone permission already granted")
+            completion(true)
+        case .denied, .restricted:
+            print("❌ PERMISSION: Microphone permission denied or restricted")
+            print("💡 PERMISSION: Please grant microphone access in System Preferences > Security & Privacy > Microphone")
+            completion(false)
+        case .notDetermined:
+            print("🎙️ PERMISSION: Permission not determined, requesting access...")
+            print("🎙️ PERMISSION: This should show a permission dialog...")
+            
+            // Force the request to happen on the main thread
+            DispatchQueue.main.async {
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    print("🎙️ PERMISSION: Permission request completed with result: \(granted)")
+                    DispatchQueue.main.async {
+                        if granted {
+                            print("✅ PERMISSION: Microphone permission granted by user")
+                        } else {
+                            print("❌ PERMISSION: Microphone permission denied by user")
+                            print("💡 PERMISSION: If no dialog appeared, try running from Finder instead of Xcode")
+                        }
+                        completion(granted)
+                    }
+                }
+            }
+        @unknown default:
+            print("❌ PERMISSION: Unknown permission state: \(status)")
+            completion(false)
+        }
+    }
+    
+    private func setupRecording() {
+        print("🎙️ SETUP RECORD: Setting up recording...")
+        guard let project = currentProject else { 
+            print("❌ SETUP RECORD: No project available")
+            return 
+        }
+        
+        do {
+            // Find the first record-enabled track or create a new one
+            let recordTrack = findOrCreateRecordTrack(in: project)
+            recordingTrackId = recordTrack.id
+            print("🎙️ SETUP RECORD: Using track: \(recordTrack.name) (ID: \(recordTrack.id))")
+            
+            // Create recording file URL
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let recordingURL = documentsPath.appendingPathComponent("Recording_\(Date().timeIntervalSince1970).wav")
+            print("🎙️ SETUP RECORD: Recording to: \(recordingURL.path)")
+            
+            // Set up audio format (44.1kHz, 16-bit, stereo)
+            let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
+            print("🎙️ SETUP RECORD: Using format: \(format)")
+            
+            // Create recording file
+            recordingFile = try AVAudioFile(forWriting: recordingURL, settings: format.settings)
+            print("✅ SETUP RECORD: Recording file created successfully")
+            
+            // Set up input node
+            let inputNode = engine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
+            print("🎙️ SETUP RECORD: Input format: \(inputFormat)")
+            
+            // Install tap on input node to capture audio
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+                guard let self = self, let recordingFile = self.recordingFile else { return }
+                
+                do {
+                    try recordingFile.write(from: buffer)
+                } catch {
+                    print("❌ Error writing audio buffer: \(error)")
+                }
+            }
+            
+            recordingStartTime = currentPosition.timeInterval
+            print("✅ RECORDING STARTED: Recording to \(recordingURL.lastPathComponent) from time \(recordingStartTime)")
+            
+        } catch {
+            print("❌ Failed to setup recording: \(error)")
+            stopRecording()
+        }
+    }
+    
+    private func findOrCreateRecordTrack(in project: AudioProject) -> AudioTrack {
+        // Find first record-enabled track
+        if let recordTrack = project.tracks.first(where: { $0.mixerSettings.isRecordEnabled }) {
+            return recordTrack
+        }
+        
+        // If no record-enabled track, find first audio track
+        if let audioTrack = project.tracks.first(where: { $0.trackType == .audio }) {
+            return audioTrack
+        }
+        
+        // If no audio tracks, return first track (will be created if needed)
+        return project.tracks.first ?? AudioTrack(name: "Audio 1", trackType: .audio)
     }
     
     private func stopRecordingInternal() {
-        // Implement stop recording logic
-        print("Recording stopped")
+        guard let recordingFile = recordingFile,
+              let recordingTrackId = recordingTrackId,
+              var project = currentProject else {
+            print("❌ No active recording to stop")
+            return
+        }
+        
+        // Remove input tap
+        engine.inputNode.removeTap(onBus: 0)
+        
+        // Calculate recording duration
+        let recordingDuration = currentPosition.timeInterval - recordingStartTime
+        
+        do {
+            // Create AudioFile object
+            let audioFile = AudioFile(
+                name: recordingFile.url.deletingPathExtension().lastPathComponent,
+                url: recordingFile.url,
+                duration: recordingDuration,
+                sampleRate: recordingFile.processingFormat.sampleRate,
+                channels: Int(recordingFile.processingFormat.channelCount),
+                bitDepth: 16, // Assuming 16-bit
+                fileSize: Int64(try recordingFile.url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0),
+                format: .wav
+            )
+            
+            // Create audio region
+            let audioRegion = AudioRegion(
+                audioFile: audioFile,
+                startTime: recordingStartTime,
+                duration: recordingDuration,
+                fadeIn: 0,
+                fadeOut: 0,
+                gain: 1.0,
+                isLooped: false,
+                offset: 0
+            )
+            
+            // Add region to the recorded track
+            if let trackIndex = project.tracks.firstIndex(where: { $0.id == recordingTrackId }) {
+                project.tracks[trackIndex].regions.append(audioRegion)
+                currentProject = project
+                
+                // Update track node with new region
+                if let trackNode = trackNodes[recordingTrackId] {
+                    // The track node will pick up the new region on next playback
+                }
+                
+                print("✅ Recording completed: \(audioFile.name) (\(String(format: "%.2f", recordingDuration))s)")
+            }
+            
+        } catch {
+            print("❌ Error processing recorded audio: \(error)")
+        }
+        
+        // Clean up
+        self.recordingFile = nil
+        self.recordingStartTime = 0
+        self.recordingTrackId = nil
     }
     
     // MARK: - Position Control
@@ -1551,7 +1748,7 @@ extension AudioEngine {
         return currentPosition.displayString(timeSignature: project.timeSignature)
     }
     
-    // MARK: - Track-Specific Methods for DAWTrackHeader
+    // MARK: - Track-Specific Methods
     func getTrackLevel(_ trackId: UUID) -> Float {
         // Return the current audio level for the specified track
         guard let trackNode = trackNodes[trackId] else { return 0.0 }
@@ -1559,6 +1756,7 @@ extension AudioEngine {
     }
     
     func updateTrackRecordEnable(_ trackId: UUID, _ enabled: Bool) {
+        print("🔴 Record enable called: \(enabled) for track \(trackId)")
         guard var project = currentProject,
               let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
         

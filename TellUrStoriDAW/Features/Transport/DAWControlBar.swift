@@ -110,6 +110,7 @@ struct DAWControlBar: View {
                     TransportButton(
                         icon: "record.circle.fill",
                         isActive: audioEngine.isRecording,
+                        color: .red,
                         action: {
                             if audioEngine.isRecording {
                                 audioEngine.stopRecording()

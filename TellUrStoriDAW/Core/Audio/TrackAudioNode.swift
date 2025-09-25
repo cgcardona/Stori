@@ -308,7 +308,7 @@ class TrackAudioNode {
         playerNode.stop()
     }
     
-    // MARK: - Additional Methods for DAWTrackHeader
+    // MARK: - Additional Methods
     func setRecordEnabled(_ enabled: Bool) {
         // Implementation for record enable functionality
         // This would typically involve setting up input monitoring and recording paths

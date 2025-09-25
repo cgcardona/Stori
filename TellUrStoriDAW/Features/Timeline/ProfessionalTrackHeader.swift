@@ -620,6 +620,7 @@ struct TrackColorPicker: View {
         .frame(width: 300, height: 400)
     }
 }
+
 // MARK: - Helper Functions
 extension ProfessionalTrackHeader {
     private func convertToAudioTrack(from trackHeader: TrackHeaderModel) -> AudioTrack {

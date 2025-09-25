@@ -48,7 +48,19 @@ enum TrackColor: Codable, Equatable, Hashable {
     }
     
     var color: Color {
-        Color(hex: self.rawValue)
+        // Convert hex string to Color
+        let hex = rawValue.replacingOccurrences(of: "#", with: "")
+        let scanner = Scanner(string: hex)
+        var hexNumber: UInt64 = 0
+        
+        if scanner.scanHexInt64(&hexNumber) {
+            let r = Double((hexNumber & 0xff0000) >> 16) / 255
+            let g = Double((hexNumber & 0x00ff00) >> 8) / 255
+            let b = Double(hexNumber & 0x0000ff) / 255
+            return Color(red: r, green: g, blue: b)
+        }
+        
+        return Color.blue // fallback
     }
     
     // Static predefined colors for picker

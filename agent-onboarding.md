@@ -290,7 +290,7 @@ TellUrStoriDAW/
 │   ├── Features/
 │   │   ├── Timeline/        # IntegratedTimelineView.swift - Professional multi-track timeline
 │   │   ├── Mixer/          # MixerView.swift - Professional mixing console
-│   │   └── Transport/       # TransportView.swift - Playback controls
+│   │   └── Transport/       # DAWControlBar.swift, TransportButton.swift - Playback controls
 │   └── UI/
 │       ├── Components/     # Reusable SwiftUI components
 │       └── Views/          # MainDAWView.swift, EmptyTimelineView.swift
@@ -337,7 +337,8 @@ TellUrStoriDAW/
    - Mute/solo buttons and level meters
    - **Status**: Visual interface complete, controls not functional
 
-7. **TransportView.swift** (`Features/Transport/`)
+7. **DAWControlBar.swift** (`Features/Transport/`) - Main transport controls
+8. **TransportButton.swift** (`Features/Transport/`) - Reusable transport button component
    - Standard DAW transport controls
    - Play/pause/stop/record buttons
    - Time display and position indicator
