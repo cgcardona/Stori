@@ -884,14 +884,6 @@ class AudioEngine: ObservableObject {
         stopPlayback()
     }
     
-    func togglePlayback() {
-        if transportState.isPlaying {
-            pause()
-        } else {
-            play()
-        }
-    }
-    
     func stop() {
         transportState = .stopped
         // Keep current playhead position instead of resetting to 0

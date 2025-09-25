@@ -168,11 +168,11 @@ struct MainDAWView: View {
         }
         .onAppear {
             // Load the most recent project on app launch
-            Task {
-                await MainActor.run {
-                    projectManager.loadMostRecentProject()
-                }
-            }
+//            Task {
+//                await MainActor.run {
+//                    projectManager.loadMostRecentProject()
+//                }
+//            }
         }
         .onChange(of: projectManager.currentProject) { oldProject, newProject in
             if let project = newProject {
