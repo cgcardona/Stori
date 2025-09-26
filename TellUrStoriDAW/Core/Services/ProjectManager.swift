@@ -176,6 +176,13 @@ class ProjectManager: ObservableObject {
         }
     }
     
+    func loadMostRecentProject() {
+        loadRecentProjects()
+        if let mostRecent = recentProjects.first {
+            loadProject(mostRecent)
+        }
+    }
+    
     // MARK: - Project Saving
     func saveCurrentProject() {
         guard let project = currentProject else { return }

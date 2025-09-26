@@ -166,13 +166,25 @@ struct MainDAWView: View {
         .sheet(isPresented: $showingProjectBrowser) {
             ProjectBrowserView(projectManager: projectManager)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
+            showingNewProjectSheet = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
+            showingProjectBrowser = true
+        }
         .onAppear {
-            // Load the most recent project on app launch
-//            Task {
-//                await MainActor.run {
-//                    projectManager.loadMostRecentProject()
-//                }
-//            }
+            // Start the audio engine first
+            print("MainDAWView appeared, initializing audio engine...")
+            
+            // Give the audio engine a moment to initialize
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if let project = projectManager.currentProject {
+                    print("Loading existing project into audio engine...")
+                    audioEngine.loadProject(project)
+                } else {
+                    print("No existing project, audio engine ready for new project creation")
+                }
+            }
         }
         .onChange(of: projectManager.currentProject) { oldProject, newProject in
             if let project = newProject {
@@ -183,6 +195,7 @@ struct MainDAWView: View {
 }
 
 extension MainDAWView {
+    
     
     private var leftPanelView: some View {
         HStack(spacing: 0) {
