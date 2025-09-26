@@ -24,7 +24,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "C00CFD2B2E6611E100FE5CE5"
+               BlueprintIdentifier = "C0D691952E84DD91005A90A6"
                BuildableName = "TellUrStoriDAW.app"
                BlueprintName = "TellUrStoriDAW"
                ReferencedContainer = "container:TellUrStoriDAW.xcodeproj">
@@ -59,15 +59,6 @@
             ReferencedContainer = "container:TellUrStoriDAW.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "C00CFD2B2E6611E100FE5CE5"
-            BuildableName = "TellUrStoriDAW.app"
-            BlueprintName = "TellUrStoriDAW"
-            ReferencedContainer = "container:TellUrStoriDAW.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -79,21 +70,12 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "C00CFD2B2E6611E100FE5CE5"
+            BlueprintIdentifier = "C0D691952E84DD91005A90A6"
             BuildableName = "TellUrStoriDAW.app"
             BlueprintName = "TellUrStoriDAW"
             ReferencedContainer = "container:TellUrStoriDAW.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "C00CFD2B2E6611E100FE5CE5"
-            BuildableName = "TellUrStoriDAW.app"
-            BlueprintName = "TellUrStoriDAW"
-            ReferencedContainer = "container:TellUrStoriDAW.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">
