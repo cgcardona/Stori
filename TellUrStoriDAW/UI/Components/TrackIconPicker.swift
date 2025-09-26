@@ -1,106 +1,192 @@
+//
+//  TrackIconPicker.swift
+//  TellUrStoriDAW
+//
+//  Logic-like track icon picker: fixed sidebar (categories) + adaptive icon grid.
+//  Paste this file into your project. If you already have your own categories,
+//  just pass them into the initializer and remove the defaults if you prefer.
+//
+
 import SwiftUI
 
-struct TrackIconCategory: Identifiable, Hashable {
-    let id = UUID()
-    let name: String
-    let icons: [String]
+// MARK: - Model
 
-    static let defaultCategories: [TrackIconCategory] = [
-        TrackIconCategory(name: "Drums", icons: ["music.quarternote.3", "music.note.list", "metronome", "waveform.path.ecg", "waveform"]),
-        TrackIconCategory(name: "Percussion", icons: ["music.note", "waveform.circle", "tuningfork", "speaker.wave.2", "headphones"]),
-        TrackIconCategory(name: "Bass", icons: ["waveform", "waveform.path.ecg", "music.quarternote.3", "speaker.wave.3", "music.note.list"]),
-        TrackIconCategory(name: "Guitar", icons: ["guitars", "music.note", "waveform", "music.note.list", "headphones"]),
-        TrackIconCategory(name: "Keyboards", icons: ["pianokeys", "music.quarternote.3", "waveform.circle", "music.note.list", "metronome"]),
-        TrackIconCategory(name: "Strings", icons: ["guitars", "music.quarternote.3", "music.note", "waveform", "headphones"]),
-        TrackIconCategory(name: "Wind", icons: ["mic", "mic.fill", "speaker.wave.2", "speaker.wave.3", "music.note.list"]),
-        TrackIconCategory(name: "Sound Effects", icons: ["sparkles", "bolt", "flame", "waveform.path.ecg", "music.note"]),
-        TrackIconCategory(name: "Other", icons: ["music.note", "music.note.list", "tuningfork", "metronome", "waveform"]),
-        TrackIconCategory(name: "Custom Icons", icons: ["star", "heart", "circle", "square", "triangle"])
+public struct TrackIconCategory: Hashable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let icons: [String]   // SF Symbol names or your custom image names
+
+    // Default demo set (swap with your real data)
+    public static let defaults: [TrackIconCategory] = [
+        .init(name: "Instruments", icons: [
+            "music.note", "guitars", "guitars.fill", 
+            "pianokeys", "pianokeys.inverse", "music.mic", "headphones",
+            "speaker.wave.2.fill", "speaker.badge.exclamationmark.fill"
+        ]),
+        .init(name: "Notes", icons: [
+            "music.note", "music.note.list", "music.quarternote.3", 
+            "music.note.house", "music.note.tv", "waveform", "waveform.circle",
+            "waveform.circle.fill", "waveform.path.ecg"
+        ]),
+        .init(name: "Effects", icons: [
+            "sparkles", "wand.and.rays", "wand.and.stars", "slider.horizontal.3",
+            "metronome", "bolt", "flame", "star", "heart"
+        ])
     ]
 }
 
-struct TrackIconPicker: View {
-    private let categories: [TrackIconCategory]
-    let selectedIcon: String
-    let onSelect: (String) -> Void
+// MARK: - View
 
-    @State private var selectedCategoryIndex: Int
+public struct TrackIconPicker: View {
 
-    init(selectedIcon: String, onSelect: @escaping (String) -> Void, categories: [TrackIconCategory] = TrackIconCategory.defaultCategories) {
-        self.selectedIcon = selectedIcon
-        self.onSelect = onSelect
+    // External API
+    public let categories: [TrackIconCategory]
+    @Binding public var selectedIcon: String?
+    public var onSelect: (String) -> Void
+
+    // Internal state
+    @State private var selectedCategoryIndex: Int = 0
+
+    // Layout
+    private let sidebarWidth: CGFloat = 220
+    private let tileSize = CGSize(width: 84, height: 72)
+    private let gridSpacing: CGFloat = 14
+
+    public init(
+        categories: [TrackIconCategory] = TrackIconCategory.defaults,
+        selectedIcon: Binding<String?>,
+        onSelect: @escaping (String) -> Void
+    ) {
         self.categories = categories
-
-        if let initialIndex = categories.firstIndex(where: { $0.icons.contains(selectedIcon) }) {
-            _selectedCategoryIndex = State(initialValue: initialIndex)
-        } else {
-            _selectedCategoryIndex = State(initialValue: 0)
-        }
+        self._selectedIcon = selectedIcon
+        self.onSelect = onSelect
     }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            categoryList
-            Divider()
-            iconGrid
+    public var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                categoryList
+                    .frame(width: sidebarWidth)
+
+                Divider().background(Color.gray.opacity(0.25))
+
+                iconGrid
+                    .frame(width: proxy.size.width - sidebarWidth)
+                    .padding(.horizontal, 16)
+            }
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 6)
         }
-        .padding(12)
-        .frame(width: 360, height: 260)
+        // Popover/sheet sizing similar to Logic
+        .frame(width: 520, height: 275)
     }
+
+    // MARK: Left: Category list
 
     private var categoryList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
-                    Button(action: {
-                        selectedCategoryIndex = index
-                    }) {
-                        HStack {
-                            Text(category.name)
-                                .font(.system(size: 12, weight: selectedCategoryIndex == index ? .semibold : .regular))
-                                .foregroundColor(selectedCategoryIndex == index ? .primary : .secondary)
-                            Spacer()
+                ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            selectedCategoryIndex = idx
                         }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .background(selectedCategoryIndex == index ? Color.accentColor.opacity(0.15) : Color.clear)
-                        .cornerRadius(6)
+                    } label: {
+                        Text(cat.name)
+                            .font(.system(size: 14, weight: selectedCategoryIndex == idx ? .semibold : .regular))
+                            .foregroundColor(selectedCategoryIndex == idx ? .white : .secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(selectedCategoryIndex == idx ? Color.accentColor : Color.clear)
+                            )
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
         }
-        .frame(width: 130)
     }
 
+    // MARK: Right: Adaptive icon grid
+
     private var iconGrid: some View {
-        let icons = categories[selectedCategoryIndex].icons
+        let icons = categories[safe: selectedCategoryIndex]?.icons ?? []
+        // Fixed 3-column layout with consistent spacing
+        let columns = Array(repeating: GridItem(.fixed(80), spacing: 16), count: 3)
 
         return ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
-                ForEach(icons, id: \.self) { icon in
-                    Button(action: {
-                        onSelect(icon)
-                    }) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(selectedIcon == icon ? Color.accentColor.opacity(0.2) : Color.clear)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(selectedIcon == icon ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: selectedIcon == icon ? 1.5 : 1)
-                                )
-
-                            Image(systemName: icon)
-                                .font(.system(size: 20))
-                                .foregroundColor(.primary)
-                        }
-                        .frame(width: 60, height: 50)
-                    }
-                    .buttonStyle(.plain)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
+                ForEach(icons, id: \.self) { iconName in
+                    iconTile(iconName)
                 }
             }
-            .padding(.trailing, 4)
+            .padding(.vertical, 16)
         }
+        // Removed grey background to match the white background of the main component
+    }
+
+    // MARK: Tile
+
+    @ViewBuilder
+    private func iconTile(_ iconName: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                selectedIcon = iconName
+                onSelect(iconName)
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(selectedIcon == iconName ? Color.accentColor
+                                                   : Color(nsColor: .windowBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(selectedIcon == iconName ? Color.accentColor.opacity(0.6)
+                                                             : Color.gray.opacity(0.25),
+                                    lineWidth: selectedIcon == iconName ? 2 : 1)
+                    )
+                    .shadow(color: selectedIcon == iconName ? Color.accentColor.opacity(0.25) : .clear,
+                            radius: 4, x: 0, y: 2)
+
+                // Use SF Symbols by default. Swap this with Image(iconName) if you store assets.
+                Image(systemName: iconName)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(selectedIcon == iconName ? .white : .primary)
+                    .padding(.bottom, 1)
+            }
+            .frame(width: tileSize.width, height: tileSize.height)
+        }
+        .buttonStyle(HoverButtonStyle())
+        .help(iconName)
+    }
+}
+
+// MARK: - Button Style
+
+struct HoverButtonStyle: ButtonStyle {
+    @State private var isHovering = false
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : (isHovering ? 1.05 : 1.0))
+            .opacity(configuration.isPressed ? 0.8 : (isHovering ? 0.9 : 1.0))
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
+            .onHover { hovering in
+                isHovering = hovering
+            }
+    }
+}
+
+// MARK: - Helpers
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

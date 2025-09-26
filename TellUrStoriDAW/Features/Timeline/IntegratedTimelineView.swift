@@ -803,7 +803,7 @@ struct IntegratedTrackHeader: View {
                     }
                     .buttonStyle(.plain)
                     .popover(isPresented: $showingIconPicker, arrowEdge: .bottom) {
-                        TrackIconPicker(selectedIcon: trackIcon) { icon in
+                        TrackIconPicker(selectedIcon: .constant(trackIcon)) { icon in
                             selectTrackIcon(icon)
                             showingIconPicker = false
                         }
