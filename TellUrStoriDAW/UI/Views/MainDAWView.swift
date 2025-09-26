@@ -172,6 +172,46 @@ struct MainDAWView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
             showingProjectBrowser = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .newTrack)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                addTrack()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deleteTrack)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                deleteSelectedTrack()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleMixer)) { _ in
+            if selectedMainTab == .daw {
+                showingMixer.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleLibrary)) { _ in
+            if selectedMainTab == .daw {
+                showingLibrary.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleInspector)) { _ in
+            if selectedMainTab == .daw {
+                showingInspector.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
+            if projectManager.currentProject != nil {
+                projectManager.saveCurrentProject()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .skipToBeginning)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                audioEngine.skipToBeginning()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .skipToEnd)) { _ in
+            if projectManager.currentProject != nil && selectedMainTab == .daw {
+                audioEngine.skipToEnd()
+            }
+        }
         .onAppear {
             // Start the audio engine first
             print("MainDAWView appeared, initializing audio engine...")
