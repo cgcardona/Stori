@@ -771,6 +771,7 @@ struct IntegratedTrackHeader: View {
     
     // AI Generation state
     @State private var showingAIGeneration = false
+    @State private var showingIconPicker = false
     
     var body: some View {
         // let _ = print("🎯 IntegratedTrackHeader: \(audioTrack.name) isSelected=\(isSelected)")
@@ -790,11 +791,24 @@ struct IntegratedTrackHeader: View {
                         height: height * 0.6,
                         cornerRadius: 2
                     )
-                    
-                    Image(systemName: trackIcon)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.primary)
-                        .frame(width: 20)
+
+                    Button(action: {
+                        showingIconPicker.toggle()
+                    }) {
+                        Image(systemName: trackIcon)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.primary)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showingIconPicker, arrowEdge: .bottom) {
+                        TrackIconPicker(selectedIcon: trackIcon) { icon in
+                            selectTrackIcon(icon)
+                            showingIconPicker = false
+                        }
+                    }
+                    .help("Track Icon. Click to open icon menu.")
                 }
                 .frame(width: 30) // Fixed width for icon section
                 
@@ -809,7 +823,8 @@ struct IntegratedTrackHeader: View {
                         lineLimit: 1,
                         truncationMode: .tail
                     )
-                    
+                    .help("Track Title")
+
                     Text("Audio")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
@@ -847,6 +862,7 @@ struct IntegratedTrackHeader: View {
                         )
                         .frame(width: 30)
                         .controlSize(.mini)
+                        .help("Volume")
                     }
                     
                     // Pan control (more compact)
@@ -867,6 +883,7 @@ struct IntegratedTrackHeader: View {
                         )
                         .frame(width: 30)
                         .controlSize(.mini)
+                        .help("Pan")
                     }
                     
                     // AI Generation button
@@ -897,8 +914,15 @@ struct IntegratedTrackHeader: View {
     }
     
     private var trackIcon: String {
-        // Choose icon based on track type or name
-        let name = audioTrack.name.lowercased()
+        if let explicitIcon = audioTrack.iconName, !explicitIcon.isEmpty {
+            return explicitIcon
+        }
+
+        return defaultIconName(for: audioTrack.name)
+    }
+
+    private func defaultIconName(for trackName: String) -> String {
+        let name = trackName.lowercased()
         if name.contains("kick") || name.contains("drum") { return "music.note" }
         if name.contains("bass") { return "waveform" }
         if name.contains("guitar") { return "guitars" }
@@ -906,6 +930,12 @@ struct IntegratedTrackHeader: View {
         if name.contains("vocal") || name.contains("voice") { return "mic" }
         if name.contains("synth") { return "tuningfork" }
         return "music.quarternote.3"
+    }
+
+    private func selectTrackIcon(_ icon: String) {
+        audioEngine.updateTrackIcon(trackId: audioTrack.id, iconName: icon)
+        projectManager.updateTrackIcon(audioTrack.id, icon)
+        projectManager.saveCurrentProject()
     }
     
     private var recordButton: some View {
@@ -928,6 +958,7 @@ struct IntegratedTrackHeader: View {
                 .foregroundColor(audioTrack.mixerSettings.isRecordEnabled ? .red : .secondary)
         }
         .buttonStyle(.plain)
+        .help("Enable Record")
     }
     
     private var muteButton: some View {
@@ -947,6 +978,7 @@ struct IntegratedTrackHeader: View {
                 .cornerRadius(3)
         }
         .buttonStyle(.plain)
+        .help("Mute")
     }
     
     private var soloButton: some View {
@@ -966,6 +998,7 @@ struct IntegratedTrackHeader: View {
                 .cornerRadius(3)
         }
         .buttonStyle(.plain)
+        .help("Solo")
     }
     
     private var aiGenerationButton: some View {
@@ -977,7 +1010,7 @@ struct IntegratedTrackHeader: View {
                 .foregroundColor(.purple)
         }
         .buttonStyle(.plain)
-        .help("Generate AI music for this track")
+        .help("Generate AI Music for this Track")
     }
     
     private var deleteButton: some View {

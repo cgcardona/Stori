@@ -557,8 +557,18 @@ class ProjectManager: ObservableObject {
     func updateTrackColor(_ trackId: UUID, _ newColor: TrackColor) {
         guard var project = currentProject,
               let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
-        
+
         project.tracks[trackIndex].color = newColor
+        project.modifiedAt = Date()
+        currentProject = project
+        hasUnsavedChanges = true
+    }
+
+    func updateTrackIcon(_ trackId: UUID, _ iconName: String) {
+        guard var project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
+
+        project.tracks[trackIndex].iconName = iconName
         project.modifiedAt = Date()
         currentProject = project
         hasUnsavedChanges = true
@@ -572,7 +582,8 @@ class ProjectManager: ObservableObject {
         duplicatedTrack = AudioTrack(
             name: "\(duplicatedTrack.name) Copy",
             trackType: duplicatedTrack.trackType,
-            color: duplicatedTrack.color
+            color: duplicatedTrack.color,
+            iconName: duplicatedTrack.iconName
         )
         // Copy regions and settings
         duplicatedTrack.regions = project.tracks[trackIndex].regions

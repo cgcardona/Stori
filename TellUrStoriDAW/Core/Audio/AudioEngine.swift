@@ -1522,9 +1522,9 @@ class AudioEngine: ObservableObject {
     }
     
     func updateTrackSolo(trackId: UUID, isSolo: Bool) {
-        guard let trackNode = trackNodes[trackId] else { 
+        guard let trackNode = trackNodes[trackId] else {
             print("⚠️ AudioEngine: No trackNode found for \(trackId)")
-            return 
+            return
         }
         
         if isSolo {
@@ -1539,6 +1539,16 @@ class AudioEngine: ObservableObject {
         // Update the project model
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
             settings.isSolo = isSolo
+        }
+    }
+
+    func updateTrackIcon(trackId: UUID, iconName: String) {
+        guard let project = currentProject else { return }
+
+        var updatedProject = project
+        if let trackIndex = updatedProject.tracks.firstIndex(where: { $0.id == trackId }) {
+            updatedProject.tracks[trackIndex].iconName = iconName
+            currentProject = updatedProject
         }
     }
     

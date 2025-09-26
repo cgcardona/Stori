@@ -152,11 +152,12 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     var sends: [TrackSend]
     var trackType: TrackType
     var color: TrackColor
+    var iconName: String?
     var isFrozen: Bool
     var isEnabled: Bool
     var createdAt: Date
     
-    init(name: String, trackType: TrackType = .audio, color: TrackColor = .blue) {
+    init(name: String, trackType: TrackType = .audio, color: TrackColor = .blue, iconName: String? = nil) {
         self.id = UUID()
         self.name = name
         self.regions = []
@@ -165,6 +166,7 @@ struct AudioTrack: Identifiable, Codable, Equatable {
         self.sends = []
         self.trackType = trackType
         self.color = color
+        self.iconName = iconName
         self.isFrozen = false
         self.isEnabled = true
         self.createdAt = Date()
