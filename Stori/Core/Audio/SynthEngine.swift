@@ -1,0 +1,668 @@
+//
+//  SynthEngine.swift
+//  Stori
+//
+//  Created by TellUrStori on 12/18/25.
+//
+//  Professional subtractive synthesizer engine with multiple oscillators,
+//  filter, envelope, and LFO. Supports polyphonic playback with voice stealing.
+//
+
+import Foundation
+import AVFoundation
+import Accelerate
+
+// MARK: - SynthPreset
+
+/// Complete synthesizer preset with all parameters.
+struct SynthPreset: Codable, Equatable, Identifiable {
+    var id: UUID = UUID()
+    var name: String
+    
+    // Oscillators
+    var oscillator1: OscillatorType
+    var oscillator2: OscillatorType
+    var oscillatorMix: Float       // 0 = osc1 only, 1 = osc2 only
+    var oscillator2Detune: Float   // cents (-100 to +100)
+    var oscillator2Octave: Int     // -2 to +2
+    
+    // Envelope (ADSR)
+    var envelope: ADSREnvelope
+    
+    // Filter
+    var filter: FilterSettings
+    
+    // LFO
+    var lfo: LFOSettings
+    
+    // Master
+    var masterVolume: Float        // 0.0 - 1.0
+    var glide: Float               // Portamento time in seconds (0 = off)
+    
+    // MARK: - Factory Presets
+    
+    static let `default` = SynthPreset(
+        name: "Init Patch",
+        oscillator1: .saw,
+        oscillator2: .square,
+        oscillatorMix: 0.0,
+        oscillator2Detune: 0,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.01, decay: 0.1, sustain: 0.7, release: 0.3),
+        filter: FilterSettings(cutoff: 1.0, resonance: 0.0, type: .lowPass, envelopeAmount: 0.0),
+        lfo: LFOSettings(rate: 1.0, depth: 0.0, shape: .sine, destination: .none),
+        masterVolume: 0.7,
+        glide: 0.0
+    )
+    
+    static let brightLead = SynthPreset(
+        name: "Bright Lead",
+        oscillator1: .saw,
+        oscillator2: .saw,
+        oscillatorMix: 0.3,
+        oscillator2Detune: 7,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.01, decay: 0.2, sustain: 0.8, release: 0.2),
+        filter: FilterSettings(cutoff: 0.8, resonance: 0.3, type: .lowPass, envelopeAmount: 0.2),
+        lfo: LFOSettings(rate: 5.0, depth: 0.1, shape: .sine, destination: .pitch),
+        masterVolume: 0.7,
+        glide: 0.02
+    )
+    
+    static let warmPad = SynthPreset(
+        name: "Warm Pad",
+        oscillator1: .saw,
+        oscillator2: .triangle,
+        oscillatorMix: 0.5,
+        oscillator2Detune: 5,
+        oscillator2Octave: -1,
+        envelope: ADSREnvelope(attack: 0.5, decay: 0.5, sustain: 0.8, release: 1.0),
+        filter: FilterSettings(cutoff: 0.4, resonance: 0.1, type: .lowPass, envelopeAmount: 0.3),
+        lfo: LFOSettings(rate: 0.5, depth: 0.05, shape: .sine, destination: .filter),
+        masterVolume: 0.6,
+        glide: 0.1
+    )
+    
+    static let deepBass = SynthPreset(
+        name: "Deep Bass",
+        oscillator1: .sine,
+        oscillator2: .square,
+        oscillatorMix: 0.3,
+        oscillator2Detune: 0,
+        oscillator2Octave: -1,
+        envelope: ADSREnvelope(attack: 0.01, decay: 0.3, sustain: 0.6, release: 0.2),
+        filter: FilterSettings(cutoff: 0.3, resonance: 0.2, type: .lowPass, envelopeAmount: 0.4),
+        lfo: LFOSettings(rate: 0.0, depth: 0.0, shape: .sine, destination: .none),
+        masterVolume: 0.8,
+        glide: 0.0
+    )
+    
+    static let pluckySynth = SynthPreset(
+        name: "Plucky Synth",
+        oscillator1: .saw,
+        oscillator2: .pulse,
+        oscillatorMix: 0.4,
+        oscillator2Detune: 3,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.001, decay: 0.3, sustain: 0.0, release: 0.1),
+        filter: FilterSettings(cutoff: 0.6, resonance: 0.4, type: .lowPass, envelopeAmount: 0.8),
+        lfo: LFOSettings(rate: 0.0, depth: 0.0, shape: .sine, destination: .none),
+        masterVolume: 0.7,
+        glide: 0.0
+    )
+    
+    static let classicPiano = SynthPreset(
+        name: "Classic Piano",
+        oscillator1: .sine,
+        oscillator2: .triangle,
+        oscillatorMix: 0.7,
+        oscillator2Detune: 0,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.001, decay: 0.1, sustain: 0.3, release: 0.4),
+        filter: FilterSettings(cutoff: 0.9, resonance: 0.1, type: .lowPass, envelopeAmount: 0.2),
+        lfo: LFOSettings(rate: 0.0, depth: 0.0, shape: .sine, destination: .none),
+        masterVolume: 0.8,
+        glide: 0.0
+    )
+    
+    static let electricGuitar = SynthPreset(
+        name: "Electric Guitar",
+        oscillator1: .saw,
+        oscillator2: .square,
+        oscillatorMix: 0.6,
+        oscillator2Detune: 5,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.05, decay: 0.2, sustain: 0.6, release: 0.3),
+        filter: FilterSettings(cutoff: 0.7, resonance: 0.3, type: .lowPass, envelopeAmount: 0.4),
+        lfo: LFOSettings(rate: 3.0, depth: 0.05, shape: .sine, destination: .filter),
+        masterVolume: 0.75,
+        glide: 0.0
+    )
+    
+    static let stringsSection = SynthPreset(
+        name: "Strings Section",
+        oscillator1: .saw,
+        oscillator2: .saw,
+        oscillatorMix: 0.5,
+        oscillator2Detune: 3,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.3, decay: 0.4, sustain: 0.9, release: 1.2),
+        filter: FilterSettings(cutoff: 0.5, resonance: 0.2, type: .lowPass, envelopeAmount: 0.3),
+        lfo: LFOSettings(rate: 0.8, depth: 0.08, shape: .sine, destination: .pitch),
+        masterVolume: 0.7,
+        glide: 0.0
+    )
+    
+    static let analogSynth = SynthPreset(
+        name: "Analog Synth",
+        oscillator1: .saw,
+        oscillator2: .square,
+        oscillatorMix: 0.4,
+        oscillator2Detune: 7,
+        oscillator2Octave: 0,
+        envelope: ADSREnvelope(attack: 0.1, decay: 0.3, sustain: 0.7, release: 0.5),
+        filter: FilterSettings(cutoff: 0.6, resonance: 0.4, type: .lowPass, envelopeAmount: 0.5),
+        lfo: LFOSettings(rate: 2.0, depth: 0.1, shape: .triangle, destination: .filter),
+        masterVolume: 0.75,
+        glide: 0.05
+    )
+    
+    static let allPresets: [SynthPreset] = [
+        .default, .brightLead, .warmPad, .deepBass, .pluckySynth,
+        .classicPiano, .electricGuitar, .stringsSection, .analogSynth
+    ]
+    
+    /// Get preset by name (for Library instrument selection)
+    static func preset(named name: String) -> SynthPreset? {
+        return allPresets.first { $0.name == name }
+    }
+}
+
+// MARK: - Oscillator Type
+
+enum OscillatorType: String, Codable, CaseIterable {
+    case sine = "Sine"
+    case saw = "Saw"
+    case square = "Square"
+    case triangle = "Triangle"
+    case pulse = "Pulse"
+    case noise = "Noise"
+    
+    var icon: String {
+        switch self {
+        case .sine: return "waveform"
+        case .saw: return "waveform.path.ecg"
+        case .square: return "square.fill"
+        case .triangle: return "triangle.fill"
+        case .pulse: return "rectangle.lefthalf.filled"
+        case .noise: return "waveform.badge.magnifyingglass"
+        }
+    }
+}
+
+// MARK: - ADSR Envelope
+
+struct ADSREnvelope: Codable, Equatable {
+    var attack: Float      // 0.001 - 10.0 seconds
+    var decay: Float       // 0.001 - 10.0 seconds
+    var sustain: Float     // 0.0 - 1.0
+    var release: Float     // 0.001 - 30.0 seconds
+    
+    /// Calculate envelope value at a given time
+    func value(at time: Float, noteOnDuration: Float, isReleased: Bool) -> Float {
+        if isReleased {
+            // Release phase
+            let releaseTime = time - noteOnDuration
+            if releaseTime >= release {
+                return 0
+            }
+            let sustainLevel = sustainValueAt(noteOnDuration)
+            return sustainLevel * (1 - releaseTime / release)
+        } else {
+            return sustainValueAt(time)
+        }
+    }
+    
+    private func sustainValueAt(_ time: Float) -> Float {
+        if time < attack {
+            // Attack phase
+            return time / attack
+        } else if time < attack + decay {
+            // Decay phase
+            let decayProgress = (time - attack) / decay
+            return 1.0 - (1.0 - sustain) * decayProgress
+        } else {
+            // Sustain phase
+            return sustain
+        }
+    }
+}
+
+// MARK: - Filter Settings
+
+struct FilterSettings: Codable, Equatable {
+    var cutoff: Float          // 0.0 - 1.0 (maps to 20Hz - 20kHz)
+    var resonance: Float       // 0.0 - 1.0
+    var type: FilterType
+    var envelopeAmount: Float  // How much envelope affects cutoff
+    var keyTracking: Float = 0.0 // How much pitch affects cutoff
+    
+    /// Convert normalized cutoff to frequency
+    var cutoffFrequency: Float {
+        // Logarithmic mapping: 20Hz to 20kHz
+        let minFreq: Float = 20
+        let maxFreq: Float = 20000
+        return minFreq * pow(maxFreq / minFreq, cutoff)
+    }
+}
+
+enum FilterType: String, Codable, CaseIterable {
+    case lowPass = "Low Pass"
+    case highPass = "High Pass"
+    case bandPass = "Band Pass"
+    case notch = "Notch"
+    
+    var icon: String {
+        switch self {
+        case .lowPass: return "line.diagonal.arrow"
+        case .highPass: return "line.diagonal"
+        case .bandPass: return "waveform"
+        case .notch: return "minus.circle"
+        }
+    }
+}
+
+// MARK: - LFO Settings
+
+struct LFOSettings: Codable, Equatable {
+    var rate: Float            // 0.1 - 20.0 Hz
+    var depth: Float           // 0.0 - 1.0
+    var shape: LFOShape
+    var destination: LFODestination
+    
+    /// Calculate LFO value at a given time
+    func value(at time: Float) -> Float {
+        guard depth > 0 else { return 0 }
+        
+        let phase = time * rate * 2 * .pi
+        let rawValue: Float
+        
+        switch shape {
+        case .sine:
+            rawValue = sin(phase)
+        case .triangle:
+            let p = time * rate
+            rawValue = 4 * abs(p - floor(p + 0.5)) - 1
+        case .square:
+            rawValue = sin(phase) >= 0 ? 1 : -1
+        case .saw:
+            let p = time * rate
+            rawValue = 2 * (p - floor(p + 0.5))
+        case .random:
+            // Sample & hold style
+            rawValue = Float.random(in: -1...1)
+        }
+        
+        return rawValue * depth
+    }
+}
+
+enum LFOShape: String, Codable, CaseIterable {
+    case sine = "Sine"
+    case triangle = "Triangle"
+    case square = "Square"
+    case saw = "Saw"
+    case random = "Random"
+}
+
+enum LFODestination: String, Codable, CaseIterable {
+    case none = "None"
+    case pitch = "Pitch"
+    case filter = "Filter"
+    case amplitude = "Amplitude"
+    case pan = "Pan"
+}
+
+// MARK: - SynthVoice
+
+/// A single voice in the polyphonic synthesizer.
+class SynthVoice {
+    let pitch: UInt8
+    let velocity: UInt8
+    var preset: SynthPreset
+    
+    private(set) var isActive = true
+    private(set) var isReleased = false
+    private var startTime: Float = 0
+    private var releaseStartTime: Float = 0
+    private var phase1: Float = 0
+    private var phase2: Float = 0
+    
+    private let sampleRate: Float
+    private let baseFrequency: Float
+    
+    init(pitch: UInt8, velocity: UInt8, preset: SynthPreset, sampleRate: Float = 48000) {
+        self.pitch = pitch
+        self.velocity = velocity
+        self.preset = preset
+        self.sampleRate = sampleRate
+        self.baseFrequency = Float(MIDIHelper.frequencyHz(for: pitch))
+    }
+    
+    /// Trigger the release phase
+    func release(at time: Float) {
+        isReleased = true
+        releaseStartTime = time
+    }
+    
+    /// Check if voice should be deallocated
+    func shouldDeallocate(at time: Float) -> Bool {
+        guard isReleased else { return false }
+        return (time - releaseStartTime) > preset.envelope.release
+    }
+    
+    /// Render samples for this voice
+    func render(into buffer: UnsafeMutablePointer<Float>, frameCount: Int, startTime: Float) {
+        let velocityGain = Float(velocity) / 127.0
+        
+        for frame in 0..<frameCount {
+            let time = startTime + Float(frame) / sampleRate
+            let voiceTime = time - self.startTime
+            
+            // Calculate envelope
+            let envelope = preset.envelope.value(
+                at: voiceTime,
+                noteOnDuration: isReleased ? (releaseStartTime - self.startTime) : voiceTime,
+                isReleased: isReleased
+            )
+            
+            // Voice is done
+            if envelope <= 0 && isReleased {
+                isActive = false
+                return
+            }
+            
+            // Calculate LFO
+            let lfoValue = preset.lfo.value(at: voiceTime)
+            
+            // Apply LFO to frequency
+            var frequency = baseFrequency
+            if preset.lfo.destination == .pitch {
+                frequency *= pow(2, lfoValue / 12) // LFO in semitones
+            }
+            
+            // Calculate oscillator 1
+            let sample1 = generateOscillator(preset.oscillator1, frequency: frequency, phase: &phase1)
+            
+            // Calculate oscillator 2
+            var freq2 = frequency
+            freq2 *= pow(2, Float(preset.oscillator2Octave)) // Octave
+            freq2 *= pow(2, preset.oscillator2Detune / 1200) // Detune in cents
+            let sample2 = generateOscillator(preset.oscillator2, frequency: freq2, phase: &phase2)
+            
+            // Mix oscillators
+            var sample = sample1 * (1 - preset.oscillatorMix) + sample2 * preset.oscillatorMix
+            
+            // Apply filter (simple one-pole for now)
+            var cutoff = preset.filter.cutoff
+            cutoff += preset.filter.envelopeAmount * envelope
+            if preset.lfo.destination == .filter {
+                cutoff += lfoValue * 0.3
+            }
+            cutoff = max(0, min(1, cutoff))
+            // Simple RC filter approximation
+            sample = sample * cutoff + buffer[frame] * (1 - cutoff) * 0.1
+            
+            // Apply envelope and velocity
+            var amplitude = envelope * velocityGain * preset.masterVolume
+            if preset.lfo.destination == .amplitude {
+                amplitude *= (1 + lfoValue * 0.5)
+            }
+            
+            buffer[frame] += sample * amplitude
+        }
+    }
+    
+    private func generateOscillator(_ type: OscillatorType, frequency: Float, phase: inout Float) -> Float {
+        let phaseIncrement = frequency / sampleRate
+        phase += phaseIncrement
+        if phase >= 1.0 { phase -= 1.0 }
+        
+        let p = phase * 2 * .pi
+        
+        switch type {
+        case .sine:
+            return sin(p)
+        case .saw:
+            return 2 * phase - 1
+        case .square:
+            return phase < 0.5 ? 1 : -1
+        case .triangle:
+            return 4 * abs(phase - 0.5) - 1
+        case .pulse:
+            return phase < 0.25 ? 1 : -1
+        case .noise:
+            return Float.random(in: -1...1)
+        }
+    }
+    
+    func setStartTime(_ time: Float) {
+        self.startTime = time
+    }
+}
+
+// MARK: - SynthEngine
+
+/// Main synthesizer engine managing multiple polyphonic voices.
+class SynthEngine {
+    
+    // MARK: - Properties
+    
+    var preset: SynthPreset = .default
+    var isEnabled = true
+    
+    /// Maximum number of simultaneous voices
+    let maxPolyphony = 16
+    
+    /// Active voices - using lock for thread safety
+    private var voices: [SynthVoice] = []
+    private let voicesLock = NSLock()
+    
+    var activeVoices: [SynthVoice] {
+        voicesLock.lock()
+        defer { voicesLock.unlock() }
+        return voices
+    }
+    
+    /// Audio engine components
+    private var audioEngine: AVAudioEngine?
+    private var sourceNode: AVAudioSourceNode?
+    private var mixerNode: AVAudioMixerNode?
+    
+    private let sampleRate: Double = 48000
+    private var currentTime: Float = 0
+    private var isPlaying = false
+    
+    // MARK: - Initialization
+    
+    init() {
+        // Audio engine setup is deferred until needed
+    }
+    
+    // MARK: - Audio Engine
+    
+    /// Start the audio engine
+    func start() throws {
+        guard !isPlaying else { return }
+        
+        audioEngine = AVAudioEngine()
+        guard let engine = audioEngine else { return }
+        
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
+        
+        // Create source node that renders synth voices
+        sourceNode = AVAudioSourceNode(format: format) { [weak self] _, timeStamp, frameCount, audioBufferList -> OSStatus in
+            guard let self = self else { return noErr }
+            
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            
+            // Clear buffers
+            for buffer in ablPointer {
+                memset(buffer.mData, 0, Int(buffer.mDataByteSize))
+            }
+            
+            // Render all active voices (directly, no async)
+            self.renderVoices(into: ablPointer, frameCount: Int(frameCount))
+            
+            return noErr
+        }
+        
+        guard let sourceNode = sourceNode else { return }
+        
+        mixerNode = AVAudioMixerNode()
+        guard let mixer = mixerNode else { return }
+        
+        engine.attach(sourceNode)
+        engine.attach(mixer)
+        
+        engine.connect(sourceNode, to: mixer, format: format)
+        engine.connect(mixer, to: engine.mainMixerNode, format: format)
+        
+        try engine.start()
+        isPlaying = true
+        
+    }
+    
+    /// Stop the audio engine
+    func stop() {
+        audioEngine?.stop()
+        isPlaying = false
+        allNotesOff()
+    }
+    
+    // MARK: - Note Control
+    
+    /// Trigger a note on
+    func noteOn(pitch: UInt8, velocity: UInt8) {
+        guard isEnabled else { return }
+        
+        voicesLock.lock()
+        defer { voicesLock.unlock() }
+        
+        // Voice stealing if at max polyphony
+        if voices.count >= maxPolyphony {
+            // Remove oldest voice
+            if let oldestIndex = voices.firstIndex(where: { $0.isReleased }) ?? voices.indices.first {
+                voices.remove(at: oldestIndex)
+            }
+        }
+        
+        let voice = SynthVoice(pitch: pitch, velocity: velocity, preset: preset, sampleRate: Float(sampleRate))
+        voice.setStartTime(currentTime)
+        voices.append(voice)
+        
+    }
+    
+    /// Trigger a note off
+    func noteOff(pitch: UInt8) {
+        voicesLock.lock()
+        defer { voicesLock.unlock() }
+        
+        for voice in voices where voice.pitch == pitch && !voice.isReleased {
+            voice.release(at: currentTime)
+        }
+    }
+    
+    /// Stop all notes immediately
+    func allNotesOff() {
+        voicesLock.lock()
+        defer { voicesLock.unlock() }
+        
+        for voice in voices {
+            voice.release(at: currentTime)
+        }
+    }
+    
+    /// Panic - remove all voices immediately
+    func panic() {
+        voicesLock.lock()
+        defer { voicesLock.unlock() }
+        voices.removeAll()
+    }
+    
+    // MARK: - Rendering
+    
+    private func renderVoices(into bufferList: UnsafeMutableAudioBufferListPointer, frameCount: Int) {
+        voicesLock.lock()
+        
+        guard !voices.isEmpty else {
+            voicesLock.unlock()
+            return
+        }
+        
+        // Get left channel buffer
+        guard let buffer = bufferList.first?.mData?.assumingMemoryBound(to: Float.self) else {
+            voicesLock.unlock()
+            return
+        }
+        
+        // Render each voice
+        for voice in voices where voice.isActive {
+            voice.render(into: buffer, frameCount: frameCount, startTime: currentTime)
+        }
+        
+        // Copy to right channel (mono to stereo)
+        if bufferList.count > 1, let rightBuffer = bufferList[1].mData?.assumingMemoryBound(to: Float.self) {
+            memcpy(rightBuffer, buffer, frameCount * MemoryLayout<Float>.size)
+        }
+        
+        // Update time
+        currentTime += Float(frameCount) / Float(sampleRate)
+        
+        // Remove finished voices
+        voices.removeAll { $0.shouldDeallocate(at: currentTime) }
+        
+        voicesLock.unlock()
+    }
+    
+    // MARK: - Preset Management
+    
+    func loadPreset(_ preset: SynthPreset) {
+        self.preset = preset
+        // Update all active voices
+        for voice in activeVoices {
+            voice.preset = preset
+        }
+    }
+    
+    // MARK: - Parameter Control
+    
+    func setMasterVolume(_ volume: Float) {
+        preset.masterVolume = max(0, min(1, volume))
+    }
+    
+    func setFilterCutoff(_ cutoff: Float) {
+        preset.filter.cutoff = max(0, min(1, cutoff))
+    }
+    
+    func setFilterResonance(_ resonance: Float) {
+        preset.filter.resonance = max(0, min(1, resonance))
+    }
+    
+    func setAttack(_ attack: Float) {
+        preset.envelope.attack = max(0.001, min(10, attack))
+    }
+    
+    func setDecay(_ decay: Float) {
+        preset.envelope.decay = max(0.001, min(10, decay))
+    }
+    
+    func setSustain(_ sustain: Float) {
+        preset.envelope.sustain = max(0, min(1, sustain))
+    }
+    
+    func setRelease(_ release: Float) {
+        preset.envelope.release = max(0.001, min(30, release))
+    }
+}
+

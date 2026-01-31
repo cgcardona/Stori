@@ -1,0 +1,554 @@
+//
+//  MIDIModels.swift
+//  Stori
+//
+//  Created by TellUrStori on 12/18/25.
+//
+//  Core MIDI data models for professional MIDI workflow.
+//  Supports note recording, editing, and playback with full velocity/CC support.
+//
+
+import Foundation
+import SwiftUI
+
+// MARK: - MIDINote
+
+/// Represents a single MIDI note event with pitch, velocity, timing, and channel.
+struct MIDINote: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var pitch: UInt8           // 0-127 (C-1 to G9)
+    var velocity: UInt8        // 0-127 (0 = note off in some contexts)
+    var startTime: TimeInterval // Position in region (beats)
+    var duration: TimeInterval  // Note length (beats)
+    var channel: UInt8         // MIDI channel (0-15)
+    
+    // MARK: - Computed Properties
+    
+    /// Human-readable note name (e.g., "C4", "F#5")
+    var noteName: String { MIDIHelper.noteName(for: pitch) }
+    
+    /// Octave number (-1 to 9)
+    var octave: Int { Int(pitch / 12) - 1 }
+    
+    /// Note within octave (0-11, where 0 = C)
+    var noteInOctave: Int { Int(pitch % 12) }
+    
+    /// End time of the note
+    var endTime: TimeInterval { startTime + duration }
+    
+    /// Whether this is a black key
+    var isBlackKey: Bool { MIDIHelper.isBlackKey(pitch) }
+    
+    /// Frequency in Hz (A4 = 440Hz)
+    var frequencyHz: Double { MIDIHelper.frequencyHz(for: pitch) }
+    
+    // MARK: - Initialization
+    
+    init(
+        id: UUID = UUID(),
+        pitch: UInt8,
+        velocity: UInt8 = 100,
+        startTime: TimeInterval,
+        duration: TimeInterval,
+        channel: UInt8 = 0
+    ) {
+        self.id = id
+        self.pitch = pitch
+        self.velocity = velocity
+        self.startTime = startTime
+        self.duration = duration
+        self.channel = channel
+    }
+    
+    // MARK: - Factory Methods
+    
+    /// Create a note from note name string (e.g., "C4", "F#5")
+    static func fromNoteName(_ name: String, velocity: UInt8 = 100, startTime: TimeInterval, duration: TimeInterval) -> MIDINote? {
+        guard let pitch = MIDIHelper.pitch(for: name) else { return nil }
+        return MIDINote(pitch: pitch, velocity: velocity, startTime: startTime, duration: duration)
+    }
+}
+
+// MARK: - MIDIRegion
+
+/// A region containing MIDI notes and controller events, placed on the timeline.
+struct MIDIRegion: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    var notes: [MIDINote]
+    var startTime: TimeInterval      // Position on timeline (beats)
+    var duration: TimeInterval       // Region length (beats)
+    var instrumentId: UUID?          // Linked virtual instrument
+    var colorHex: String             // Color as hex string for Codable
+    var isLooped: Bool
+    var loopCount: Int
+    var isMuted: Bool
+    
+    /// Content length for one loop iteration (in beats). Defaults to original note content duration.
+    /// When resized with empty space, this becomes larger than the original notes span.
+    /// Looping repeats this contentLength, not the original notes duration.
+    var contentLength: TimeInterval
+    
+    // Controller data
+    var controllerEvents: [MIDICCEvent]
+    var pitchBendEvents: [MIDIPitchBendEvent]
+    
+    // MARK: - Computed Properties
+    
+    var color: Color {
+        get { Color(hex: colorHex) ?? .blue }
+        set { colorHex = newValue.toHex() }
+    }
+    
+    /// End time of the region
+    var endTime: TimeInterval { startTime + duration }
+    
+    /// Total duration - same as duration since duration already represents the full region length
+    /// Note: loopCount is legacy and redundant; duration is updated when looping via resize
+    var totalDuration: TimeInterval {
+        duration  // duration already includes the full looped length
+    }
+    
+    /// Number of notes in this region
+    var noteCount: Int { notes.count }
+    
+    /// Pitch range of notes
+    var pitchRange: ClosedRange<UInt8>? {
+        guard let minPitch = notes.map(\.pitch).min(),
+              let maxPitch = notes.map(\.pitch).max() else { return nil }
+        return minPitch...maxPitch
+    }
+    
+    // MARK: - Initialization
+    
+    init(
+        id: UUID = UUID(),
+        name: String = "MIDI Region",
+        notes: [MIDINote] = [],
+        startTime: TimeInterval = 0,
+        duration: TimeInterval = 4.0,
+        instrumentId: UUID? = nil,
+        color: Color = .blue,
+        isLooped: Bool = false,
+        loopCount: Int = 1,
+        isMuted: Bool = false,
+        controllerEvents: [MIDICCEvent] = [],
+        pitchBendEvents: [MIDIPitchBendEvent] = [],
+        contentLength: TimeInterval? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.notes = notes
+        // Ensure non-negative timeline values
+        self.startTime = max(0, startTime)
+        self.duration = max(0, duration)
+        self.instrumentId = instrumentId
+        self.colorHex = color.toHex()
+        self.isLooped = isLooped
+        self.loopCount = max(1, loopCount)
+        self.isMuted = isMuted
+        self.controllerEvents = controllerEvents
+        self.pitchBendEvents = pitchBendEvents
+        // Default contentLength to duration if not specified
+        self.contentLength = contentLength ?? max(0, duration)
+    }
+    
+    // MARK: - Note Editing
+    
+    /// Add a note to the region
+    mutating func addNote(_ note: MIDINote) {
+        notes.append(note)
+        // Auto-extend duration if needed
+        if note.endTime > duration {
+            duration = note.endTime
+        }
+    }
+    
+    /// Remove notes by IDs
+    mutating func removeNotes(withIds ids: Set<UUID>) {
+        notes.removeAll { ids.contains($0.id) }
+    }
+    
+    /// Get notes at a specific time
+    func notes(at time: TimeInterval) -> [MIDINote] {
+        notes.filter { $0.startTime <= time && $0.endTime > time }
+    }
+    
+    /// Get notes in a time range
+    func notes(in range: ClosedRange<TimeInterval>) -> [MIDINote] {
+        notes.filter { $0.startTime < range.upperBound && $0.endTime > range.lowerBound }
+    }
+    
+    /// Transpose all notes by semitones
+    mutating func transpose(by semitones: Int) {
+        notes = notes.map { note in
+            var transposed = note
+            transposed.pitch = UInt8(clamping: Int(note.pitch) + semitones)
+            return transposed
+        }
+    }
+    
+    /// Shift all notes in time
+    mutating func shift(by beats: TimeInterval) {
+        notes = notes.map { note in
+            var shifted = note
+            shifted.startTime = max(0, note.startTime + beats)
+            return shifted
+        }
+    }
+}
+
+// MARK: - MIDICCEvent
+
+/// MIDI Continuous Controller event for automation and expression.
+struct MIDICCEvent: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var controller: UInt8      // CC number (0-127)
+    var value: UInt8           // 0-127
+    var time: TimeInterval     // Position in region (beats)
+    var channel: UInt8         // MIDI channel (0-15)
+    
+    // MARK: - Common CC Numbers
+    
+    static let modWheel: UInt8 = 1
+    static let breath: UInt8 = 2
+    static let foot: UInt8 = 4
+    static let portamentoTime: UInt8 = 5
+    static let volume: UInt8 = 7
+    static let balance: UInt8 = 8
+    static let pan: UInt8 = 10
+    static let expression: UInt8 = 11
+    static let sustain: UInt8 = 64
+    static let portamento: UInt8 = 65
+    static let sostenuto: UInt8 = 66
+    static let softPedal: UInt8 = 67
+    static let legato: UInt8 = 68
+    static let hold2: UInt8 = 69
+    static let filterCutoff: UInt8 = 74
+    static let filterResonance: UInt8 = 71
+    static let releaseTime: UInt8 = 72
+    static let attackTime: UInt8 = 73
+    static let brightness: UInt8 = 74
+    static let reverbSend: UInt8 = 91
+    static let chorusSend: UInt8 = 93
+    static let allSoundOff: UInt8 = 120
+    static let allNotesOff: UInt8 = 123
+    
+    // MARK: - Computed Properties
+    
+    /// Human-readable name for common CC numbers
+    var controllerName: String {
+        switch controller {
+        case Self.modWheel: return "Mod Wheel"
+        case Self.breath: return "Breath"
+        case Self.volume: return "Volume"
+        case Self.pan: return "Pan"
+        case Self.expression: return "Expression"
+        case Self.sustain: return "Sustain"
+        case Self.filterCutoff: return "Filter Cutoff"
+        case Self.filterResonance: return "Filter Resonance"
+        case Self.reverbSend: return "Reverb Send"
+        case Self.chorusSend: return "Chorus Send"
+        default: return "CC \(controller)"
+        }
+    }
+    
+    /// Normalized value (0.0 - 1.0)
+    var normalizedValue: Float { Float(value) / 127.0 }
+    
+    // MARK: - Initialization
+    
+    init(
+        id: UUID = UUID(),
+        controller: UInt8,
+        value: UInt8,
+        time: TimeInterval,
+        channel: UInt8 = 0
+    ) {
+        self.id = id
+        self.controller = controller
+        self.value = value
+        self.time = time
+        self.channel = channel
+    }
+}
+
+// MARK: - MIDIPitchBendEvent
+
+/// MIDI Pitch Bend event for smooth pitch modulation.
+struct MIDIPitchBendEvent: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var value: Int16           // -8192 to +8191 (0 = center)
+    var time: TimeInterval     // Position in region (beats)
+    var channel: UInt8         // MIDI channel (0-15)
+    
+    // MARK: - Constants
+    
+    static let center: Int16 = 0
+    static let maxUp: Int16 = 8191
+    static let maxDown: Int16 = -8192
+    static let range: ClosedRange<Int16> = -8192...8191
+    
+    // MARK: - Computed Properties
+    
+    /// Normalized value (-1.0 to 1.0)
+    var normalizedValue: Float {
+        if value >= 0 {
+            return Float(value) / Float(Self.maxUp)
+        } else {
+            return Float(value) / Float(-Self.maxDown)
+        }
+    }
+    
+    /// Semitone offset (assuming ±2 semitone bend range)
+    func semitoneOffset(bendRange: Float = 2.0) -> Float {
+        normalizedValue * bendRange
+    }
+    
+    // MARK: - Initialization
+    
+    init(
+        id: UUID = UUID(),
+        value: Int16,
+        time: TimeInterval,
+        channel: UInt8 = 0
+    ) {
+        self.id = id
+        self.value = value.clamped(to: Self.range)
+        self.time = time
+        self.channel = channel
+    }
+    
+    /// Create from normalized value (-1.0 to 1.0)
+    static func fromNormalized(_ normalized: Float, time: TimeInterval, channel: UInt8 = 0) -> MIDIPitchBendEvent {
+        let value: Int16
+        if normalized >= 0 {
+            value = Int16(normalized * Float(maxUp))
+        } else {
+            value = Int16(normalized * Float(-maxDown))
+        }
+        return MIDIPitchBendEvent(value: value, time: time, channel: channel)
+    }
+}
+
+// MARK: - MIDITrack
+
+/// A track containing MIDI regions for virtual instrument playback.
+struct MIDITrack: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    var regions: [MIDIRegion]
+    var instrumentId: UUID?
+    var colorHex: String
+    var isMuted: Bool
+    var isSolo: Bool
+    var isRecordEnabled: Bool
+    var volume: Float          // 0.0 - 1.0
+    var pan: Float             // -1.0 (L) to 1.0 (R)
+    
+    // MIDI-specific settings
+    var inputDevice: String?
+    var inputChannel: UInt8?   // nil = omni (all channels)
+    var outputChannel: UInt8
+    var transpose: Int8        // -48 to +48 semitones
+    var velocityOffset: Int8   // -127 to +127
+    
+    // MARK: - Computed Properties
+    
+    var color: Color {
+        get { Color(hex: colorHex) ?? .purple }
+        set { colorHex = newValue.toHex() }
+    }
+    
+    /// Total number of notes across all regions
+    var totalNoteCount: Int {
+        regions.reduce(0) { $0 + $1.noteCount }
+    }
+    
+    /// Track duration (end of last region)
+    var duration: TimeInterval {
+        regions.map(\.endTime).max() ?? 0
+    }
+    
+    // MARK: - Initialization
+    
+    init(
+        id: UUID = UUID(),
+        name: String = "MIDI Track",
+        regions: [MIDIRegion] = [],
+        instrumentId: UUID? = nil,
+        color: Color = .purple,
+        isMuted: Bool = false,
+        isSolo: Bool = false,
+        isRecordEnabled: Bool = false,
+        volume: Float = 0.8,
+        pan: Float = 0.0,
+        inputDevice: String? = nil,
+        inputChannel: UInt8? = nil,
+        outputChannel: UInt8 = 0,
+        transpose: Int8 = 0,
+        velocityOffset: Int8 = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.regions = regions
+        self.instrumentId = instrumentId
+        self.colorHex = color.toHex() ?? "#800080"
+        self.isMuted = isMuted
+        self.isSolo = isSolo
+        self.isRecordEnabled = isRecordEnabled
+        self.volume = volume
+        self.pan = pan
+        self.inputDevice = inputDevice
+        self.inputChannel = inputChannel
+        self.outputChannel = outputChannel
+        self.transpose = transpose
+        self.velocityOffset = velocityOffset
+    }
+    
+    // MARK: - Region Management
+    
+    /// Add a region to the track
+    mutating func addRegion(_ region: MIDIRegion) {
+        regions.append(region)
+    }
+    
+    /// Remove a region by ID
+    mutating func removeRegion(withId id: UUID) {
+        regions.removeAll { $0.id == id }
+    }
+    
+    /// Get regions at a specific time
+    func regions(at time: TimeInterval) -> [MIDIRegion] {
+        regions.filter { $0.startTime <= time && $0.endTime > time }
+    }
+    
+    /// Get all notes at a specific time across all regions
+    func notes(at time: TimeInterval) -> [MIDINote] {
+        regions(at: time).flatMap { region in
+            let relativeTime = time - region.startTime
+            return region.notes(at: relativeTime)
+        }
+    }
+}
+
+// MARK: - Snap Resolution
+
+/// Grid resolution for quantization and snapping.
+enum SnapResolution: String, CaseIterable, Codable {
+    case bar = "1 Bar"
+    case half = "1/2"
+    case quarter = "1/4"
+    case eighth = "1/8"
+    case sixteenth = "1/16"
+    case thirtysecond = "1/32"
+    case sixtyfourth = "1/64"
+    case tripletQuarter = "1/4T"
+    case tripletEighth = "1/8T"
+    case tripletSixteenth = "1/16T"
+    case off = "Off"
+    
+    /// Duration in beats (assuming 4/4 time)
+    var duration: TimeInterval {
+        switch self {
+        case .bar: return 4.0
+        case .half: return 2.0
+        case .quarter: return 1.0
+        case .eighth: return 0.5
+        case .sixteenth: return 0.25
+        case .thirtysecond: return 0.125
+        case .sixtyfourth: return 0.0625
+        case .tripletQuarter: return 1.0 / 1.5
+        case .tripletEighth: return 0.5 / 1.5
+        case .tripletSixteenth: return 0.25 / 1.5
+        case .off: return 0
+        }
+    }
+    
+    /// Icon for display
+    var icon: String {
+        switch self {
+        case .bar: return "rectangle.fill"
+        case .half, .quarter: return "music.note"
+        case .eighth, .sixteenth, .thirtysecond, .sixtyfourth: return "music.note.list"
+        case .tripletQuarter, .tripletEighth, .tripletSixteenth: return "3.circle"
+        case .off: return "xmark.circle"
+        }
+    }
+    
+    /// Quantize a time value to this resolution
+    func quantize(_ time: TimeInterval) -> TimeInterval {
+        guard duration > 0 else { return time }
+        return round(time / duration) * duration
+    }
+    
+    /// Quantize with strength (0 = no change, 1 = full quantize)
+    func quantize(_ time: TimeInterval, strength: Float) -> TimeInterval {
+        guard duration > 0, strength > 0 else { return time }
+        let quantized = quantize(time)
+        let offset = quantized - time
+        return time + (offset * Double(strength))
+    }
+}
+
+// MARK: - Piano Roll Edit Mode
+
+/// Edit mode for the piano roll editor.
+enum PianoRollEditMode: String, CaseIterable {
+    case select = "Select"
+    case draw = "Draw"
+    case erase = "Erase"
+    case slice = "Slice"
+    case glue = "Glue"
+    case legato = "Legato"
+    case brush = "Brush"
+    case velocity = "Velocity"
+    
+    var icon: String {
+        switch self {
+        case .select: return "arrow.up.left.and.arrow.down.right"
+        case .draw: return "pencil"
+        case .erase: return "eraser"
+        case .slice: return "scissors"
+        case .glue: return "link"
+        case .legato: return "arrow.right.to.line"
+        case .brush: return "paintbrush"
+        case .velocity: return "waveform.path"
+        }
+    }
+    
+    var shortcut: String {
+        switch self {
+        case .select: return "V"
+        case .draw: return "P"
+        case .erase: return "E"
+        case .slice: return "S"
+        case .glue: return "G"
+        case .legato: return "L"
+        case .brush: return "B"
+        case .velocity: return "U"
+        }
+    }
+    
+    var tooltip: String {
+        switch self {
+        case .select: return "Select and move notes"
+        case .draw: return "Draw new notes"
+        case .erase: return "Delete notes"
+        case .slice: return "Split notes at click position"
+        case .glue: return "Merge adjacent notes of same pitch"
+        case .legato: return "Extend notes to next note"
+        case .brush: return "Paint notes by dragging"
+        case .velocity: return "Adjust note velocity"
+        }
+    }
+}
+
+// MARK: - Extensions
+
+extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+

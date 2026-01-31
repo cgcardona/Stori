@@ -1,0 +1,576 @@
+# TellUrStoriDAW - Digital Audio Workstation with NFT Tokenization
+# Swift/SwiftUI DAW + Avalanche L1 Blockchain
+
+## Project Overview
+You are working on TellUrStoriDAW, an innovative digital audio workstation that combines:
+- Professional DAW functionality in Swift/SwiftUI
+- NFT tokenization of STEMs on custom Avalanche L1
+- Comprehensive marketplace for trading music NFTs
+
+## Core Technologies
+- **App**: Swift 6, SwiftUI, AVFoundation, Core Audio, Metal
+- **Target**: macOS 14+ (Sonoma) - Required for @Observable macro
+- **Blockchain**: Solidity, Hardhat, OpenZeppelin, Avalanche L1
+- **Infrastructure**: IPFS, GraphQL (for indexer/marketplace when used)
+
+## Development Philosophy
+- **Performance First**: Audio applications demand < 10ms latency
+- **Apple Ecosystem Excellence**: Leverage native frameworks and design patterns
+- **Startup Velocity**: Balance rapid iteration with code quality
+- **User Experience**: Prioritize intuitive, delightful interactions
+- **Security**: Blockchain and audio data require robust security practices
+
+## Swift/SwiftUI Guidelines
+
+### Code Style
+- Use Swift 6 modern concurrency (async/await, actors, structured concurrency)
+- Prefer SwiftUI over UIKit for new development
+- Follow Apple's Swift API Design Guidelines
+- Use meaningful, descriptive names for all identifiers
+- Leverage Swift's type system for safety and clarity
+
+### Architecture Patterns
+- **MVVM with @Observable**: Use the `@Observable` macro (NOT ObservableObject) for all view models and services
+  - Only views reading specific properties re-render when those properties change (fine-grained updates)
+  - Use `@ObservationIgnored` for internal state that shouldn't trigger UI updates
+  - NEVER use `ObservableObject` or `@Published` - these cause broadcast invalidation and CPU spikes
+- **Dependency Injection**: Use protocols and dependency containers
+- **Modular Design**: Separate concerns into focused Swift packages
+- **Reactive Programming**: Use Combine sparingly; prefer @Observable for UI state
+- **Error Handling**: Use Result types and structured error handling
+
+### Audio Development
+- Always use real-time safe code in audio callbacks
+- Avoid memory allocation in audio render threads
+- Use SIMD and Accelerate framework for performance-critical operations
+- Implement proper buffer management with circular buffers
+- Profile audio code with Instruments regularly
+- **@Observable for audio classes**: Use `@ObservationIgnored` for all audio nodes, timers, and internal state
+  - Only UI-visible properties should be observable (e.g., levels, transport state)
+  - Audio graph mutations, engine internals should NEVER trigger UI updates
+
+### SwiftUI Best Practices (macOS 14+ with @Observable)
+- Use `@State` for owning @Observable objects (replaces @StateObject)
+- Use plain `var` for passed-in @Observable dependencies (replaces @ObservedObject)
+- Use `@Bindable` when you need two-way bindings to @Observable properties
+- Use `@Environment(TypeName.self)` for environment-injected @Observable objects
+- Inject @Observable objects with `.environment(instance)` (NOT `.environmentObject()`)
+- Use `@State` for simple view-local state (unchanged)
+- Implement custom ViewModifiers for reusable styling
+- Use PreferenceKeys for child-to-parent communication
+- Optimize with LazyVStack/LazyHStack for large datasets
+- **NEVER create #Preview blocks** - We don't use SwiftUI Previews in this project
+- **NEVER use @StateObject, @ObservedObject, @EnvironmentObject** - These are legacy patterns
+
+### Testing
+- Write unit tests for all business logic
+- Use XCTest for standard testing
+- Implement UI tests for critical user flows
+- Mock external dependencies (network, file system)
+- Test audio components with synthetic data
+- Aim for 90%+ code coverage
+
+## Shell Scripting Guidelines
+
+### Script Type Selection
+- **New Scripts**: Use `zsh` (macOS default since Catalina)
+- **Existing Scripts**: Keep as `bash` unless trivial to convert
+- **Rationale**: TellUrStoriDAW is macOS-only, zsh is guaranteed available
+- **Avoid Regressions**: Don't port bash→zsh unless conversion is obvious and safe
+
+### Script Header
+```zsh
+#!/bin/zsh
+# Script description here
+set -e  # Exit on error
+```
+
+### When to Keep bash
+- Script has bash-specific features (arrays, associative arrays)
+- Complex logic that works in bash
+- External scripts we don't own
+- Risk of introducing bugs > benefit of zsh
+
+### When to Use zsh
+- All NEW shell scripts
+- Simple utility scripts
+- Scripts that leverage zsh features (better globbing, arrays)
+- Scripts that need macOS-specific functionality
+
+## Blockchain Development Guidelines
+
+### Smart Contract Development
+- Use OpenZeppelin contracts as base implementations
+- Follow Checks-Effects-Interactions pattern
+- Implement proper access controls
+- Use events for off-chain indexing
+- Add comprehensive NatSpec documentation
+- Test with 95%+ code coverage
+
+### Security Best Practices
+- Audit all smart contracts before deployment
+- Use multi-signature wallets for admin functions
+- Implement reentrancy guards where needed
+- Validate all inputs and handle edge cases
+- Use established patterns for upgradeable contracts
+
+### Gas Optimization
+- Minimize storage operations
+- Use packed structs where appropriate
+- Batch operations when possible
+- Consider L2 solutions for high-frequency operations
+- Profile gas usage in tests
+
+## File Organization
+
+### Repository Structure
+```
+TellUrStoriDAW/
+├── .cursorrules
+├── .github/                      # Issue/PR templates
+├── Package.swift
+├── README.md
+├── Stori/                        # Main app target (Swift)
+├── StoriTests/                   # Unit and integration tests
+├── TellUrStoriDAW.xcodeproj/
+└── VERSION
+```
+
+### Swift App Structure (Stori/)
+```
+Stori/
+├── Assets.xcassets/              # App icons, accent colors
+├── Config.plist.example
+├── ContentView.swift
+├── Core/                         # Audio, models, services, blockchain, wallet
+│   ├── Audio/                    # AudioEngine, transport, mixer, MIDI, plugins, recording
+│   ├── Blockchain/               # Minting, license purchase services
+│   ├── Config/                   # AppConfig
+│   ├── Models/                   # Audio, MIDI, automation, plugin, step sequencer models
+│   ├── Services/                 # ProjectManager, UndoService, export, plugins, etc.
+│   ├── Utilities/                # Scroll sync, shared helpers
+│   └── Wallet/                   # HDWallet, NFTService, TransactionHistory, etc.
+├── documentation/                # Markdown docs (main-window-overview, ui-terminology, etc.)
+├── Features/                     # Feature modules (views + feature-specific logic)
+│   ├── AIComposer/               # Composer UI and templates
+│   ├── AIGeneration/             # STEM minting UI
+│   ├── Automation/               # Automation lane view
+│   ├── Blockchain/               # Digital masters, tokenize, wallet connection
+│   ├── Inspector/                # DAW composer panel
+│   ├── Instruments/             # Synthesizer view
+│   ├── Library/                  # Content delivery, my library, license player
+│   ├── Marketplace/             # Browse, my creations, my purchases
+│   ├── MIDI/                     # MIDI sheet, transform views
+│   ├── Mixer/                    # MixerView, channel strips, bus sends
+│   ├── PianoRoll/                # Piano roll editor
+│   ├── Plugins/                  # Plugin browser, editor
+│   ├── Score/                    # Score view, notation, staff renderer
+│   ├── Setup/                    # Setup wizard, update view
+│   ├── StepSequencer/            # Step sequencer view, presets
+│   ├── Timeline/                 # Integrated timeline, regions, track headers
+│   ├── Track/                    # Create/rename track dialogs
+│   ├── Transport/                # DAW control bar, transport buttons
+│   ├── VirtualKeyboard/          # Virtual keyboard view
+│   └── Wallet/                   # Wallet setup, account management, portfolio
+├── Info.plist
+├── Resources/                    # Localizations, SoundFonts, etc.
+└── UI/                           # Shared UI building blocks
+    ├── Components/               # EditableNumeric, waveform, track pickers, etc.
+    └── Views/                    # MainDAWView, AboutView, export sheets, etc.
+```
+
+### Blockchain (external)
+Smart contracts and deployment tooling live in separate repositories. This repo contains only the Swift app; blockchain integration code is under `Stori/Core/Blockchain`, `Stori/Core/Wallet`, and `Stori/Features/Blockchain` and `Stori/Features/Wallet`.
+
+## Naming Conventions
+
+### Swift
+- **Classes/Structs**: PascalCase (AudioEngine, TrackManager)
+- **Functions/Variables**: camelCase (playAudio, currentTrack)
+- **Constants**: camelCase (maxBufferSize, defaultSampleRate)
+- **Protocols**: PascalCase, often with -able suffix (Playable, Recordable)
+- **Enums**: PascalCase with lowercase cases (PlaybackState.playing)
+
+### Solidity
+- **Contracts**: PascalCase (TellUrStoriSTEM, STEMMarketplace)
+- **Functions**: camelCase (mintSTEM, createListing)
+- **Variables**: camelCase (tokenId, pricePerToken)
+- **Constants**: UPPER_SNAKE_CASE (MAX_SUPPLY, MARKETPLACE_FEE)
+
+## Performance Requirements
+
+### Audio Performance
+- **Latency**: < 10ms round-trip audio latency
+- **CPU Usage**: < 30% on Apple Silicon M1/M2
+- **Memory**: < 500MB for typical 8-track project
+- **Startup Time**: < 2 seconds to ready state
+
+### Blockchain
+- **Transaction Time**: < 5 seconds on Avalanche L1
+- **Gas Optimization**: Minimize transaction costs
+- **Indexing Latency**: < 1 second for new events
+- **API Response**: < 200ms for standard queries
+
+## Error Handling
+
+### Swift
+```swift
+// Use Result types for operations that can fail
+func loadAudioFile(url: URL) -> Result<AudioFile, AudioError> {
+    // Implementation
+}
+
+// Use async throws for async operations
+func loadProject(id: UUID) async throws -> Project {
+    // Implementation
+}
+```
+
+### Solidity
+```solidity
+// Use custom errors for gas efficiency
+error InsufficientBalance(uint256 required, uint256 available);
+
+// Validate inputs and provide clear error messages
+function mintSTEM(address to, uint256 amount) external {
+    if (amount == 0) revert InvalidAmount();
+    if (to == address(0)) revert InvalidAddress();
+    // Implementation
+}
+```
+
+## Documentation Standards
+
+### **IMPORTANT: Creating New Documentation Files**
+- **ALWAYS ask the user before creating new .md documentation files**
+- **Reason**: Helps control token usage and costs
+- **Exception**: Only create without asking if explicitly requested by user
+- **Guideline**: Prefer answering questions inline in chat rather than creating new files
+- **When to create**: 
+  - User explicitly requests documentation
+  - Critical project documentation (README, setup guides)
+  - Reference material that will be used repeatedly
+- **When NOT to create**:
+  - Answering one-off questions (answer in chat instead)
+  - Explaining concepts (discuss inline)
+  - Providing examples (show in chat response)
+
+### Code Documentation
+- Document all public APIs with comprehensive examples
+- Include performance characteristics in documentation
+- Document error conditions and handling strategies
+- Use inline comments for complex algorithms
+- Maintain up-to-date README files for each component
+
+### API Documentation
+- Document any REST or GraphQL APIs the app consumes
+- Include example requests and responses where relevant
+
+## Security Guidelines
+
+### General Security
+- Never commit secrets or private keys to version control
+- Use environment variables for configuration
+- Implement proper input validation and sanitization
+- Use HTTPS for all external communications
+- Regular dependency updates and security audits
+
+### Blockchain Security
+- Use hardware wallets for production deployments
+- Implement multi-signature requirements for critical operations
+- Regular smart contract audits by third parties
+- Monitor for unusual transaction patterns
+- Implement emergency pause mechanisms
+
+### Audio Security
+- Validate audio file formats and sizes
+- Implement rate limiting for resource-intensive operations
+- Secure temporary file handling
+- Protect against audio-based attacks (buffer overflows, etc.)
+
+## Testing Strategy
+
+### Unit Testing
+- Test all business logic with comprehensive unit tests
+- Mock external dependencies for isolated testing
+- Use property-based testing for complex algorithms
+- Test error conditions and edge cases
+- Maintain high code coverage (90%+ for critical components)
+
+### Integration Testing
+- Test blockchain interactions on testnets when applicable
+- Test audio processing with various file formats
+- Performance testing under load
+
+### User Acceptance Testing
+- Test complete user workflows
+- Validate audio quality and performance
+- Test blockchain transactions end-to-end
+- Gather feedback from musicians and producers
+- Accessibility testing for inclusive design
+
+## Deployment Guidelines
+
+### Development Environment
+- Use environment-specific configuration (e.g. Config.plist, xcconfig)
+- Document setup procedures clearly
+- Use Xcode schemes for different build configurations
+
+### Production Deployment
+- Monitor application performance and errors
+- Implement proper logging and alerting
+- Regular backups of user projects and preferences
+
+## Code Review Standards
+
+### Review Checklist
+- [ ] Code follows established style guidelines
+- [ ] All tests pass and coverage is maintained
+- [ ] Performance requirements are met
+- [ ] Security best practices are followed
+- [ ] Documentation is updated
+- [ ] Error handling is comprehensive
+- [ ] No hardcoded secrets or configuration
+
+### Review Process
+- All code must be reviewed before merging
+- Focus on architecture, security, and performance
+- Provide constructive feedback with examples
+- Test locally when reviewing significant changes
+- Ensure backward compatibility is maintained
+
+## Additional Guidelines
+
+### Accessibility
+- **MANDATORY**: Implement VoiceOver support for ALL new UI elements
+- **MANDATORY**: Add proper accessibility labels (`.accessibilityLabel()`)
+- **MANDATORY**: Provide keyboard navigation alternatives for all actions
+- **MANDATORY**: Ensure all buttons have clear focus indicators
+- Use semantic colors and support dark mode
+- Test with assistive technologies
+- Follow WCAG guidelines for web components
+- **NEW FEATURE CHECKLIST**:
+  - [ ] VoiceOver labels for all interactive elements
+  - [ ] Keyboard shortcuts for primary actions
+  - [ ] Focus indicators visible and clear
+  - [ ] High contrast mode tested
+  - [ ] Documented in Stori/documentation/ or README as appropriate
+
+### Internationalization
+- Use localized strings for all user-facing text
+- Support right-to-left languages where applicable
+- Format numbers, dates, and currencies appropriately
+- Test with different locales and languages
+- Consider cultural differences in UX design
+
+### Analytics and Monitoring
+- Implement privacy-respecting analytics
+- Monitor application performance metrics
+- Track user engagement and feature usage
+- Set up alerts for critical system failures
+- Regular performance reviews and optimization
+
+## Documentation Requirements
+
+### MANDATORY: Always Update Project Documentation
+Every coding session MUST include updates to these key documentation files:
+
+#### 1. Implementation Roadmap Updates
+- **File**: `TellUrStori-V2-Implementation-Roadmap.md`
+- **When**: After completing any task or making significant progress
+- **What**: Update checklist items from [ ] to [x], add completion dates, document any architectural decisions
+- **Format**: Mark completed items with ✅ and current date
+
+#### 2. Agent Onboarding Updates
+- **File**: `agent-onboarding.md`
+- **When**: When you discover something important that future agents should know
+- **What**: Add insights about architecture, gotchas, development patterns, or setup requirements
+- **Purpose**: Help future agents get up to speed quickly without losing context
+
+#### 3. Status Documentation Pattern
+```markdown
+## Current Status: [Phase] - [Date]
+### ✅ Recently Completed
+- [List what was just finished]
+
+### 🔄 Currently Working On
+- [Current focus areas]
+
+### 🎯 Next Priorities
+- [What should be tackled next]
+
+### 💡 Key Insights
+- [Important discoveries or decisions]
+```
+
+#### 4. Commit Message Standards
+Use this format for all commits:
+```
+🎵 [Phase]: [Brief Description]
+
+✅ Completed:
+- [Specific accomplishments]
+
+🏗️ Architecture:
+- [Any architectural changes]
+
+🎯 Next: [What should be done next]
+```
+
+#### 5. **CRITICAL: Never Commit Before User Testing**
+- **NEVER** create commits until the user has explicitly tested and confirmed the changes work
+- **NEVER** write commit messages with past-tense language like "Implemented..." or "Fixed..." before user verification
+- **ALWAYS** wait for user feedback: "It works!", "Looks good!", "Test passed", etc.
+- **REASON**: Committing untested code creates false confidence and pollutes git history with broken implementations
+- **WORKFLOW**: 
+  1. Make code changes
+  2. Build successfully
+  3. **STOP and ask user to test**
+  4. Wait for user confirmation
+  5. Only then create commit with verified accomplishments
+
+### Documentation Workflow
+1. **Before Starting**: Read current status in `agent-onboarding.md`
+2. **During Development**: Take notes on insights and decisions
+3. **After Each Major Change**: Update roadmap progress
+4. **End of Session**: Update agent onboarding with new insights
+5. **Before Committing**: Ensure documentation reflects current state
+
+### Context Preservation
+- **Always document WHY** decisions were made, not just what was implemented
+- **Include performance considerations** and trade-offs
+- **Note any deviations** from the original plan and reasons
+- **Document testing approaches** and results
+- **Record any external dependencies** or setup requirements
+
+#### 6. **User-facing documentation**
+- In-app or developer docs live under `Stori/documentation/` (Markdown). There is no `docs/` HTML folder in this repo.
+- When adding or changing user-facing behavior, update or add Markdown in `Stori/documentation/` or README as appropriate; ask the user before creating new doc files.
+
+### Chat Management
+- **Proactive Summarization**: Start summarizing conversations at 80% capacity instead of near 100%
+- **Context Preservation**: When summarizing, capture all technical decisions, architecture changes, and pending work
+- **Prevent Freezing**: Avoid waiting until the chat is too large to summarize effectively
+- **Maintain Continuity**: Ensure new agents can pick up work seamlessly from summaries
+
+## Mandatory Test Coverage
+
+### Test Requirements for All New Code
+
+Every new feature, service, or significant code change MUST include corresponding tests:
+
+- **Unit Tests Required**: All new functions/methods in `Core/Services/`, `Core/Audio/`, `Core/Models/` MUST have corresponding unit tests
+- **Minimum Coverage**: 80% line coverage for new code
+- **Test File Naming**: `{ClassName}Tests.swift` in `StoriTests/{Layer}/`
+- **Before PR Merge**: All tests must pass, coverage must not decrease
+
+### Test File Organization
+
+```
+StoriTests/
+├── StoriTests.swift           # Test bundle entry
+├── Helpers/                   # Test utilities
+│   └── TestHelpers.swift      # Async helpers, assertions, factories
+├── Mocks/                     # Mock objects for dependency injection
+│   ├── MockAudioEngine.swift
+│   ├── MockProjectManager.swift
+│   └── MockFileSystem.swift
+├── Models/                    # Model unit tests
+│   ├── AudioModelsTests.swift
+│   ├── MIDIModelsTests.swift
+│   └── AutomationModelsTests.swift
+├── Services/                  # Service unit tests
+│   ├── ProjectManagerTests.swift
+│   └── UndoServiceTests.swift
+├── Audio/                     # Audio engine tests
+│   ├── TransportControllerTests.swift
+│   ├── MixerControllerTests.swift
+│   └── AutomationProcessorTests.swift
+└── Integration/               # Cross-component tests
+    └── ProjectLifecycleTests.swift
+```
+
+### Test Patterns
+
+- **Use dependency injection** for testability - pass dependencies as parameters rather than using singletons directly in tested code
+- **Mock external dependencies** - file system, network, audio hardware
+- **Use `XCTestExpectation`** for async code testing
+- **Real-time audio tests** use synthetic buffers from `TestAudioBuffers`
+- **Use `assertCodableRoundTrip`** helper for all Codable types
+- **Use `assertApproximatelyEqual`** for floating-point comparisons
+
+### Test Checklist for New Features
+
+Before committing any new feature:
+- [ ] Unit tests for all public methods
+- [ ] Edge case coverage (empty inputs, nil handling, boundary values)
+- [ ] Error condition tests (what happens when things fail)
+- [ ] Performance tests for critical paths (use `measure {}`)
+- [ ] Codable roundtrip test if feature adds new model types
+- [ ] Integration test if feature spans multiple components
+
+### Running Tests
+
+```bash
+# Run all tests
+xcodebuild test -project TellUrStoriDAW.xcodeproj -scheme Stori -destination 'platform=macOS'
+
+# Run specific test class
+xcodebuild test -project TellUrStoriDAW.xcodeproj -scheme Stori -destination 'platform=macOS' -only-testing:StoriTests/AudioModelsTests
+
+# Run tests with coverage
+xcodebuild test -project TellUrStoriDAW.xcodeproj -scheme Stori -destination 'platform=macOS' -enableCodeCoverage YES
+```
+
+### Test Writing Guidelines
+
+1. **Test names should describe behavior**: `testMIDINoteTransposeClampsToPitchBounds`
+2. **One assertion per test when possible** for clear failure messages
+3. **Use factories for test data**: `TestDataFactory.createProject()`, `TestDataFactory.createMIDINote()`
+4. **Clean up in `tearDown()`** if tests create files or state
+5. **Mark flaky tests** with `XCTSkip` and file a bug to fix them
+
+### Critical Test Coverage Areas
+
+These areas MUST have comprehensive test coverage:
+
+1. **Audio Engine** - Real-time safety, threading, buffer handling
+2. **Project Manager** - Save/load, version migration, data integrity
+3. **MIDI Playback** - Timing accuracy, note scheduling
+4. **Automation** - Curve interpolation, parameter ranges
+5. **Models** - Serialization, validation, computed properties
+
+## Code Quality & Maintenance
+
+### MANDATORY: Deadcode Vigilance
+Every coding session MUST include active deadcode removal:
+
+#### 1. Deadcode Detection & Removal
+- **When**: Before every commit and during refactoring
+- **What**: Remove unused imports, functions, variables, classes, and files
+- **Tools**: Use Xcode's "Find Unused Code" and Swift compiler warnings
+- **Principle**: "If it's not used, delete it immediately"
+
+#### 2. Code Bloat Prevention
+- **Unused Imports**: Remove all unused import statements
+- **Unused Variables**: Delete variables that are declared but never read
+- **Unused Functions**: Remove functions/methods with no callers
+- **Unused Classes/Structs**: Delete types that are never instantiated
+- **Commented Code**: Remove commented-out code blocks (use git history instead)
+- **Debug Code**: Remove temporary debug prints and test code
+
+#### 3. Refactoring Standards
+- **DRY Principle**: Eliminate duplicate code through abstraction
+- **Single Responsibility**: Keep functions and classes focused
+- **Minimal Dependencies**: Only import what you actually use
+- **Clean Interfaces**: Remove unused protocol methods and extensions
+
+#### 4. Performance Impact
+- **Compile Time**: Unused code slows down compilation
+- **Binary Size**: Deadcode increases app size unnecessarily
+- **Maintenance**: Unused code creates confusion and technical debt
+- **Cognitive Load**: Clean code is easier to understand and modify
+
+Remember: This is a cutting-edge project combining professional audio software, AI, and blockchain technology. Prioritize user experience, performance, and security in all development decisions. When in doubt, favor the approach that provides the best experience for musicians and creators.
+
+**CRITICAL**: Future agents depend on accurate, up-to-date documentation to continue development effectively. Treat documentation updates as essential as code implementation.

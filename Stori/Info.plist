@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- REQUIRED: Bundle type (APPL = application) -->
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	
+	<!-- REQUIRED: Executable name -->
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	
+	<!-- REQUIRED: Bundle identifier -->
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	
+	<!-- REQUIRED: Display name -->
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	
+	<!-- Version info -->
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.2-beta</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	
+	<!-- REQUIRED: Minimum macOS version -->
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	
+	<!-- UI configuration -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.music</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSRequiresNativeExecution</key>
+	<true/>
+	
+	<!-- Privacy descriptions -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Stori needs microphone access to record audio tracks for music production.</string>
+	
+	<!-- Copyright -->
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 TellUrStori. All rights reserved.</string>
+	
+	<!-- SECURITY: No HTTP exceptions - all network traffic must use HTTPS (H-1) -->
+</dict>
+</plist>

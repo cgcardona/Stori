@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 
+    Copy this file to Stori/Config.plist and configure with your backend URL.
+    Config.plist is gitignored. Alternatively use STORI_API_URL environment variable.
+    
+    Examples: http://localhost:10002 or https://api.example.com
+    -->
+    
+    <key>ApiBaseURL</key>
+    <string>http://localhost:10002</string>
+    
+</dict>
+</plist>
