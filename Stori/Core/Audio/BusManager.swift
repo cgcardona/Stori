@@ -324,15 +324,22 @@ class BusManager {
         // Capture format BEFORE stopping engine
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
         
-        // Install plugin chain into engine if not already
-        if busNode.pluginChain.inputMixer.engine == nil {
+        // Install and realize plugin chain if not already
+        if !busNode.pluginChain.isRealized {
             let engineWasRunning = engine.isRunning
             if engineWasRunning {
                 engine.stop()
             }
             
-            busNode.pluginChain.install(in: engine, format: deviceFormat)
+            // Install engine reference if needed
+            if busNode.pluginChain.state == .uninstalled {
+                busNode.pluginChain.install(in: engine, format: deviceFormat)
+            }
             
+            // Realize the chain (creates and attaches mixers)
+            busNode.pluginChain.realize()
+            
+            // Connect bus input → plugin chain → bus output
             engine.disconnectNodeOutput(busNode.getInputNode())
             
             engine.connect(busNode.getInputNode(), to: busNode.pluginChain.inputMixer, format: deviceFormat)
@@ -391,10 +398,10 @@ class BusManager {
         pluginChain.removePlugin(atSlot: slot)
     }
     
-    func openBusPluginEditor(busId: UUID, slot: Int) {
+    func openBusPluginEditor(busId: UUID, slot: Int, audioEngine: AudioEngine) {
         guard let pluginChain = busNodes[busId]?.pluginChain,
               let instance = pluginChain.slots[slot] else { return }
-        PluginEditorWindow.open(for: instance)
+        PluginEditorWindow.open(for: instance, audioEngine: audioEngine)
     }
     
     // MARK: - Track Send Management

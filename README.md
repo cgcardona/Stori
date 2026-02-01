@@ -122,6 +122,8 @@ MIT License — see [LICENSE.md](LICENSE.md)
 ## Links
 
 - **Website:** [tellurstori.com](https://tellurstori.com)
+- **GitHub:** [github.com/cgcardona/Stori](https://github.com/cgcardona/Stori)
+- **Releases:** [Download Latest](https://github.com/cgcardona/Stori/releases)
 - **Documentation:** [tellurstori.com/docs.html](https://tellurstori.com/docs.html)
 - **Twitter:** [@tellurstori](https://twitter.com/tellurstori)
 

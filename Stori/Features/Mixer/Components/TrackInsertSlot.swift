@@ -300,3 +300,209 @@ struct InsertsSection: View {
         return pluginChain?.activePlugins.filter { !$0.isBypassed }.count ?? 0
     }
 }
+
+// MARK: - Bus Insert Slot
+struct BusInsertSlot: View {
+    let slotIndex: Int
+    let pluginInstance: PluginInstance?
+    let busId: UUID
+    let availableTracks: [AudioTrack]
+    let availableBuses: [MixerBus]
+    let onAddPlugin: (PluginDescriptor) -> Void
+    let onToggleBypass: () -> Void
+    let onRemoveEffect: () -> Void
+    let onOpenEditor: () -> Void
+    
+    @State private var showingPluginBrowser = false
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: {
+            if pluginInstance == nil {
+                showingPluginBrowser = true
+            } else {
+                onOpenEditor()
+            }
+        }) {
+            HStack(spacing: 2) {
+                if let pluginInstance = pluginInstance {
+                    pluginDisplayView(pluginInstance)
+                } else {
+                    emptySlotView
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 18)
+            .background(slotBackground)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingPluginBrowser) {
+            PluginBrowserView(
+                onPluginSelected: { plugin in
+                    onAddPlugin(plugin)
+                    showingPluginBrowser = false
+                },
+                filterToCategory: .effect
+            )
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .contextMenu {
+            if let pluginInstance = pluginInstance {
+                Button(action: onToggleBypass) {
+                    let isBypassed = pluginInstance.isBypassed
+                    Label(
+                        isBypassed ? "Enable" : "Bypass",
+                        systemImage: isBypassed ? "power.circle" : "power.circle.fill"
+                    )
+                }
+                
+                Button(action: onOpenEditor) {
+                    Label("Edit Effect", systemImage: "slider.horizontal.3")
+                }
+                
+                Divider()
+                
+                Button(role: .destructive, action: onRemoveEffect) {
+                    Label("Remove Effect", systemImage: "trash")
+                }
+            } else {
+                Button(action: { showingPluginBrowser = true }) {
+                    Label("Browse AU Plugins...", systemImage: "puzzlepiece.extension")
+                }
+            }
+        }
+    }
+    
+    private func pluginDisplayView(_ instance: PluginInstance) -> some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(instance.isBypassed ? Color.gray : Color.blue)
+                .frame(width: 4, height: 4)
+            
+            Text(instance.descriptor.name)
+                .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundColor(instance.isBypassed ? .secondary : .primary)
+            
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+    
+    private var emptySlotView: some View {
+        Text("---")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(.secondary.opacity(0.5))
+            .frame(maxWidth: .infinity)
+    }
+    
+    private var slotBackground: some View {
+        let hasContent = pluginInstance != nil
+        
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(hasContent ? Color.blue.opacity(0.1) : Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 2)
+                    .stroke(
+                        isHovered ? Color.accentColor.opacity(0.5) : MixerColors.slotBorder,
+                        lineWidth: 0.5
+                    )
+            )
+    }
+}
+
+// MARK: - Bus Inserts Section
+struct BusInsertsSection: View {
+    let busId: UUID
+    let pluginChain: PluginChain?
+    let availableTracks: [AudioTrack]
+    let availableBuses: [MixerBus]
+    let onAddPlugin: (Int, PluginDescriptor) -> Void
+    let onToggleBypass: (Int) -> Void
+    let onRemoveEffect: (Int) -> Void
+    let onOpenEditor: (Int) -> Void
+    
+    @State private var isExpanded = true
+    
+    private let maxSlots = 8
+    
+    var body: some View {
+        VStack(spacing: 2) {
+            // Section Header
+            Button(action: { 
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            }) {
+                HStack {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    
+                    Text("INSERTS")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(MixerColors.sectionHeader)
+                    
+                    Spacer()
+                    
+                    let activeCount = countActivePlugins()
+                    if activeCount > 0 {
+                        Text("\(activeCount)")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor)
+                            .cornerRadius(3)
+                    }
+                }
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            
+            if isExpanded {
+                VStack(spacing: 2) {
+                    ForEach(0..<maxSlots, id: \.self) { index in
+                        BusInsertSlot(
+                            slotIndex: index,
+                            pluginInstance: pluginChain?.slots[index],
+                            busId: busId,
+                            availableTracks: availableTracks,
+                            availableBuses: availableBuses,
+                            onAddPlugin: { descriptor in
+                                onAddPlugin(index, descriptor)
+                            },
+                            onToggleBypass: {
+                                onToggleBypass(index)
+                            },
+                            onRemoveEffect: {
+                                onRemoveEffect(index)
+                            },
+                            onOpenEditor: {
+                                onOpenEditor(index)
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, 4)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .top)),
+                    removal: .opacity
+                ))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(MixerColors.slotBackground)
+        )
+    }
+    
+    private func countActivePlugins() -> Int {
+        return pluginChain?.activePlugins.filter { !$0.isBypassed }.count ?? 0
+    }
+}
