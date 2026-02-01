@@ -1,8 +1,8 @@
 # Stori
 
-**Professional DAW for macOS, powered by AI.**
+**The Infinite Music Machine**
 
-Create, record, mix, and produce music with 128 instruments, professional effects, and intuitive editing tools. AI-powered music generation coming soon.
+A professional DAW for macOS — create, record, mix, and produce music with 128 instruments, professional effects, and intuitive editing tools. Built for the creative renaissance: AI-powered generation, Web3 ownership, and agent-driven workflows coming soon.
 
 ![Stori DAW](https://tellurstori.com/assets/screenshots/hero-main-daw.png)
 
@@ -129,4 +129,4 @@ MIT License — see [LICENSE.md](LICENSE.md)
 
 ---
 
-**Built with ❤️ for musicians and creators**
+**The Infinite Music Machine — Built with ❤️ for musicians and creators**
