@@ -172,28 +172,6 @@ struct StoriApp: App {
                 }
             }
             
-            // Blockchain menu
-            CommandMenu("Blockchain") {
-                Button("Connect Wallet...") {
-                    NotificationCenter.default.post(name: .showWalletConnection, object: nil)
-                }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
-                
-                Divider()
-                
-                Button("Tokenize Project...") {
-                    NotificationCenter.default.post(name: .tokenizeProject, object: nil)
-                }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
-                
-                Divider()
-                
-                Button("Open Marketplace") {
-                    NotificationCenter.default.post(name: .openMarketplace, object: nil)
-                }
-                .keyboardShortcut("m", modifiers: [.command, .option])
-            }
-            
             // Track menu
             CommandMenu("Track") {
                 Button("New Track(s)...") {
@@ -288,24 +266,6 @@ struct StoriApp: App {
                     NotificationCenter.default.post(name: .openChatTab, object: nil)
                 }
                 .keyboardShortcut("5", modifiers: [.command, .option])
-            }
-            
-            // Library menu
-            CommandMenu("Library") {
-                Button("Sounds") {
-                    NotificationCenter.default.post(name: .openLibrarySounds, object: nil)
-                }
-                .keyboardShortcut("1", modifiers: [.command, .control])
-                
-                Button("Plugins") {
-                    NotificationCenter.default.post(name: .openLibraryPlugins, object: nil)
-                }
-                .keyboardShortcut("2", modifiers: [.command, .control])
-                
-                Button("Instruments") {
-                    NotificationCenter.default.post(name: .openLibraryInstruments, object: nil)
-                }
-                .keyboardShortcut("3", modifiers: [.command, .control])
             }
             
             // Transport commands
