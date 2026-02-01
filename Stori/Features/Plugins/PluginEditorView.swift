@@ -364,8 +364,9 @@ class PluginEditorWindow: NSObject {
     private var windowController: NSWindowController?
     
     @MainActor
-    static func open(for plugin: PluginInstance) {
+    static func open(for plugin: PluginInstance, audioEngine: AudioEngine) {
         let editorView = PluginEditorView(plugin: plugin)
+            .environment(audioEngine)
         let hostingController = NSHostingController(rootView: editorView)
         let window = NSWindow(contentViewController: hostingController)
         

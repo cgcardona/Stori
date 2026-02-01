@@ -1688,7 +1688,7 @@ class AudioEngine: AudioEngineContext {
     
     /// Open the plugin editor UI for a bus slot
     func openBusPluginEditor(busId: UUID, slot: Int) {
-        busManager.openBusPluginEditor(busId: busId, slot: slot)
+        busManager.openBusPluginEditor(busId: busId, slot: slot, audioEngine: self)
     }
     
     // MARK: - Track Send Management (Delegated to BusManager)
@@ -3048,7 +3048,7 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Plugin Editor (Delegated to TrackPluginManager)
     
     func openPluginEditor(trackId: UUID, slot: Int) {
-        trackPluginManager.openPluginEditor(trackId: trackId, slot: slot)
+        trackPluginManager.openPluginEditor(trackId: trackId, slot: slot, audioEngine: self)
     }
     
     // MARK: - Sidechain Routing (Delegated to TrackPluginManager)

@@ -731,28 +731,38 @@ struct BusChannelStrip: View {
     
     // MARK: - Professional DAW Style AudioFX Section
     private var audioFXSection: some View {
-        VStack(spacing: 2) {
-            // AudioFX Header
-            Text("AUDIO FX")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundColor(.secondary)
-                .padding(.bottom, 2)
-            
-            // Bus plugins now use same system as tracks via pluginChain
-            Text("Bus plugins use TrackPluginManager")
-                .font(.system(size: 9))
-                .foregroundColor(.secondary.opacity(0.7))
-                .padding(.vertical, 8)
-        }
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.black.opacity(0.15))
+        BusInsertsSection(
+            busId: bus.id,
+            pluginChain: audioEngine.getBusPluginChain(for: bus.id),
+            availableTracks: project?.tracks ?? [],
+            availableBuses: project?.buses ?? [],
+            onAddPlugin: { slot, descriptor in
+                Task {
+                    do {
+                        try await audioEngine.insertBusPlugin(
+                            busId: bus.id,
+                            descriptor: descriptor,
+                            atSlot: slot
+                        )
+                    } catch {
+                        #if DEBUG
+                        print("Failed to add bus plugin: \(error)")
+                        #endif
+                    }
+                }
+            },
+            onToggleBypass: { slot in
+                if let plugin = audioEngine.getBusPluginChain(for: bus.id)?.slots[slot] {
+                    plugin.setBypass(!plugin.isBypassed)
+                }
+            },
+            onRemoveEffect: { slot in
+                audioEngine.removeBusPlugin(busId: bus.id, atSlot: slot)
+            },
+            onOpenEditor: { slot in
+                audioEngine.openBusPluginEditor(busId: bus.id, slot: slot)
+            }
         )
-    }
-    
-    private func toggleEffect(effectIndex: Int) {
-        // Bus plugins now use TrackPluginManager
     }
     
     private var returnFaderSection: some View {

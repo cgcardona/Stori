@@ -589,7 +589,7 @@ class TrackPluginManager {
     // MARK: - Plugin Editor
     
     /// Open the plugin editor UI for a specific slot
-    func openPluginEditor(trackId: UUID, slot: Int) {
+    func openPluginEditor(trackId: UUID, slot: Int, audioEngine: AudioEngine) {
         let trackNodes = getTrackNodes()
         
         guard let trackNode = trackNodes[trackId] else { return }
@@ -597,7 +597,7 @@ class TrackPluginManager {
         let pluginChain = trackNode.pluginChain
         guard let instance = pluginChain.slots[slot] else { return }
         
-        PluginEditorWindow.open(for: instance)
+        PluginEditorWindow.open(for: instance, audioEngine: audioEngine)
     }
     
     // MARK: - Sidechain Routing
