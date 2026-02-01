@@ -39,7 +39,7 @@ Create, record, mix, and produce music with 128 instruments, professional effect
 ### Option 1: Download DMG (Recommended)
 
 1. Visit [tellurstori.com](https://tellurstori.com)
-2. Download `Stori-0.1.2.dmg`
+2. Download `Stori-0.1.3.dmg`
 3. Open the DMG and drag Stori to Applications
 4. Launch Stori from Applications or Spotlight
 5. Click "Open" when prompted to confirm opening an app downloaded from the internet
