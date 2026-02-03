@@ -218,10 +218,10 @@ class MixerController {
         
         guard let trackNode = trackNodes[trackId] else { return }
         
-        let currentMid = getProject()?.tracks.first { $0.id == trackId }?.mixerSettings.midEQ ?? 0
-        let currentLow = getProject()?.tracks.first { $0.id == trackId }?.mixerSettings.lowEQ ?? 0
+        // Get track once (O(1) dictionary lookup if we cache, else O(n) once instead of twice)
+        guard let track = getProject()?.tracks.first(where: { $0.id == trackId }) else { return }
         
-        trackNode.setEQ(highGain: value, midGain: currentMid, lowGain: currentLow)
+        trackNode.setEQ(highGain: value, midGain: track.mixerSettings.midEQ, lowGain: track.mixerSettings.lowEQ)
         
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
             settings.highEQ = value
@@ -233,10 +233,10 @@ class MixerController {
         
         guard let trackNode = trackNodes[trackId] else { return }
         
-        let currentHigh = getProject()?.tracks.first { $0.id == trackId }?.mixerSettings.highEQ ?? 0
-        let currentLow = getProject()?.tracks.first { $0.id == trackId }?.mixerSettings.lowEQ ?? 0
+        // Get track once (O(1) dictionary lookup if we cache, else O(n) once instead of twice)
+        guard let track = getProject()?.tracks.first(where: { $0.id == trackId }) else { return }
         
-        trackNode.setEQ(highGain: currentHigh, midGain: value, lowGain: currentLow)
+        trackNode.setEQ(highGain: track.mixerSettings.highEQ, midGain: value, lowGain: track.mixerSettings.lowEQ)
         
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
             settings.midEQ = value
@@ -248,10 +248,10 @@ class MixerController {
         
         guard let trackNode = trackNodes[trackId] else { return }
         
-        let currentHigh = getProject()?.tracks.first { $0.id == trackId }?.mixerSettings.highEQ ?? 0
-        let currentMid = getProject()?.tracks.first { $0.id == trackId }?.mixerSettings.midEQ ?? 0
+        // Get track once (O(1) dictionary lookup if we cache, else O(n) once instead of twice)
+        guard let track = getProject()?.tracks.first(where: { $0.id == trackId }) else { return }
         
-        trackNode.setEQ(highGain: currentHigh, midGain: currentMid, lowGain: value)
+        trackNode.setEQ(highGain: track.mixerSettings.highEQ, midGain: track.mixerSettings.midEQ, lowGain: value)
         
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
             settings.lowEQ = value
