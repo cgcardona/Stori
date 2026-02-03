@@ -334,7 +334,7 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     var isVisible: Bool
     var isLocked: Bool
     var colorHex: String
-    var height: CGFloat
+    private(set) var height: CGFloat  // Validated height to prevent UI issues
     
     /// SwiftUI Color accessor (uses Color extension from EditableTrackColor.swift)
     var color: Color {
@@ -353,16 +353,25 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.parameter = parameter
-        self.points = points
+        // Ensure points are sorted on initialization (for deserialization)
+        self.points = points.sorted { $0.beat < $1.beat }
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.colorHex = color.toHex()
-        self.height = height
+        // Clamp height to reasonable range (40-500) to prevent UI issues
+        self.height = max(40, min(500, height))
     }
     
-    /// Points sorted by beat position for efficient lookup
+    /// Update the lane height with validation
+    mutating func setHeight(_ newHeight: CGFloat) {
+        // Clamp to reasonable range: minimum 40pt, maximum 500pt
+        self.height = max(40, min(500, newHeight))
+    }
+    
+    /// Points sorted by beat position for efficient lookup.
+    /// Points are now always kept sorted, so this just returns the array directly.
     var sortedPoints: [AutomationPoint] {
-        points.sorted { $0.beat < $1.beat }
+        points
     }
     
     /// Get interpolated value at a specific beat position
@@ -496,10 +505,14 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     
     // MARK: - Point Management
     
-    /// Add a new point at the specified beat and value
+    /// Add a new point at the specified beat and value.
+    /// Points are inserted in sorted order for optimal performance during playback.
     mutating func addPoint(atBeat beat: Double, value: Float, curve: CurveType = .linear) {
         let point = AutomationPoint(beat: beat, value: value, curve: curve)
-        points.append(point)
+        
+        // Binary search for insertion point to maintain sorted order
+        let insertIndex = points.firstIndex { $0.beat > beat } ?? points.count
+        points.insert(point, at: insertIndex)
     }
     
     /// Remove point by ID
@@ -507,14 +520,27 @@ struct AutomationLane: Identifiable, Codable, Equatable {
         points.removeAll { $0.id == id }
     }
     
-    /// Update a point's beat position and value
+    /// Update a point's beat position and value.
+    /// If beat position changes, the point is re-inserted to maintain sorted order.
     mutating func updatePoint(_ id: UUID, beat: Double? = nil, value: Float? = nil) {
         guard let index = points.firstIndex(where: { $0.id == id }) else { return }
-        if let beat = beat {
-            points[index].beat = max(0, beat)
-        }
-        if let value = value {
-            points[index].value = max(0, min(1, value))
+        
+        // If beat changes, remove and re-insert to maintain sorted order
+        if let newBeat = beat {
+            let point = points[index]
+            var updatedPoint = point
+            updatedPoint.beat = max(0, newBeat)
+            if let newValue = value {
+                updatedPoint.value = max(0, min(1, newValue))
+            }
+            
+            // Remove old point and re-insert in sorted position
+            points.remove(at: index)
+            let insertIndex = points.firstIndex { $0.beat > updatedPoint.beat } ?? points.count
+            points.insert(updatedPoint, at: insertIndex)
+        } else if let newValue = value {
+            // Only value changed, no need to re-sort
+            points[index].value = max(0, min(1, newValue))
         }
     }
     

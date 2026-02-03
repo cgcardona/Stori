@@ -415,9 +415,29 @@ class BusManager {
             return
         }
         
+        // Validate bus exists
+        guard busNodes[busId] != nil else {
+            AppLogger.shared.warning("Cannot create send: bus \(busId) does not exist", category: .audio)
+            return
+        }
+        
+        // Prevent circular routing
+        if hasCircularRouting(from: trackId, to: busId) {
+            AppLogger.shared.warning("Cannot create send: circular routing detected from track \(trackId) to bus \(busId)", category: .audio)
+            return
+        }
+        
+        // Prevent self-routing (bus sending to itself)
+        guard let project = currentProjectAccessor(),
+              let track = project.tracks.first(where: { $0.id == trackId }) else { return }
+        
+        if track.trackType == .bus && track.id == busId {
+            AppLogger.shared.warning("Cannot create send: bus cannot send to itself", category: .audio)
+            return
+        }
+        
         guard let trackNode = trackNodesAccessor()[trackId],
               let busNode = busNodes[busId],
-              let project = currentProjectAccessor(),
               let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else { return }
         
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
@@ -578,6 +598,63 @@ class BusManager {
                 trackSendInputBus[key] = inBus
             }
         }
+    }
+    
+    // MARK: - Routing Validation
+    
+    /// Check if adding a send from sourceTrackId to targetBusId would create circular routing.
+    /// Uses depth-first search to detect cycles in the bus routing graph.
+    private func hasCircularRouting(from sourceTrackId: UUID, to targetBusId: UUID) -> Bool {
+        guard let project = currentProjectAccessor() else { return false }
+        
+        // Build routing graph: track/bus ID -> set of destination bus IDs
+        var routingGraph: [UUID: Set<UUID>] = [:]
+        
+        for track in project.tracks {
+            var destinations = Set<UUID>()
+            for send in track.sends where send.busId != UUID() {
+                destinations.insert(send.busId)
+            }
+            routingGraph[track.id] = destinations
+        }
+        
+        // Add the proposed new send to the graph
+        var proposedDestinations = routingGraph[sourceTrackId] ?? Set<UUID>()
+        proposedDestinations.insert(targetBusId)
+        routingGraph[sourceTrackId] = proposedDestinations
+        
+        // Check if targetBusId can route back to sourceTrackId (cycle detection)
+        return canReach(from: targetBusId, to: sourceTrackId, in: routingGraph, visited: Set<UUID>())
+    }
+    
+    /// Depth-first search to check if we can reach 'target' from 'current' node.
+    private func canReach(from current: UUID, to target: UUID, in graph: [UUID: Set<UUID>], visited: Set<UUID>) -> Bool {
+        // If we've already visited this node, no cycle through this path
+        if visited.contains(current) {
+            return false
+        }
+        
+        var newVisited = visited
+        newVisited.insert(current)
+        
+        // Get destinations from current node
+        guard let destinations = graph[current] else {
+            return false
+        }
+        
+        // Check direct connection
+        if destinations.contains(target) {
+            return true
+        }
+        
+        // Check indirect connections (recursive DFS)
+        for destination in destinations {
+            if canReach(from: destination, to: target, in: graph, visited: newVisited) {
+                return true
+            }
+        }
+        
+        return false
     }
     
     // MARK: - Bus Chain Rebuild

@@ -206,6 +206,12 @@ class TransportController {
         self.onCycleJump = onCycleJump
     }
     
+    nonisolated deinit {
+        // Ensure position timer is stopped to prevent memory leaks
+        // Cancel the timer directly since deinit is nonisolated
+        positionTimer?.cancel()
+    }
+    
     // MARK: - Transport Controls
     
     func play() {

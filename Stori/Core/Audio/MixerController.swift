@@ -297,6 +297,12 @@ class MixerController {
     // MARK: - Track Icon
     
     func updateTrackIcon(trackId: UUID, iconName: String) {
+        // Validate icon exists in our approved list
+        guard TrackIconCategory.allValidIcons.contains(iconName) else {
+            AppLogger.shared.warning("Invalid track icon: \(iconName), using default", category: .audio)
+            return
+        }
+        
         guard let project = getProject() else { return }
         
         var updatedProject = project

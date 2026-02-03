@@ -546,6 +546,10 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     /// Looping repeats this contentLength, not audioFile.duration.
     var contentLength: TimeInterval
     
+    /// Original tempo at which durationBeats was calculated.
+    /// Used to recalculate beat positions when project tempo changes.
+    var originalTempo: Double
+    
     // MARK: - Clip-Level Effects (Per-Region Processing)
     
     /// Effects applied to this region only (not the whole track).
@@ -586,6 +590,7 @@ struct AudioRegion: Identifiable, Codable, Equatable {
         self.contentLength = contentLength ?? audioFile.duration
         self.clipEffects = clipEffects
         self.clipEffectsEnabled = clipEffectsEnabled
+        self.originalTempo = tempo
     }
     
     /// Whether this region has any active clip effects
@@ -596,8 +601,34 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     // MARK: - Computed Properties
     
     /// End position in beats (musical time)
+    /// NOTE: Use endBeat(currentTempo:) for tempo-aware calculations
     var endBeat: Double {
         startBeat + durationBeats
+    }
+    
+    /// Calculate duration in beats adjusted for current tempo.
+    /// Audio regions are time-locked: their duration in seconds is constant,
+    /// but beat representation changes with tempo.
+    func durationBeats(currentTempo: Double) -> Double {
+        // Get duration in seconds (constant for audio content)
+        let durationInSeconds = durationBeats * (60.0 / originalTempo)
+        // Convert back to beats at current tempo
+        return durationInSeconds * (currentTempo / 60.0)
+    }
+    
+    /// Calculate end beat adjusted for current tempo.
+    /// Use this when tempo has changed from originalTempo.
+    func endBeat(currentTempo: Double) -> Double {
+        startBeat + durationBeats(currentTempo: currentTempo)
+    }
+    
+    /// Update durationBeats when project tempo changes.
+    /// Call this to keep beat positions synchronized with tempo.
+    mutating func updateForTempoChange(newTempo: Double) {
+        // Recalculate durationBeats for new tempo
+        let durationInSeconds = durationBeats * (60.0 / originalTempo)
+        durationBeats = durationInSeconds * (newTempo / 60.0)
+        originalTempo = newTempo
     }
     
     /// Convert duration from beats to seconds at given tempo (for AVAudioEngine)

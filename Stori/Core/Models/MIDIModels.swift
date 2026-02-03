@@ -161,6 +161,8 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
         // Auto-extend duration if needed
         if note.endTime > duration {
             duration = note.endTime
+            // Keep contentLength in sync for proper looping behavior
+            contentLength = max(contentLength, note.endTime)
         }
     }
     

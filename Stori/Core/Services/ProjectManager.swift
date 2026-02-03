@@ -522,6 +522,8 @@ class ProjectManager {
         currentProject = project
         hasUnsavedChanges = true  // Mark as unsaved, don't auto-save
         
+        // Post notification to update UI
+        NotificationCenter.default.post(name: .projectUpdated, object: project)
     }
     
     func removeTrack(_ trackId: UUID) {
@@ -1290,6 +1292,32 @@ class ProjectManager {
         
         
         Task {
+            // Wait for view to be ready
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            
+            // Verify view has reasonable dimensions (not still laying out)
+            await MainActor.run {
+                guard view.bounds.width > 100 && view.bounds.height > 100 else {
+                    // View not ready, schedule retry with longer delay
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000) // Additional 500ms
+                        
+                        // Final check before capture
+                        guard view.bounds.width > 100 && view.bounds.height > 100 else {
+                            AppLogger.shared.warning("Project screenshot capture failed: view not ready", category: .services)
+                            return
+                        }
+                        
+                        guard let screenshot = await captureViewScreenshot(view: view) else {
+                            return
+                        }
+                        
+                        await saveProjectThumbnail(screenshot: screenshot, for: project)
+                    }
+                    return
+                }
+            }
+            
             // Capture the view on the main thread
             guard let screenshot = await captureViewScreenshot(view: view) else {
                 return

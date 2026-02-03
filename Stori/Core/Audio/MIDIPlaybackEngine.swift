@@ -170,12 +170,13 @@ class MIDIPlaybackEngine {
     
     /// Stop playback and kill all active notes
     func stop() {
-        isPlaying = false
-        
-        // Stop the scheduler (handles note-offs internally)
+        // Stop scheduler FIRST (waits for in-flight events)
         scheduler.stop()
         
-        // Safety: send all-notes-off to all instruments
+        // Then update state
+        isPlaying = false
+        
+        // Safety: send all-notes-off to all instruments after scheduler is stopped
         instrumentManager?.allNotesOffAllTracks()
     }
     

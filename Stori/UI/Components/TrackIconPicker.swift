@@ -16,6 +16,11 @@ public struct TrackIconCategory: Hashable, Identifiable {
     public let name: String
     public let icons: [String]
     
+    /// All valid track icon names across all categories
+    public static var allValidIcons: Set<String> {
+        Set(defaults.flatMap { $0.icons })
+    }
+    
     public static let defaults: [TrackIconCategory] = [
         .init(name: "Instruments", icons: [
             "guitars", "guitars.fill", "pianokeys", "pianokeys.inverse",
