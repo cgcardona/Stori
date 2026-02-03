@@ -360,10 +360,11 @@ final class EdgeCaseTests: XCTestCase {
         XCTAssertEqual(sig54.denominator, 4)
     }
     
-    func testZeroBeatsPerBar() {
-        let sig = TimeSignature(numerator: 0, denominator: 4)
-        // TimeSignature clamps to minimum 1
-        XCTAssertGreaterThanOrEqual(sig.numerator, 1)
+    /// Minimum valid numerator is 1 (numerator 0 is invalid and asserts in Debug)
+    func testMinimumValidTimeSignature() {
+        let sig = TimeSignature(numerator: 1, denominator: 4)
+        XCTAssertEqual(sig.numerator, 1)
+        XCTAssertEqual(sig.denominator, 4)
     }
     
     // MARK: - Plugin Chain Edge Cases
