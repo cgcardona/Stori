@@ -487,4 +487,67 @@ final class AutomationModelsTests: XCTestCase {
             }
         }
     }
+    
+    // MARK: - AutomationRecorder mergePoints (beat-based API)
+    
+    @MainActor
+    func testMergePointsTouchLatchReplacesInBeatRange() {
+        var existing: [AutomationPoint] = [
+            AutomationPoint(beat: 0, value: 0.0, curve: .linear),
+            AutomationPoint(beat: 4, value: 0.5, curve: .linear),
+            AutomationPoint(beat: 8, value: 0.5, curve: .linear),
+            AutomationPoint(beat: 12, value: 1.0, curve: .linear)
+        ]
+        let recorded: [AutomationPoint] = [
+            AutomationPoint(beat: 5, value: 0.8, curve: .linear),
+            AutomationPoint(beat: 7, value: 0.2, curve: .linear)
+        ]
+        
+        AutomationRecorder.mergePoints(
+            recorded: recorded,
+            into: &existing,
+            startBeat: 4,
+            endBeat: 8,
+            mode: .touch
+        )
+        
+        // Points in [4, 8] replaced; 0 and 12 kept
+        let beats = existing.map(\.beat)
+        XCTAssertTrue(beats.contains(0))
+        XCTAssertTrue(beats.contains(12))
+        XCTAssertTrue(beats.contains(5))
+        XCTAssertTrue(beats.contains(7))
+        XCTAssertFalse(beats.contains(4))
+        XCTAssertFalse(beats.contains(8))
+        XCTAssertEqual(existing.count, 4)
+    }
+    
+    @MainActor
+    func testMergePointsWriteReplacesFromStartBeat() {
+        var existing: [AutomationPoint] = [
+            AutomationPoint(beat: 0, value: 0.0, curve: .linear),
+            AutomationPoint(beat: 4, value: 0.5, curve: .linear),
+            AutomationPoint(beat: 8, value: 1.0, curve: .linear)
+        ]
+        let recorded: [AutomationPoint] = [
+            AutomationPoint(beat: 4, value: 0.7, curve: .linear),
+            AutomationPoint(beat: 6, value: 0.3, curve: .linear)
+        ]
+        
+        AutomationRecorder.mergePoints(
+            recorded: recorded,
+            into: &existing,
+            startBeat: 4,
+            endBeat: 6,
+            mode: .write
+        )
+        
+        // Write removes points at or after startBeat (4, 8), keeps 0, then appends recorded
+        let beats = existing.map(\.beat)
+        XCTAssertTrue(beats.contains(0))
+        XCTAssertTrue(beats.contains(4))
+        XCTAssertTrue(beats.contains(6))
+        XCTAssertFalse(beats.contains(8))
+        XCTAssertEqual(existing.count, 3)
+    }
 }

@@ -9,6 +9,22 @@
 import Foundation
 import AVFoundation
 
+// MARK: - MixerInstrumentManaging Protocol
+
+/// Minimal protocol for InstrumentManager methods used by MixerController.
+/// Enables dependency injection for testing without requiring the full InstrumentManager.
+@MainActor
+protocol MixerInstrumentManaging {
+    func setVolume(_ volume: Float, forTrack trackId: UUID)
+    func setPan(_ pan: Float, forTrack trackId: UUID)
+    func setMuted(_ muted: Bool, forTrack trackId: UUID)
+}
+
+/// Default implementation using InstrumentManager.shared
+extension InstrumentManager: MixerInstrumentManaging {}
+
+// MARK: - MixerController
+
 /// Mixer controller manages track and master mixing controls.
 /// It coordinates with AudioEngine for actual audio node updates and project model persistence.
 @MainActor
@@ -54,6 +70,12 @@ class MixerController {
     /// Callback to safely disconnect a track node
     private var onSafeDisconnectTrackNode: (TrackAudioNode) -> Void
     
+    /// Instrument manager for MIDI track volume/pan/mute (injectable for testing)
+    private var instrumentManager: MixerInstrumentManaging
+    
+    /// O(1) track lookup: cache of trackId → index. Rebuilt when project track count changes or on miss.
+    private var trackIndexCache: [UUID: Int] = [:]
+    
     // MARK: - Initialization
     
     init(
@@ -63,7 +85,8 @@ class MixerController {
         getMainMixer: @escaping () -> AVAudioMixerNode,
         getMasterEQ: @escaping () -> AVAudioUnitEQ,
         onReloadMIDIRegions: @escaping () -> Void,
-        onSafeDisconnectTrackNode: @escaping (TrackAudioNode) -> Void
+        onSafeDisconnectTrackNode: @escaping (TrackAudioNode) -> Void,
+        instrumentManager: MixerInstrumentManaging? = nil
     ) {
         self.getProject = getProject
         self.setProject = setProject
@@ -72,6 +95,7 @@ class MixerController {
         self.getMasterEQ = getMasterEQ
         self.onReloadMIDIRegions = onReloadMIDIRegions
         self.onSafeDisconnectTrackNode = onSafeDisconnectTrackNode
+        self.instrumentManager = instrumentManager ?? InstrumentManager.shared
     }
     
     // MARK: - Track Volume
@@ -85,7 +109,7 @@ class MixerController {
         }
         
         // Update instrument volume (for MIDI tracks)
-        InstrumentManager.shared.setVolume(volume, forTrack: trackId)
+        instrumentManager.setVolume(volume, forTrack: trackId)
         
         // Update the project model
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
@@ -104,7 +128,7 @@ class MixerController {
         }
         
         // Update instrument pan (for MIDI tracks)
-        InstrumentManager.shared.setPan(pan, forTrack: trackId)
+        instrumentManager.setPan(pan, forTrack: trackId)
         
         // Update the project model
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
@@ -123,7 +147,7 @@ class MixerController {
         }
         
         // Update instrument mute state (for MIDI tracks - immediate effect)
-        InstrumentManager.shared.setMuted(isMuted, forTrack: trackId)
+        instrumentManager.setMuted(isMuted, forTrack: trackId)
         
         // Update the project model
         updateProjectTrackMixerSettings(trackId: trackId) { settings in
@@ -215,8 +239,9 @@ class MixerController {
     
     func updateTrackHighEQ(trackId: UUID, value: Float) {
         let trackNodes = getTrackNodes()
-        
         guard let trackNode = trackNodes[trackId] else { return }
+        guard let project = getProject(), let idx = trackIndex(for: trackId) else { return }
+        let m = project.tracks[idx].mixerSettings
         
         // Get track once (O(1) dictionary lookup if we cache, else O(n) once instead of twice)
         guard let track = getProject()?.tracks.first(where: { $0.id == trackId }) else { return }
@@ -230,8 +255,9 @@ class MixerController {
     
     func updateTrackMidEQ(trackId: UUID, value: Float) {
         let trackNodes = getTrackNodes()
-        
         guard let trackNode = trackNodes[trackId] else { return }
+        guard let project = getProject(), let idx = trackIndex(for: trackId) else { return }
+        let m = project.tracks[idx].mixerSettings
         
         // Get track once (O(1) dictionary lookup if we cache, else O(n) once instead of twice)
         guard let track = getProject()?.tracks.first(where: { $0.id == trackId }) else { return }
@@ -245,8 +271,9 @@ class MixerController {
     
     func updateTrackLowEQ(trackId: UUID, value: Float) {
         let trackNodes = getTrackNodes()
-        
         guard let trackNode = trackNodes[trackId] else { return }
+        guard let project = getProject(), let idx = trackIndex(for: trackId) else { return }
+        let m = project.tracks[idx].mixerSettings
         
         // Get track once (O(1) dictionary lookup if we cache, else O(n) once instead of twice)
         guard let track = getProject()?.tracks.first(where: { $0.id == trackId }) else { return }
@@ -433,16 +460,39 @@ class MixerController {
     
     // MARK: - Private Helpers
     
+    /// Rebuild trackId → index map from current project. Call when track count changes or on cache miss.
+    private func rebuildTrackIndexCache() {
+        guard let project = getProject() else { return }
+        trackIndexCache = Dictionary(uniqueKeysWithValues: project.tracks.enumerated().map { ($0.element.id, $0.offset) })
+    }
+    
+    /// Release the track index cache (e.g. on memory pressure). Next lookup will rebuild automatically.
+    func invalidateTrackIndexCache() {
+        trackIndexCache.removeAll()
+    }
+    
+    /// Return track index for trackId, rebuilding cache if needed (count mismatch or miss).
+    private func trackIndex(for trackId: UUID) -> Int? {
+        guard let project = getProject() else { return nil }
+        if trackIndexCache.count != project.tracks.count {
+            rebuildTrackIndexCache()
+        }
+        guard let index = trackIndexCache[trackId], index < project.tracks.count, project.tracks[index].id == trackId else {
+            rebuildTrackIndexCache()
+            return trackIndexCache[trackId]
+        }
+        return index
+    }
+    
     private func updateProjectTrackMixerSettings(trackId: UUID, update: (inout MixerSettings) -> Void) {
         guard var project = getProject() else { return }
+        guard let trackIndex = trackIndex(for: trackId) else { return }
         
-        if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
-            update(&project.tracks[trackIndex].mixerSettings)
-            project.modifiedAt = Date()
-            setProject(project)
-            
-            // Notify that project has been updated so SwiftUI views refresh
-            NotificationCenter.default.post(name: .projectUpdated, object: project)
-        }
+        update(&project.tracks[trackIndex].mixerSettings)
+        project.modifiedAt = Date()
+        setProject(project)
+        
+        // Notify that project has been updated so SwiftUI views refresh
+        NotificationCenter.default.post(name: .projectUpdated, object: project)
     }
 }
