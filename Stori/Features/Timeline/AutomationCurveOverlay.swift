@@ -15,7 +15,7 @@ struct AutomationCurveOverlay: View {
     let lane: AutomationLane
     let pixelsPerBeat: CGFloat  // Beat-based timeline (proper DAW architecture)
     let trackHeight: CGFloat
-    let duration: TimeInterval  // Duration in beats
+    let durationBeats: Double
     let currentTrackValue: Float  // Current slider value (e.g., volume) to show when no points
     var onAddPoint: ((Double, Float) -> Void)?  // Callback to add point at (beat, value)
     var onUpdatePoint: ((UUID, Double, Float) -> Void)?  // Callback to update point position/value

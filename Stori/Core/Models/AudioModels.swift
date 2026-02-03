@@ -209,7 +209,7 @@ struct ProjectUIState: Codable, Equatable {
     // MARK: - Zoom & View State
     var horizontalZoom: Double = 0.8          // Timeline horizontal zoom (0.1x to 10x)
     var verticalZoom: Double = 1.0            // Timeline vertical zoom (0.5x to 3x)
-    var timeDisplayMode: String = "beats"     // "beats" or "time"
+    var timeDisplayMode: String = "beats"     // Timeline is beat-based only; "time" legacy, ignored
     
     // MARK: - Timeline Controls
     var snapToGrid: Bool = true               // Snap regions/notes to grid
@@ -501,7 +501,6 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     
     /// Track duration in beats (using 120 BPM as fallback)
     /// Prefer durationInBeats(tempo:) when tempo is available
-    /// Note: Returns beats, not seconds (despite TimeInterval type)
     var durationBeats: Double? {
         durationInBeats(tempo: 120.0)
     }
@@ -672,10 +671,10 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     var tempoRate: Float = 1.0       // 0.5...2.0
     
     // MARK: - Beat Detection
-    /// Detected beat positions (in seconds from region start), calculated from detected tempo
-    var detectedBeats: [TimeInterval]? = nil
+    /// Detected beat grid times in seconds from region start (from tempo-derived grid). Used for snap/visualization.
+    var detectedBeatTimesInSeconds: [TimeInterval]? = nil
     
-    /// Which beats are downbeats (first beat of measure). Indices into detectedBeats array.
+    /// Which beats are downbeats (first beat of measure). Indices into detectedBeatTimesInSeconds array.
     var downbeatIndices: [Int]? = nil
     
     // MARK: - AI Generation Metadata
@@ -1261,32 +1260,25 @@ struct PlaybackPosition: Codable {
     /// Beat within the current bar (1-indexed)
     var beatInBar: Int
     
-    /// Cached time interval in seconds (computed at creation time from tempo)
-    /// For UI display and AVAudioEngine boundary - uses tempo from when position was created
-    var timeInterval: TimeInterval
-    
     /// The time signature used for bar/beat calculation
     private var timeSignatureNumerator: Int = 4
     
-    /// The tempo used for timeInterval calculation (stored for reference)
-    private var cachedTempo: Double = 120.0
-    
     // MARK: - Beats-First Initialization (Primary)
     
-    /// Initialize from beats with tempo for timeInterval caching
+    /// Initialize from beats (beats are the source of truth, time is always computed)
     init(beats: Double = 0, timeSignature: TimeSignature = .fourFour, tempo: Double = 120.0) {
         self.beats = beats
         self.timeSignatureNumerator = timeSignature.numerator
         self.bars = Int(beats / Double(timeSignature.numerator))
         self.beatInBar = Int(beats.truncatingRemainder(dividingBy: Double(timeSignature.numerator))) + 1
-        self.cachedTempo = tempo
-        // Cache the time interval for backwards compatibility with UI code
-        self.timeInterval = beats * (60.0 / tempo)
+        // NOTE: tempo parameter is kept for API compatibility but not cached
+        // Use timeInterval(atTempo:) to convert beats to seconds
     }
     
     // MARK: - Seconds Conversion (for AVAudioEngine boundary)
     
-    /// Get time interval in seconds at a specific tempo (use when tempo differs from cached)
+    /// Get time interval in seconds at a specific tempo
+    /// IMPORTANT: Always provide the current project tempo to get accurate time values
     func timeInterval(atTempo tempo: Double) -> TimeInterval {
         beats * (60.0 / tempo)
     }

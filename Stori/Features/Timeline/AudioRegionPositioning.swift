@@ -16,8 +16,8 @@ struct AudioRegionsLayer: View {
     let pixelsPerBeat: CGFloat
     let trackHeight: CGFloat
     var selection: SelectionManager  // Only THIS view observes audio selection
-    let onRegionMove: (UUID, TimeInterval) -> Void
-    let onRegionMoveToTrack: ((UUID, UUID, TimeInterval) -> Void)?
+    let onRegionMove: (UUID, Double) -> Void  // position in beats
+    let onRegionMoveToTrack: ((UUID, UUID, Double) -> Void)?  // targetTrackId, position in beats
     var audioEngine: AudioEngine
     var projectManager: ProjectManager
     let trackId: UUID
@@ -71,8 +71,8 @@ struct PositionedAudioRegion: View {
     let onSelect: () -> Void
     let onToggle: () -> Void
     let onRangeSelect: ([UUID]) -> Void
-    let onRegionMove: (UUID, TimeInterval) -> Void
-    let onRegionMoveToTrack: ((UUID, UUID, TimeInterval) -> Void)?
+    let onRegionMove: (UUID, Double) -> Void  // position in beats
+    let onRegionMoveToTrack: ((UUID, UUID, Double) -> Void)?  // targetTrackId, position in beats
     var audioEngine: AudioEngine
     var projectManager: ProjectManager
     let trackId: UUID
@@ -108,7 +108,7 @@ struct PositionedAudioRegion: View {
                 regionId: region.id,
                 proposedStartBeat: proposedBeat,
                 regionDurationBeats: region.durationBeats,
-                regionBeats: region.detectedBeats
+                regionBeatTimesInSeconds: region.detectedBeatTimesInSeconds
             ) {
                 return smartBeat
             }
@@ -244,7 +244,7 @@ struct PositionedAudioRegion: View {
             isLooped: region.isLooped,
             offset: region.offset
         )
-        duplicatedRegion.detectedBeats = region.detectedBeats
+        duplicatedRegion.detectedBeatTimesInSeconds = region.detectedBeatTimesInSeconds
         duplicatedRegion.detectedTempo = region.detectedTempo
         duplicatedRegion.detectedKey = region.detectedKey
         projectManager.addRegionToTrack(duplicatedRegion, trackId: trackId)
@@ -263,7 +263,7 @@ struct PositionedAudioRegion: View {
             isLooped: region.isLooped,
             offset: region.offset
         )
-        duplicatedRegion.detectedBeats = region.detectedBeats
+        duplicatedRegion.detectedBeatTimesInSeconds = region.detectedBeatTimesInSeconds
         duplicatedRegion.detectedTempo = region.detectedTempo
         duplicatedRegion.detectedKey = region.detectedKey
         projectManager.addRegionToTrack(duplicatedRegion, trackId: targetTrackId)
@@ -274,11 +274,11 @@ struct PositionedAudioRegion: View {
         regionId: UUID,
         proposedStartBeat: Double,
         regionDurationBeats: Double,
-        regionBeats: [TimeInterval]?
+        regionBeatTimesInSeconds: [TimeInterval]?
     ) -> Double? {
         guard timeDisplayMode == .beats else { return nil }
         guard let project = projectManager.currentProject else { return nil }
-        guard let regionBeats = regionBeats, !regionBeats.isEmpty else { return nil }
+        guard let regionBeats = regionBeatTimesInSeconds, !regionBeats.isEmpty else { return nil }
         
         let secondsPerBeat = 60.0 / tempo
         let proposedEndBeat = proposedStartBeat + regionDurationBeats
@@ -286,7 +286,7 @@ struct PositionedAudioRegion: View {
         // Find adjacent regions
         for track in project.tracks {
             for otherRegion in track.regions where otherRegion.id != regionId {
-                guard let otherBeats = otherRegion.detectedBeats, !otherBeats.isEmpty else { continue }
+                guard let otherBeats = otherRegion.detectedBeatTimesInSeconds, !otherBeats.isEmpty else { continue }
                 
                 let otherEndBeat = otherRegion.endBeat
                 
@@ -343,16 +343,8 @@ struct PositionedAudioRegion: View {
         return nil
     }
     
-    /// Grid snap helper (local to avoid name collision with file-level helper)
+    /// Grid snap helper (local to avoid name collision with file-level helper). Beat-based only.
     private func calculateGridSnapInterval(for beats: Double, mode: TimeDisplayMode, tempo: Double) -> Double {
-        switch mode {
-        case .beats:
-            return round(beats)
-        case .time:
-            let secondsPerBeat = 60.0 / tempo
-            let seconds = beats * secondsPerBeat
-            let snappedSeconds = round(seconds * 10) / 10
-            return snappedSeconds / secondsPerBeat
-        }
+        return round(beats)
     }
 }

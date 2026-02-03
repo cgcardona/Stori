@@ -472,4 +472,15 @@ final class AudioModelsTests: XCTestCase {
             }
         }
     }
+    
+    // MARK: - TimeDisplayMode (timeline beats-only)
+    
+    /// Timeline is beat-based only; legacy time mode removed.
+    func testTimeDisplayModeBeatsOnly() {
+        XCTAssertEqual(TimeDisplayMode.beats.rawValue, "Beats")
+        // Only .beats exists; no .time case
+        switch TimeDisplayMode.beats {
+        case .beats: break
+        }
+    }
 }

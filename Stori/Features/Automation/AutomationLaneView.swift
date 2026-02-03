@@ -16,7 +16,7 @@ import SwiftUI
 
 struct AutomationLaneView: View {
     @Binding var lane: AutomationLane
-    let duration: TimeInterval
+    let durationBeats: Double
     let pixelsPerBeat: CGFloat
     let height: CGFloat
     
@@ -372,7 +372,7 @@ struct BreakpointView: View {
 /// Full automation editor with multiple lanes
 struct AutomationEditorView: View {
     @Binding var lanes: [AutomationLane]
-    let duration: TimeInterval
+    let durationBeats: Double
     let pixelsPerBeat: CGFloat
     
     @State private var selectedLaneId: UUID?
@@ -402,7 +402,7 @@ struct AutomationEditorView: View {
                     ForEach($lanes) { $lane in
                         AutomationLaneView(
                             lane: $lane,
-                            duration: duration,
+                            durationBeats: durationBeats,
                             pixelsPerBeat: pixelsPerBeat,
                             height: 80
                         )
