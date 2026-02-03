@@ -52,12 +52,22 @@ struct MIDINote: Identifiable, Codable, Equatable, Hashable {
         durationBeats: Double,
         channel: UInt8 = 0
     ) {
+        // MIDI PROTOCOL: Validate pitch is in valid MIDI range (0-127)
+        assert(pitch <= 127, "MIDI pitch must be 0-127 (got \(pitch))")
+        
+        // MIDI PROTOCOL: Validate velocity is in valid MIDI range (0-127)
+        assert(velocity <= 127, "MIDI velocity must be 0-127 (got \(velocity))")
+        
+        // MIDI PROTOCOL: Validate channel is in valid MIDI range (0-15)
+        assert(channel <= 15, "MIDI channel must be 0-15 (got \(channel))")
+        
         self.id = id
-        self.pitch = pitch
-        self.velocity = velocity
+        // Clamp to safe values (release builds or corrupt data)
+        self.pitch = min(pitch, 127)
+        self.velocity = min(velocity, 127)
         self.startBeat = startBeat
         self.durationBeats = durationBeats
-        self.channel = channel
+        self.channel = min(channel, 15)
     }
     
     // MARK: - Factory Methods
@@ -182,12 +192,38 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
     }
     
     /// Transpose all notes by semitones
-    mutating func transpose(by semitones: Int) {
+    /// Returns the number of notes that were clamped (out-of-range)
+    @discardableResult
+    mutating func transpose(by semitones: Int) -> Int {
+        var clampedCount = 0
+        
         notes = notes.map { note in
             var transposed = note
-            transposed.pitch = UInt8(clamping: Int(note.pitch) + semitones)
+            let newPitch = Int(note.pitch) + semitones
+            
+            // Check if transposition would go out of range
+            if newPitch < 0 || newPitch > 127 {
+                clampedCount += 1
+                AppLogger.shared.warning(
+                    "MIDI transpose: Note \(note.noteName) + \(semitones) = \(newPitch) out of range (0-127), clamping",
+                    category: .midi
+                )
+            }
+            
+            // Clamp to valid MIDI range
+            transposed.pitch = UInt8(clamping: newPitch)
             return transposed
         }
+        
+        // Notify user if any notes were clamped
+        if clampedCount > 0 {
+            AppLogger.shared.info(
+                "Transpose clamped \(clampedCount) note(s) to MIDI range (0-127)",
+                category: .midi
+            )
+        }
+        
+        return clampedCount
     }
     
     /// Shift all notes in time
