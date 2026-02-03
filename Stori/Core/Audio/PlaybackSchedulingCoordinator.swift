@@ -265,15 +265,16 @@ final class PlaybackSchedulingCoordinator {
     }
     
     /// Fallback: Reschedule all tracks from beat (has gap, used when pre-scheduling fails)
+    /// Reschedule all tracks from a specific beat position.
+    /// Uses beats-first architecture - conversion to seconds happens in TrackAudioNode.
     func rescheduleTracksFromBeat(_ targetBeat: Double) {
         if let trackNodes = getTrackNodes?() {
             for (_, trackNode) in trackNodes {
+                // Stop first to ensure isPlaying becomes false, then reset to clear buffers
+                trackNode.playerNode.stop()
                 trackNode.playerNode.reset()
             }
         }
-        
-        let tempo = getCurrentProject?()?.tempo ?? 120.0
-        let targetTimeSeconds = targetBeat * (60.0 / tempo)
         
         guard let project = getCurrentProject?(),
               let trackNodes = getTrackNodes?() else { return }
@@ -281,7 +282,8 @@ final class PlaybackSchedulingCoordinator {
         for track in project.tracks {
             guard let trackNode = trackNodes[track.id] else { continue }
             do {
-                try trackNode.scheduleFromPosition(targetTimeSeconds, audioRegions: track.regions, tempo: tempo, skipReset: true)
+                // BEATS-FIRST: Use scheduleFromBeat - conversion to seconds happens at AVAudioEngine boundary
+                try trackNode.scheduleFromBeat(targetBeat, audioRegions: track.regions, tempo: project.tempo, skipReset: true)
                 if !track.regions.isEmpty {
                     trackNode.play()
                 }

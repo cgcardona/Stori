@@ -60,114 +60,11 @@ extension AudioEngine {
         playbackScheduler.stopAllTracks()
     }
     
-    func playTrackInternal(_ track: AudioTrack, from startTime: TimeInterval) {
-        // Get the track's dedicated player node
-        guard let trackNode = trackNodes[track.id] else {
-            return
-        }
-        
-        // Schedule ALL regions - let TrackAudioNode handle timing internally
-        // Don't filter by "active" status based on current position
-        let allRegions = track.regions
-        
-        // Schedule audio for each region on this track's player node
-        for region in allRegions {
-            scheduleRegionInternal(region, on: trackNode, at: startTime)
-        }
-    }
-    
-    func scheduleRegionInternal(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) {
-        let playerNode = trackNode.playerNode
-        let tempo = currentProject?.tempo ?? 120.0
-        
-        // SECURITY (H-1): Validate header before passing to AVAudioFile
-        guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else { return }
-        
-        do {
-            let audioFile = try AVAudioFile(forReading: region.audioFile.url)
-            let regionStartSeconds = region.startTimeSeconds(tempo: tempo)
-            let regionEndSeconds = regionStartSeconds + region.durationSeconds(tempo: tempo)
-            let offsetInFile = currentTime - regionStartSeconds + region.offset
-            let remainingDuration = regionEndSeconds - currentTime
-            let framesToPlay = AVAudioFrameCount(remainingDuration * audioFile.processingFormat.sampleRate)
-            
-            if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
-                let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
-                let maxFramesAvailable = audioFile.length - startFrame
-                let clampedFrames = AVAudioFrameCount(min(Double(max(0, maxFramesAvailable)), Double(framesToPlay)))
-                guard clampedFrames > 0, startFrame < audioFile.length else { return }
-                
-                // Stop any existing playback on this node first
-                if playerNode.isPlaying {
-                    playerNode.stop()
-                }
-                
-                // Sample-accurate timing: schedule at (regionStart - currentTime) so no drift over loops
-                let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
-                let delaySeconds = max(0.0, regionStartSeconds - currentTime)
-                let delaySamples = AVAudioFramePosition(delaySeconds * playerSampleRate)
-                let when = AVAudioTime(sampleTime: delaySamples, atRate: playerSampleRate)
-                playerNode.scheduleSegment(
-                    audioFile,
-                    startingFrame: startFrame,
-                    frameCount: clampedFrames,
-                    at: when
-                )
-                
-                // Start playback on this specific track's player node
-                playbackScheduler.safePlay(playerNode)
-            }
-        } catch {
-            // File read error - silently skip
-        }
-    }
-    
-    func scheduleRegionForSynchronizedPlaybackInternal(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) -> Bool {
-        let playerNode = trackNode.playerNode
-        let tempo = currentProject?.tempo ?? 120.0
-        
-        // SECURITY (H-1): Validate header before passing to AVAudioFile
-        guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else { return false }
-        
-        do {
-            let audioFile = try AVAudioFile(forReading: region.audioFile.url)
-            let regionStartSeconds = region.startTimeSeconds(tempo: tempo)
-            let regionEndSeconds = regionStartSeconds + region.durationSeconds(tempo: tempo)
-            let offsetInFile = currentTime - regionStartSeconds + region.offset
-            let remainingDuration = regionEndSeconds - currentTime
-            let framesToPlay = AVAudioFrameCount(remainingDuration * audioFile.processingFormat.sampleRate)
-            
-            if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
-                let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
-                let maxFramesAvailable = audioFile.length - startFrame
-                let clampedFrames = AVAudioFrameCount(min(Double(max(0, maxFramesAvailable)), Double(framesToPlay)))
-                guard clampedFrames > 0, startFrame < audioFile.length else { return false }
-                
-                // Stop any existing playback on this node first
-                if playerNode.isPlaying {
-                    playerNode.stop()
-                }
-                
-                // Sample-accurate timing: schedule at (regionStart - currentTime)
-                let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
-                let delaySeconds = max(0.0, regionStartSeconds - currentTime)
-                let delaySamples = AVAudioFramePosition(delaySeconds * playerSampleRate)
-                let when = AVAudioTime(sampleTime: delaySamples, atRate: playerSampleRate)
-                playerNode.scheduleSegment(
-                    audioFile,
-                    startingFrame: startFrame,
-                    frameCount: clampedFrames,
-                    at: when
-                )
-                
-                return true
-            }
-        } catch {
-            // File read error - silently skip
-        }
-        
-        return false
-    }
+    // DEADCODE REMOVAL (Phase 3 beats-first cleanup):
+    // Removed: playTrackInternal, scheduleRegionInternal, scheduleRegionForSynchronizedPlaybackInternal
+    // These used seconds-based APIs and duplicated logic in TrackAudioNode.
+    // All scheduling now goes through TrackAudioNode.scheduleFromBeat() which
+    // handles beat→seconds conversion at the AVAudioEngine boundary.
     
     // MARK: - Audio Region Loading
     

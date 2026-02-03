@@ -1174,11 +1174,10 @@ class AudioEngine: AudioEngineContext {
                             // Currently playing: Re-schedule immediately
                             trackNode.playerNode.stop()
                             
-                            // Re-schedule from current position (convert beats to seconds for AVAudioEngine)
+                            // BEATS-FIRST: Use scheduleFromBeat, conversion happens at TrackAudioNode boundary
                             let tempo = currentProject?.tempo ?? 120.0
-                            let currentTimeSeconds = currentPosition.beats * (60.0 / tempo)
                             do {
-                                try trackNode.scheduleFromPosition(currentTimeSeconds, audioRegions: track.regions, tempo: tempo)
+                                try trackNode.scheduleFromBeat(currentPosition.beats, audioRegions: track.regions, tempo: tempo)
                                 if !trackNode.playerNode.isPlaying {
                                     trackNode.playerNode.play()
                                 }
@@ -1491,17 +1490,11 @@ class AudioEngine: AudioEngineContext {
         stopPlaybackInternal()
     }
     
-    private func playTrack(_ track: AudioTrack, from startTime: TimeInterval) {
-        playTrackInternal(track, from: startTime)
-    }
-    
-    private func scheduleRegion(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) {
-        scheduleRegionInternal(region, on: trackNode, at: currentTime)
-    }
-    
-    private func scheduleRegionForSynchronizedPlayback(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) -> Bool {
-        return scheduleRegionForSynchronizedPlaybackInternal(region, on: trackNode, at: currentTime)
-    }
+    // DEADCODE REMOVAL (Phase 3 beats-first cleanup):
+    // Removed: playTrack, scheduleRegion, scheduleRegionForSynchronizedPlayback
+    // These were never called and used seconds-based APIs.
+    // All scheduling now goes through TrackAudioNode.scheduleFromBeat() which
+    // handles beat→seconds conversion at the AVAudioEngine boundary.
     
     // Recording implementation is now in RecordingController
     
@@ -1867,15 +1860,15 @@ class AudioEngine: AudioEngineContext {
         // Update PDC compensation before scheduling (keeps tracks phase-aligned)
         updateDelayCompensation()
         
-        // Convert beats to seconds for AVAudioEngine scheduling
+        // BEATS-FIRST: Convert pre-roll to beats for internal calculation
         let tempo = project.tempo
-        let startTimeSeconds = startBeat * (60.0 / tempo)
+        let prerollBeats = prerollSeconds * (tempo / 60.0)
         
-        // Calculate pre-roll start time (but don't go negative)
+        // Calculate pre-roll start beat (but don't go negative)
         // Pre-roll allows plugins with internal state (reverbs, delays, compressors)
         // to stabilize before we reach the actual playhead position
-        let prerollStartSeconds = max(0, startTimeSeconds - prerollSeconds)
-        let hasPreroll = startTimeSeconds > prerollSeconds
+        let prerollStartBeat = max(0, startBeat - prerollBeats)
+        let hasPreroll = startBeat > prerollBeats
         
         // Schedule and start all tracks from the specified position
         var tracksToStart: [(TrackAudioNode, AudioTrack)] = []
@@ -1890,9 +1883,9 @@ class AudioEngine: AudioEngineContext {
             
             if !relevantRegions.isEmpty {
                 do {
-                    // Schedule from pre-roll position if we have room, otherwise from start
-                    let scheduleTime = hasPreroll ? prerollStartSeconds : startTimeSeconds
-                    try trackNode.scheduleFromPosition(scheduleTime, audioRegions: track.regions, tempo: tempo)
+                    // BEATS-FIRST: Schedule using beats, conversion to seconds at TrackAudioNode boundary
+                    let scheduleBeat = hasPreroll ? prerollStartBeat : startBeat
+                    try trackNode.scheduleFromBeat(scheduleBeat, audioRegions: track.regions, tempo: tempo)
                     tracksToStart.append((trackNode, track))
                 } catch {
                 }

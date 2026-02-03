@@ -132,8 +132,11 @@ final class PlaybackSchedulingCoordinatorTests: XCTestCase {
         
         sut.rescheduleTracksFromBeat(4.0)
         
-        // Player should be stopped and reset
-        XCTAssertFalse(trackNode.playerNode.isPlaying)
+        // Player is reset then restarted if track has regions
+        // After rescheduling, player state depends on whether regions were scheduled
+        // Since we have an empty mock track with no regions, player won't be restarted
+        // This tests that reset() is called (verified by player not playing after reset)
+        XCTAssertFalse(trackNode.playerNode.isPlaying, "Player should be reset; without regions to schedule, it stays stopped")
     }
     
     func testRescheduleTracksFromBeatResetsPlayers() {
