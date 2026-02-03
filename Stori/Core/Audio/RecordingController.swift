@@ -237,13 +237,13 @@ final class RecordingController: @unchecked Sendable {
             }
         }
         
-        // Start playback
-        onStartPlayback()
-        
-        // Install input tap using pre-created file (skip file creation!)
+        // FIX: Install input tap BEFORE starting playback to capture first beat
         if let recordTrack = countInRecordTrack, !recordTrack.isMIDITrack {
             installInputTapForCountIn()
         }
+        
+        // Start playback (tap is now ready to capture from beat 0)
+        onStartPlayback()
         
         // Clear prepared state
         countInRecordingPrepared = false
