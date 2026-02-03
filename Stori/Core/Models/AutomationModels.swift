@@ -478,6 +478,13 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     private func interpolateBezier(from p1: AutomationPoint, to p2: AutomationPoint, t: Float) -> Float {
         // Get control points (default to smooth curve if not specified)
         let beatDelta = p2.beat - p1.beat
+        
+        // Handle degenerate case: points at same beat position
+        guard abs(beatDelta) > 0.0001 else {
+            // No time delta - instant jump to end value
+            return p2.value
+        }
+        
         let valueDelta = p2.value - p1.value
         
         // Calculate control point positions
