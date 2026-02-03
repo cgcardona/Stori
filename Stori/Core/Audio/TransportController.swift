@@ -450,7 +450,9 @@ class TransportController {
         
         // Calculate cooldown based on tempo and actual sample rate
         let cooldown = calculateCycleCooldown()
-        if currentSystemTime - lastCycleJumpTime < cooldown {
+        
+        // Ensure cooldown period has elapsed since last cycle jump (prevents rapid loops)
+        guard currentSystemTime - lastCycleJumpTime >= cooldown else {
             return
         }
         

@@ -80,10 +80,18 @@ struct TimeSignature: Codable, Equatable {
     
     /// Safe initializer that ensures valid values
     init(numerator: Int, denominator: Int) {
-        // Ensure numerator is at least 1 to prevent division by zero
+        // Validate numerator is positive
+        assert(numerator > 0, "TimeSignature numerator must be positive (got \(numerator))")
+        
+        // Validate denominator is positive and power of 2 (musical standard)
+        assert(denominator > 0, "TimeSignature denominator must be positive (got \(denominator))")
+        assert([1, 2, 4, 8, 16, 32, 64].contains(denominator), 
+               "TimeSignature denominator must be power of 2 (got \(denominator))")
+        
+        // Clamp to safe values (fallback for release builds or edge cases)
         self.numerator = max(1, numerator)
-        // Ensure denominator is a valid beat division (at least 1)
-        self.denominator = max(1, denominator)
+        // Default to 4/4 if invalid denominator
+        self.denominator = [1, 2, 4, 8, 16, 32, 64].contains(denominator) ? denominator : 4
     }
     
     var description: String {
@@ -421,8 +429,8 @@ struct AudioTrack: Identifiable, Codable, Equatable {
         self.createdAt = Date()
         self.imageAssetPath = nil
         self.imageGenerations = []
-        // Create default Volume automation lane for every track
-        self.automationLanes = [AutomationLane(parameter: .volume)]
+        // Create default Volume automation lane with initialValue from mixer (deterministic playback)
+        self.automationLanes = [AutomationLane(parameter: .volume, points: [], initialValue: mixerSettings.volume, color: AutomationParameter.volume.color)]
         self.automationMode = .read
         self.automationExpanded = false
         self.inputMonitorEnabled = false

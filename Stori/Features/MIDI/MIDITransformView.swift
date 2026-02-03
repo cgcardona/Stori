@@ -455,7 +455,7 @@ struct MIDITransformView: View {
         for i in region.notes.indices {
             if noteIds.contains(region.notes[i].id) {
                 let original = region.notes[i].startBeat
-                let quantized = resolution.quantize(original)
+                let quantized = resolution.quantize(beat: original)
                 // Apply strength: lerp between original and quantized
                 region.notes[i].startBeat = original + (quantized - original) * strength
             }
