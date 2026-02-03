@@ -244,6 +244,11 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     var rebuildTask: Task<Void, Never>?
     
+    /// PERFORMANCE: Cache of last graph state per track.
+    /// Used to skip redundant rebuilds when state hasn't actually changed.
+    @ObservationIgnored
+    var lastGraphState: [UUID: GraphStateSnapshot] = [:]
+    
     /// Install a metronome into the audio graph (idempotent, safe to call multiple times)
     /// Handles the case where engine might already be running
     func installMetronome(_ metronome: MetronomeEngine) {
