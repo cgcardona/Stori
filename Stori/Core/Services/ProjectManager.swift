@@ -100,8 +100,11 @@ class ProjectManager {
     /// This should be called from MainDAWView.handleSaveProject(), not via notification
     @MainActor
     func performSaveWithPluginSync() async {
-        // Use continuation to wait for AudioEngine to finish saving plugin configs
+        // Use continuation with timeout to wait for AudioEngine
         let updatedProject: AudioProject? = await withCheckedContinuation { continuation in
+            // Track if we've already resumed (prevent double-resume)
+            var hasResumed = false
+            
             // Set up one-time observer for completion notification
             var observer: NSObjectProtocol?
             observer = NotificationCenter.default.addObserver(
@@ -109,6 +112,10 @@ class ProjectManager {
                 object: nil,
                 queue: .main
             ) { notification in
+                // Guard against double-resume
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 // Remove observer immediately to prevent duplicate calls
                 if let obs = observer {
                     NotificationCenter.default.removeObserver(obs)
@@ -117,6 +124,28 @@ class ProjectManager {
                 // Get the updated project from the notification
                 let project = notification.object as? AudioProject
                 continuation.resume(returning: project)
+            }
+            
+            // Set up timeout (5 seconds) to prevent hanging forever
+            Task {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                
+                // Guard against double-resume
+                guard !hasResumed else { return }
+                hasResumed = true
+                
+                // Remove observer on timeout
+                if let obs = observer {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+                
+                AppLogger.shared.warning(
+                    "Plugin config save timeout (5s) - proceeding with current project state",
+                    category: .project
+                )
+                
+                // Resume with nil to indicate timeout
+                continuation.resume(returning: nil)
             }
             
             // Post willSaveProject to trigger AudioEngine to save plugin configs
