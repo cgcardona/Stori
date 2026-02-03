@@ -80,10 +80,18 @@ struct TimeSignature: Codable, Equatable {
     
     /// Safe initializer that ensures valid values
     init(numerator: Int, denominator: Int) {
-        // Ensure numerator is at least 1 to prevent division by zero
+        // Validate numerator is positive
+        assert(numerator > 0, "TimeSignature numerator must be positive (got \(numerator))")
+        
+        // Validate denominator is positive and power of 2 (musical standard)
+        assert(denominator > 0, "TimeSignature denominator must be positive (got \(denominator))")
+        assert([1, 2, 4, 8, 16, 32, 64].contains(denominator), 
+               "TimeSignature denominator must be power of 2 (got \(denominator))")
+        
+        // Clamp to safe values (fallback for release builds or edge cases)
         self.numerator = max(1, numerator)
-        // Ensure denominator is a valid beat division (at least 1)
-        self.denominator = max(1, denominator)
+        // Default to 4/4 if invalid denominator
+        self.denominator = [1, 2, 4, 8, 16, 32, 64].contains(denominator) ? denominator : 4
     }
     
     var description: String {
@@ -201,7 +209,7 @@ struct ProjectUIState: Codable, Equatable {
     // MARK: - Zoom & View State
     var horizontalZoom: Double = 0.8          // Timeline horizontal zoom (0.1x to 10x)
     var verticalZoom: Double = 1.0            // Timeline vertical zoom (0.5x to 3x)
-    var timeDisplayMode: String = "beats"     // "beats" or "time"
+    var timeDisplayMode: String = "beats"     // Timeline is beat-based only; "time" legacy, ignored
     
     // MARK: - Timeline Controls
     var snapToGrid: Bool = true               // Snap regions/notes to grid
@@ -421,8 +429,8 @@ struct AudioTrack: Identifiable, Codable, Equatable {
         self.createdAt = Date()
         self.imageAssetPath = nil
         self.imageGenerations = []
-        // Create default Volume automation lane for every track
-        self.automationLanes = [AutomationLane(parameter: .volume)]
+        // Create default Volume automation lane with initialValue from mixer (deterministic playback)
+        self.automationLanes = [AutomationLane(parameter: .volume, points: [], initialValue: mixerSettings.volume, color: AutomationParameter.volume.color)]
         self.automationMode = .read
         self.automationExpanded = false
         self.inputMonitorEnabled = false
@@ -493,7 +501,6 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     
     /// Track duration in beats (using 120 BPM as fallback)
     /// Prefer durationInBeats(tempo:) when tempo is available
-    /// Note: Returns beats, not seconds (despite TimeInterval type)
     var durationBeats: Double? {
         durationInBeats(tempo: 120.0)
     }
@@ -537,7 +544,7 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     var durationBeats: Double         // Region length in BEATS (musical time) - WYSIWYG!
     var fadeIn: TimeInterval          // Fade in time (seconds)
     var fadeOut: TimeInterval         // Fade out time (seconds)
-    var gain: Float
+    var gain: Float                   // Linear amplitude (0.0 to 2.0, where 1.0 = unity gain / 0 dB)
     var isLooped: Bool
     var offset: TimeInterval          // Offset within the audio file (seconds)
     
@@ -646,6 +653,38 @@ struct AudioRegion: Identifiable, Codable, Equatable {
         startTimeSeconds(tempo: tempo) + durationSeconds(tempo: tempo)
     }
     
+    // MARK: - Gain (dB ↔ Amplitude Conversion)
+    
+    /// Gain in decibels (dB)
+    /// - 0 dB = unity gain (amplitude 1.0)
+    /// - -∞ dB = silence (amplitude 0.0)
+    /// - +6 dB = double amplitude (amplitude 2.0)
+    var gainDb: Float {
+        get {
+            AudioRegion.amplitudeToDb(gain)
+        }
+        set {
+            let amplitude = AudioRegion.dbToAmplitude(newValue)
+            gain = max(0.0, min(2.0, amplitude))
+        }
+    }
+    
+    /// Convert linear amplitude to decibels (dB)
+    /// - Parameter amplitude: Linear amplitude (0.0 = silence, 1.0 = unity gain)
+    /// - Returns: Gain in dB (-∞ to +∞, where 0 dB = unity gain)
+    static func amplitudeToDb(_ amplitude: Float) -> Float {
+        guard amplitude > 0 else { return -Float.infinity }
+        return 20.0 * log10(amplitude)
+    }
+    
+    /// Convert decibels (dB) to linear amplitude
+    /// - Parameter db: Gain in dB (0 dB = unity gain, +6 dB ≈ double amplitude)
+    /// - Returns: Linear amplitude (0.0 to positive values). Non-finite db (e.g. -∞, NaN) returns 0.0.
+    static func dbToAmplitude(_ db: Float) -> Float {
+        guard db.isFinite else { return 0.0 }  // -∞ dB = silence; NaN = invalid → 0
+        return pow(10.0, db / 20.0)
+    }
+    
     var displayName: String {
         audioFile.name
     }
@@ -664,10 +703,10 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     var tempoRate: Float = 1.0       // 0.5...2.0
     
     // MARK: - Beat Detection
-    /// Detected beat positions (in seconds from region start), calculated from detected tempo
-    var detectedBeats: [TimeInterval]? = nil
+    /// Detected beat grid times in seconds from region start (from tempo-derived grid). Used for snap/visualization.
+    var detectedBeatTimesInSeconds: [TimeInterval]? = nil
     
-    /// Which beats are downbeats (first beat of measure). Indices into detectedBeats array.
+    /// Which beats are downbeats (first beat of measure). Indices into detectedBeatTimesInSeconds array.
     var downbeatIndices: [Int]? = nil
     
     // MARK: - AI Generation Metadata
@@ -1253,32 +1292,25 @@ struct PlaybackPosition: Codable {
     /// Beat within the current bar (1-indexed)
     var beatInBar: Int
     
-    /// Cached time interval in seconds (computed at creation time from tempo)
-    /// For UI display and AVAudioEngine boundary - uses tempo from when position was created
-    var timeInterval: TimeInterval
-    
     /// The time signature used for bar/beat calculation
     private var timeSignatureNumerator: Int = 4
     
-    /// The tempo used for timeInterval calculation (stored for reference)
-    private var cachedTempo: Double = 120.0
-    
     // MARK: - Beats-First Initialization (Primary)
     
-    /// Initialize from beats with tempo for timeInterval caching
+    /// Initialize from beats (beats are the source of truth, time is always computed)
     init(beats: Double = 0, timeSignature: TimeSignature = .fourFour, tempo: Double = 120.0) {
         self.beats = beats
         self.timeSignatureNumerator = timeSignature.numerator
         self.bars = Int(beats / Double(timeSignature.numerator))
         self.beatInBar = Int(beats.truncatingRemainder(dividingBy: Double(timeSignature.numerator))) + 1
-        self.cachedTempo = tempo
-        // Cache the time interval for backwards compatibility with UI code
-        self.timeInterval = beats * (60.0 / tempo)
+        // NOTE: tempo parameter is kept for API compatibility but not cached
+        // Use timeInterval(atTempo:) to convert beats to seconds
     }
     
     // MARK: - Seconds Conversion (for AVAudioEngine boundary)
     
-    /// Get time interval in seconds at a specific tempo (use when tempo differs from cached)
+    /// Get time interval in seconds at a specific tempo
+    /// IMPORTANT: Always provide the current project tempo to get accurate time values
     func timeInterval(atTempo tempo: Double) -> TimeInterval {
         beats * (60.0 / tempo)
     }

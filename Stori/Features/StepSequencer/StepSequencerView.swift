@@ -217,9 +217,8 @@ struct StepSequencerView: View {
                 }
                 
                 // Determine insert position: playhead if at a valid position, otherwise end of track
-                // Convert playhead from seconds to beats immediately (AVAudioEngine boundary)
+                let playheadBeat = audioEngine.currentPosition.beats
                 let tempo = project.tempo
-                let playheadBeat = audioEngine.currentPosition.timeInterval * (tempo / 60.0)
                 
                 // Find end of last region in beats
                 let lastRegionEndBeat = trackRegions.map { region in

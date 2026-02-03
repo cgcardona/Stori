@@ -78,9 +78,8 @@ final class AutomationEngine: @unchecked Sendable {
     /// Takes precedence over tempoProvider when both are set
     var schedulingContextProvider: (() -> AudioSchedulingContext)?
     
-    /// Callback to apply automation values
-    /// Parameters: trackId, volume, pan, eqLow, eqMid, eqHigh (all optional)
-    var applyValuesHandler: ((UUID, Float?, Float?, Float?, Float?, Float?) -> Void)?
+    /// Callback to apply automation values (receives raw values; engine merges with mixer fallback for nil)
+    var applyValuesHandler: ((UUID, AutomationValues) -> Void)?
     
     /// Provider for track IDs that need automation
     var trackIdsProvider: (() -> [UUID])?
@@ -154,14 +153,7 @@ final class AutomationEngine: @unchecked Sendable {
         
         // Apply values outside the lock (TrackAudioNode setters are thread-safe)
         for (trackId, values) in allValues {
-            applyValuesHandler?(
-                trackId,
-                values.volume,
-                values.pan,
-                values.eqLow,
-                values.eqMid,
-                values.eqHigh
-            )
+            applyValuesHandler?(trackId, values)
         }
     }
 }
@@ -180,10 +172,12 @@ final class AutomationProcessor: @unchecked Sendable {
         /// Automation points sorted by beat position
         let points: [(beat: Double, value: Float, curve: CurveType)]
         let defaultValue: Float
+        /// Value before first point (deterministic WYSIWYG when set)
+        let initialValue: Float?
         
         /// Get interpolated value at a specific beat using binary search
         /// O(log n) complexity for real-time safety
-        /// Returns first point's value for positions before the first point (deterministic playback)
+        /// Returns initialValue or first point's value for positions before the first point (deterministic playback)
         func value(atBeat beat: Double) -> Float? {
             guard !points.isEmpty else { return nil }
             
@@ -191,10 +185,9 @@ final class AutomationProcessor: @unchecked Sendable {
             var low = 0
             var high = points.count - 1
             
-            // Before first point - use first point's value for consistent playback
-            // This ensures "what you hear is what you get" regardless of mixer slider position
+            // Before first point: use stored initialValue or first point (deterministic, not current mixer)
             if beat < points[0].beat {
-                return points[0].value
+                return initialValue ?? points[0].value
             }
             
             // After last point - return last point's value (stay at final level)
@@ -293,7 +286,7 @@ final class AutomationProcessor: @unchecked Sendable {
             let sortedPoints = lane.sortedPoints.map { point in
                 (beat: point.beat, value: point.value, curve: point.curve)
             }
-            let curve = AutomationCurve(points: sortedPoints, defaultValue: lane.parameter.defaultValue)
+            let curve = AutomationCurve(points: sortedPoints, defaultValue: lane.parameter.defaultValue, initialValue: lane.initialValue)
             
             switch lane.parameter {
             case .volume:
@@ -439,11 +432,8 @@ final class AutomationProcessor: @unchecked Sendable {
                 eqMid: snapshot.eqMid?.value(atBeat: beat),
                 eqHigh: snapshot.eqHigh?.value(atBeat: beat)
             )
-            
-            // Only include tracks that have actual values
-            if values.hasAnyValue {
-                results[trackId] = values
-            }
+            // Include every canRead track so engine can apply mixer fallback for nil params (avoids pops when adding first point)
+            results[trackId] = values
         }
         
         return results

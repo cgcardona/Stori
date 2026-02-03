@@ -144,7 +144,7 @@ struct AutomationDisclosureButton: View {
 /// Note: This is legacy - new automation uses AutomationCurveOverlay in IntegratedTimelineView
 struct InlineAutomationLane: View {
     @Binding var lane: AutomationLane
-    let duration: TimeInterval  // Duration in beats
+    let durationBeats: Double
     let pixelsPerBeat: CGFloat
     let height: CGFloat
     let trackId: UUID
@@ -424,7 +424,13 @@ struct AddAutomationLaneMenu: View {
             return
         }
         
-        let newLane = AutomationLane(parameter: parameter, color: parameter.color)
+        let track = project.tracks[trackIndex]
+        let newLane = AutomationLane(
+            parameter: parameter,
+            points: [],
+            initialValue: track.mixerValue(for: parameter),
+            color: parameter.color
+        )
         project.tracks[trackIndex].automationLanes.append(newLane)
         project.tracks[trackIndex].automationExpanded = true
         project.modifiedAt = Date()

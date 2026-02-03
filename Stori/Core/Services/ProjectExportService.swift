@@ -1617,11 +1617,6 @@ class ProjectExportService {
         
     }
     
-    private func sanitizeFileName(_ name: String) -> String {
-        let invalidChars = CharacterSet(charactersIn: ":/\\?%*|\"<>")
-        return name.components(separatedBy: invalidChars).joined(separator: "_")
-    }
-    
     // MARK: - Tokenization Export Methods
     
     /// Export the full project mix to Data for IPFS upload
@@ -1784,9 +1779,8 @@ class ProjectExportService {
         allCCEvents.sort { $0.absoluteTime < $1.absoluteTime }
         allPitchBendEvents.sort { $0.absoluteTime < $1.absoluteTime }
         
-        // Convert to MIDI events
+        // Convert to MIDI events (positions in beats)
         var events: [(deltaTime: UInt32, status: UInt8, data1: UInt8, data2: UInt8)] = []
-        var currentTime: Double = 0
         
         // Convert beats to ticks
         func beatsToTicks(_ beats: Double) -> UInt32 {
@@ -1801,26 +1795,27 @@ class ProjectExportService {
             case pitchBend(value: Int16)
         }
         
-        var allEvents: [(time: Double, eventType: MIDIEventType)] = []
+        var allEvents: [(beat: Double, eventType: MIDIEventType)] = []
         
         for note in allNotes {
-            allEvents.append((time: note.absoluteTime, eventType: .noteOn(pitch: note.pitch, velocity: note.velocity)))
-            allEvents.append((time: note.absoluteTime + note.duration, eventType: .noteOff(pitch: note.pitch)))
+            allEvents.append((beat: note.absoluteTime, eventType: .noteOn(pitch: note.pitch, velocity: note.velocity)))
+            allEvents.append((beat: note.absoluteTime + note.duration, eventType: .noteOff(pitch: note.pitch)))
         }
         
         for cc in allCCEvents {
-            allEvents.append((time: cc.absoluteTime, eventType: .cc(controller: cc.controller, value: cc.value)))
+            allEvents.append((beat: cc.absoluteTime, eventType: .cc(controller: cc.controller, value: cc.value)))
         }
         
         for pb in allPitchBendEvents {
-            allEvents.append((time: pb.absoluteTime, eventType: .pitchBend(value: pb.value)))
+            allEvents.append((beat: pb.absoluteTime, eventType: .pitchBend(value: pb.value)))
         }
         
-        allEvents.sort { $0.time < $1.time }
+        allEvents.sort { $0.beat < $1.beat }
         
-        // Convert to delta times
+        // Convert to delta times (all positions in beats)
+        var currentBeat: Double = 0
         for event in allEvents {
-            let deltaTicks = beatsToTicks(event.time - currentTime)
+            let deltaTicks = beatsToTicks(event.beat - currentBeat)
             
             switch event.eventType {
             case .noteOn(let pitch, let velocity):
@@ -1837,7 +1832,7 @@ class ProjectExportService {
                 events.append((deltaTime: deltaTicks, status: 0xE0, data1: lsb, data2: msb))
             }
             
-            currentTime = event.time
+            currentBeat = event.beat
         }
         
         // Build Standard MIDI File

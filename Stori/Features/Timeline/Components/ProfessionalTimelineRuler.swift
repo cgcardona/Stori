@@ -20,16 +20,13 @@ struct ProfessionalTimelineRuler: View {
     let isCycleEnabled: Bool
     let cycleStartBeat: Double
     let cycleEndBeat: Double
-    let onSeek: (TimeInterval) -> Void
+    /// Seek to position (beat). UI uses beats as source of truth; engine converts at boundary.
+    let onSeek: (Double) -> Void
     let onCycleRegionChanged: (Double, Double) -> Void
     
     // Height split
     private let topCycleHeight: CGFloat = 30
     private var bottomPlayheadHeight: CGFloat { height - topCycleHeight }
-    
-    // Derived values for time-mode display
-    private var secondsPerBeat: Double { 60.0 / projectTempo }
-    private var pixelsPerSecond: CGFloat { pixelsPerBeat / CGFloat(secondsPerBeat) }
     
     // Unique ID for forcing Canvas redraw when zoom changes OR tempo changes
     private var zoomId: String {
@@ -120,8 +117,8 @@ struct ProfessionalTimelineRuler: View {
                             DragGesture(minimumDistance: 0)
                                 .onEnded { value in
                                     let x = max(0, value.location.x)
-                                    let t = Double(x / pixelsPerSecond)
-                                    onSeek(t)
+                                    let beat = Double(x) / Double(pixelsPerBeat)
+                                    onSeek(beat)
                                 }
                         )
                         .accessibilityLabel("Timeline ruler")
@@ -135,7 +132,7 @@ struct ProfessionalTimelineRuler: View {
             // PERFORMANCE: Uses @Observable TransportModel for fine-grained updates
             RulerPlayhead(
                 height: height,
-                pixelsPerSecond: pixelsPerSecond
+                pixelsPerBeat: pixelsPerBeat
             )
         }
         .frame(width: contentWidth, height: height)
@@ -149,89 +146,11 @@ struct ProfessionalTimelineRuler: View {
     
     // MARK: - Tiled Drawing (avoids macOS texture size limits)
     private func drawTimeMarkersForTile(ctx: GraphicsContext, size: CGSize, tileOffsetX: CGFloat) {
-        // Always use beats mode - beats is now the standard throughout the app
         drawBeatsModeForTile(ctx: ctx, size: size, tileOffsetX: tileOffsetX)
     }
     
-    // MARK: - Time Mode for Tile
-    private func drawTimeModeForTile(ctx: GraphicsContext, size: CGSize, tileOffsetX: CGFloat) {
-        let pps = pixelsPerSecond
-        guard pps > 0 else { return }
-        
-        // Calculate which seconds fall within this tile
-        let tileStartSecond = Int(floor(tileOffsetX / pps))
-        let tileEndSecond = Int(ceil((tileOffsetX + size.width) / pps))
-        
-        // Adaptive marker interval
-        let majorInterval: Int
-        let mediumInterval: Int
-        let showMinorTicks: Bool
-        let fontSize: CGFloat
-        
-        if pps < 5 {
-            majorInterval = 30
-            mediumInterval = 10
-            showMinorTicks = false
-            fontSize = 12
-        } else if pps < 15 {
-            majorInterval = 10
-            mediumInterval = 5
-            showMinorTicks = false
-            fontSize = 11
-        } else if pps < 50 {
-            majorInterval = 5
-            mediumInterval = 1
-            showMinorTicks = false
-            fontSize = 11
-        } else {
-            majorInterval = 5
-            mediumInterval = 1
-            showMinorTicks = true
-            fontSize = 11
-        }
-        
-        let lineColor = Color.primary  // Adapts to light/dark mode
-        
-        for second in max(0, tileStartSecond - 1)...tileEndSecond {
-            let globalX = CGFloat(second) * pps
-            let localX = globalX - tileOffsetX  // Convert to tile-local coordinates
-            
-            // Skip if outside this tile's bounds
-            guard localX >= -20 && localX <= size.width + 20 else { continue }
-            
-            if second % majorInterval == 0 {
-                var p = Path()
-                p.move(to: CGPoint(x: localX, y: 0))
-                p.addLine(to: CGPoint(x: localX, y: size.height))
-                ctx.stroke(p, with: .color(lineColor), lineWidth: 1.5)
-                
-                let m = second / 60, s = second % 60
-                let label = String(format: "%d:%02d", m, s)
-                let resolvedText = ctx.resolve(
-                    Text(label)
-                        .font(.system(size: fontSize, weight: .bold))
-                        .foregroundColor(lineColor)
-                )
-                ctx.draw(resolvedText, at: CGPoint(x: localX + 3, y: 4), anchor: .topLeading)
-            } else if second % mediumInterval == 0 {
-                var p = Path()
-                p.move(to: CGPoint(x: localX, y: 6))
-                p.addLine(to: CGPoint(x: localX, y: size.height))
-                ctx.stroke(p, with: .color(lineColor.opacity(0.6)), lineWidth: 1)
-            } else if showMinorTicks {
-                var p = Path()
-                p.move(to: CGPoint(x: localX, y: 12))
-                p.addLine(to: CGPoint(x: localX, y: size.height))
-                ctx.stroke(p, with: .color(lineColor.opacity(0.35)), lineWidth: 0.8)
-            }
-        }
-    }
-    
-    // MARK: - Beats Mode for Tile
+    // MARK: - Beats Mode for Tile (only mode - timeline is beat-based)
     private func drawBeatsModeForTile(ctx: GraphicsContext, size: CGSize, tileOffsetX: CGFloat) {
-        let tempo = projectTempo
-        let secondsPerBeat = 60.0 / tempo
-        let pixelsPerBeat = CGFloat(secondsPerBeat) * pixelsPerSecond
         let pixelsPerBar = pixelsPerBeat * 4
         let beatsPerBar = 4
         
@@ -304,84 +223,8 @@ struct ProfessionalTimelineRuler: View {
         }
     }
     
-    // MARK: - Time Mode (Minutes:Seconds)
-    private func drawTimeMode(ctx: GraphicsContext, size: CGSize) {
-        let pps = pixelsPerSecond
-        guard pps > 0 else { return }
-        let totalSeconds = Int(ceil(contentWidth / pps))
-
-        // Adaptive marker interval based on zoom level
-        // Show time markers at reasonable intervals - not too sparse
-        let majorInterval: Int
-        let mediumInterval: Int
-        let showMinorTicks: Bool
-        let fontSize: CGFloat
-        
-        if pps < 5 {  // Very zoomed out (< 0.5x)
-            majorInterval = 30  // Every 30 seconds
-            mediumInterval = 10  // Every 10 seconds
-            showMinorTicks = false
-            fontSize = 12
-        } else if pps < 15 {  // Zoomed out (0.5x - 1.5x)
-            majorInterval = 10  // Every 10 seconds
-            mediumInterval = 5   // Every 5 seconds
-            showMinorTicks = false
-            fontSize = 11
-        } else if pps < 50 {  // Normal (1.5x - 5.0x)
-            majorInterval = 5   // Every 5 seconds
-            mediumInterval = 1   // Every second
-            showMinorTicks = false
-            fontSize = 11
-        } else {  // Zoomed in (> 5.0x)
-            majorInterval = 5   // Every 5 seconds
-            mediumInterval = 1   // Every second
-            showMinorTicks = true  // Show half-seconds
-            fontSize = 11
-        }
-
-        let lineColor = Color(NSColor.labelColor)
-        
-        for second in 0...totalSeconds {
-            let x = CGFloat(second) * pps
-            if second % majorInterval == 0 {
-                // Major tick - bold line with large label
-                var p = Path()
-                p.move(to: CGPoint(x: x, y: 0))
-                p.addLine(to: CGPoint(x: x, y: size.height))
-                ctx.stroke(p, with: .color(lineColor), lineWidth: 1.5)
-
-                let m = second / 60, s = second % 60
-                let label = String(format: "%d:%02d", m, s)
-                let resolvedText = ctx.resolve(
-                    Text(label)
-                        .font(.system(size: fontSize, weight: .bold))
-                        .foregroundColor(lineColor)
-                )
-                ctx.draw(resolvedText, at: CGPoint(x: x + 3, y: 6), anchor: .topLeading)
-            } else if second % mediumInterval == 0 {
-                // Medium tick with lighter line
-                var p = Path()
-                p.move(to: CGPoint(x: x, y: 6))
-                p.addLine(to: CGPoint(x: x, y: size.height))
-                ctx.stroke(p, with: .color(lineColor.opacity(0.6)), lineWidth: 1)
-            } else if showMinorTicks {
-                // Minor tick (only when zoomed in enough)
-                var p = Path()
-                p.move(to: CGPoint(x: x, y: 12))
-                p.addLine(to: CGPoint(x: x, y: size.height))
-                ctx.stroke(p, with: .color(lineColor.opacity(0.35)), lineWidth: 0.8)
-            }
-        }
-    }
-    
-    // MARK: - Beats Mode (Bars.Beats.Ticks)
+    // MARK: - Beats Mode (non-tiled, kept for reference)
     private func drawBeatsMode(ctx: GraphicsContext, size: CGSize) {
-        // Use the project tempo passed in from the parent
-        let tempo = projectTempo
-        
-        // Calculate timing
-        let secondsPerBeat = 60.0 / tempo
-        let pixelsPerBeat = CGFloat(secondsPerBeat) * pixelsPerSecond
         let pixelsPerBar = pixelsPerBeat * 4  // 4/4 time
         
         // Calculate how many beats fit in the content width
@@ -498,7 +341,7 @@ struct ProfessionalTimelineRuler: View {
 private struct RulerPlayhead: View {
     @Environment(AudioEngine.self) private var audioEngine
     let height: CGFloat
-    let pixelsPerSecond: CGFloat
+    let pixelsPerBeat: CGFloat
     
     // Triangle dimensions for playhead head
     private let triangleWidth: CGFloat = 12
@@ -506,8 +349,8 @@ private struct RulerPlayhead: View {
     private let lineWidth: CGFloat = 2
     
     var body: some View {
-        // Calculate playhead X position (this is where the CENTER of the line should be)
-        let playheadX = CGFloat(audioEngine.currentPosition.timeInterval) * pixelsPerSecond
+        // Position from beats (no seconds)
+        let playheadX = CGFloat(audioEngine.currentPosition.beats) * pixelsPerBeat
         
         // Use Canvas for precise pixel-perfect positioning
         Canvas { context, size in
