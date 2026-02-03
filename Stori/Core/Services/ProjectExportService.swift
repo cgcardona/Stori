@@ -1617,57 +1617,6 @@ class ProjectExportService {
         
     }
     
-    /// Sanitize a string for safe use as a filename
-    /// SECURITY: Prevents path traversal, null byte injection, control characters, and other attacks
-    private func sanitizeFileName(_ name: String) -> String {
-        var sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // SECURITY: Unicode normalization to prevent look-alike attacks and filesystem inconsistencies
-        sanitized = sanitized.precomposedStringWithCanonicalMapping
-        
-        // SECURITY: Remove null bytes (path truncation attack)
-        sanitized = sanitized.replacingOccurrences(of: "\0", with: "")
-        
-        // SECURITY: Remove ALL control characters (0x00-0x1F, 0x7F) that can corrupt filenames
-        sanitized = sanitized.filter { char in
-            guard let scalar = char.unicodeScalars.first else { return false }
-            let value = scalar.value
-            return value >= 0x20 && value != 0x7F
-        }
-        
-        // SECURITY: Remove path traversal sequences
-        sanitized = sanitized.replacingOccurrences(of: "..", with: "")
-        sanitized = sanitized.replacingOccurrences(of: "./", with: "")
-        sanitized = sanitized.replacingOccurrences(of: ".\\", with: "")
-        
-        // Remove or replace characters that aren't safe for file names
-        let invalidChars = CharacterSet(charactersIn: ":/\\?%*|\"<>")
-        sanitized = sanitized.components(separatedBy: invalidChars).joined(separator: "_")
-        
-        // Remove leading/trailing dots and underscores
-        sanitized = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "._"))
-        
-        // SECURITY: Check for reserved Windows filenames
-        let reservedNames = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
-                             "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4",
-                             "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"]
-        if reservedNames.contains(sanitized.uppercased()) {
-            sanitized = "_\(sanitized)"
-        }
-        
-        // Ensure we have a valid name
-        if sanitized.isEmpty {
-            sanitized = "Untitled"
-        }
-        
-        // SECURITY: Limit filename length (leave room for timestamp and extension)
-        if sanitized.count > 200 {
-            sanitized = String(sanitized.prefix(200))
-        }
-        
-        return sanitized
-    }
-    
     // MARK: - Tokenization Export Methods
     
     /// Export the full project mix to Data for IPFS upload

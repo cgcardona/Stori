@@ -122,6 +122,7 @@
 				Core/Services/UndoService.swift,
 				Core/Services/UpdateManager.swift,
 				Core/Services/UserManager.swift,
+				Core/Utilities/FileNameSanitizer.swift,
 				Core/Utilities/ScrollSyncModel.swift,
 				Core/Utilities/SynchronizedScrollView.swift,
 				Features/AIComposer/ComposerTemplateBuilder.swift,
