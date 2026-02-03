@@ -1,0 +1,422 @@
+//
+//  ProjectLifecycleManagerTests.swift
+//  StoriTests
+//
+//  Comprehensive tests for project loading and lifecycle management
+//  CRITICAL: Project loading must be robust and handle all edge cases
+//
+
+import XCTest
+@testable import Stori
+import AVFoundation
+
+@MainActor
+final class ProjectLifecycleManagerTests: XCTestCase {
+    
+    var sut: ProjectLifecycleManager!
+    var mockEngine: AVAudioEngine!
+    var mockAutomationProcessor: AutomationProcessor!
+    var testProject: AudioProject!
+    
+    var setupTracksCallCount: Int!
+    var setupBusesCallCount: Int!
+    var updateAutomationCallCount: Int!
+    var restorePluginsCallCount: Int!
+    var connectInstrumentsCallCount: Int!
+    var validateConnectionsCallCount: Int!
+    var startEngineCallCount: Int!
+    var stopPlaybackCallCount: Int!
+    
+    var graphStableStates: [Bool]!
+    var graphReadyStates: [Bool]!
+    var transportStoppedCallCount: Int!
+    
+    override func setUp() async throws {
+        try await super.setUp()
+        
+        sut = ProjectLifecycleManager()
+        mockEngine = AVAudioEngine()
+        mockAutomationProcessor = AutomationProcessor()
+        
+        // Reset counters
+        setupTracksCallCount = 0
+        setupBusesCallCount = 0
+        updateAutomationCallCount = 0
+        restorePluginsCallCount = 0
+        connectInstrumentsCallCount = 0
+        validateConnectionsCallCount = 0
+        startEngineCallCount = 0
+        stopPlaybackCallCount = 0
+        graphStableStates = []
+        graphReadyStates = []
+        transportStoppedCallCount = 0
+        
+        // Create test project
+        testProject = AudioProject(
+            name: "Test Project",
+            tempo: 120.0,
+            timeSignature: .fourFour
+        )
+        
+        // Add some tracks
+        testProject.tracks.append(AudioTrack(name: "Track 1", trackType: .audio))
+        testProject.tracks.append(AudioTrack(name: "Track 2", trackType: .midi))
+        
+        // Wire up dependencies
+        sut.engine = mockEngine
+        sut.automationProcessor = mockAutomationProcessor
+        
+        sut.onSetupTracks = { [weak self] _ in 
+            self?.setupTracksCallCount += 1
+        }
+        sut.onSetupBuses = { [weak self] _ in 
+            self?.setupBusesCallCount += 1
+        }
+        sut.onUpdateAutomation = { [weak self] in 
+            self?.updateAutomationCallCount += 1
+        }
+        sut.onRestorePlugins = { [weak self] in 
+            self?.restorePluginsCallCount += 1
+        }
+        sut.onConnectInstruments = { [weak self] _ in 
+            self?.connectInstrumentsCallCount += 1
+        }
+        sut.onValidateConnections = { [weak self] in 
+            self?.validateConnectionsCallCount += 1
+        }
+        sut.onStartEngine = { [weak self] in 
+            self?.startEngineCallCount += 1
+            // Simulate engine starting
+            if let engine = self?.mockEngine, !engine.isRunning {
+                engine.attach(AVAudioMixerNode())
+                try? engine.start()
+            }
+        }
+        sut.onStopPlayback = { [weak self] in 
+            self?.stopPlaybackCallCount += 1
+        }
+        sut.onSetGraphStable = { [weak self] stable in 
+            self?.graphStableStates.append(stable)
+        }
+        sut.onSetGraphReady = { [weak self] ready in 
+            self?.graphReadyStates.append(ready)
+        }
+        sut.onSetTransportStopped = { [weak self] in 
+            self?.transportStoppedCallCount += 1
+        }
+        sut.logDebug = { _, _ in }
+    }
+    
+    override func tearDown() async throws {
+        if mockEngine.isRunning {
+            mockEngine.stop()
+        }
+        mockEngine = nil
+        mockAutomationProcessor = nil
+        testProject = nil
+        sut = nil
+        try await super.tearDown()
+    }
+    
+    // MARK: - State Machine Tests
+    
+    func testProjectLoadingStateMachine() async throws {
+        // Start load
+        sut.loadProject(testProject)
+        
+        // Wait for async loading to complete
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+        
+        // Verify final state
+        XCTAssertEqual(sut.loadingState, .ready, "Should reach ready state")
+    }
+    
+    func testProjectLoadingStatesTransition() async throws {
+        var observedStates: [ProjectLifecycleManager.LoadingState] = []
+        
+        // Track state transitions (would need to expose state changes)
+        sut.loadProject(testProject)
+        
+        // Record initial state
+        observedStates.append(sut.loadingState)
+        
+        // Wait for completion
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // Final state
+        observedStates.append(sut.loadingState)
+        
+        XCTAssertEqual(observedStates.first, .idle)
+        XCTAssertEqual(observedStates.last, .ready)
+    }
+    
+    func testProjectLoadingCallsAllSetupSteps() async throws {
+        sut.loadProject(testProject)
+        
+        // Wait for async loading
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // Verify all setup steps were called
+        XCTAssertEqual(setupTracksCallCount, 1, "Should call onSetupTracks")
+        XCTAssertEqual(setupBusesCallCount, 1, "Should call onSetupBuses")
+        XCTAssertEqual(updateAutomationCallCount, 1, "Should call onUpdateAutomation")
+        XCTAssertEqual(restorePluginsCallCount, 1, "Should call onRestorePlugins")
+        XCTAssertEqual(connectInstrumentsCallCount, 1, "Should call onConnectInstruments")
+        XCTAssertEqual(validateConnectionsCallCount, 1, "Should call onValidateConnections")
+    }
+    
+    func testProjectLoadingStopsTransportFirst() async throws {
+        sut.loadProject(testProject)
+        
+        // Transport should be stopped immediately (synchronous)
+        XCTAssertEqual(transportStoppedCallCount, 1)
+        XCTAssertEqual(stopPlaybackCallCount, 1)
+        
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    
+    func testProjectLoadingClearsAutomation() async throws {
+        // Add some automation points
+        var lane = AutomationLane(parameter: .volume)
+        lane.addPoint(atBeat: 0, value: 0.5)
+        mockAutomationProcessor.setLane(lane, for: UUID(), parameter: .volume)
+        
+        XCTAssertFalse(mockAutomationProcessor.allLanes.isEmpty, "Should have automation before load")
+        
+        sut.loadProject(testProject)
+        
+        // Automation should be cleared immediately (synchronous)
+        XCTAssertTrue(mockAutomationProcessor.allLanes.isEmpty, "Should clear automation on project load")
+    }
+    
+    // MARK: - Engine Readiness Tests
+    
+    func testProjectLoadingWaitsForEngine() async throws {
+        // Don't start engine in onStartEngine callback
+        sut.onStartEngine = { [weak self] in
+            self?.startEngineCallCount += 1
+            // Engine stays stopped
+        }
+        
+        sut.loadProject(testProject)
+        
+        // Wait for timeout
+        try await Task.sleep(nanoseconds: 300_000_000)
+        
+        // Should fail and restore stable state
+        XCTAssertEqual(sut.loadingState, .failed, "Should fail if engine doesn't start")
+        XCTAssertTrue(graphStableStates.last == true, "Should restore stable state")
+    }
+    
+    func testProjectLoadingEngineStartRetries() async throws {
+        var startAttempts = 0
+        sut.onStartEngine = { [weak self] in
+            startAttempts += 1
+            // Start engine on second attempt
+            if startAttempts >= 2, let engine = self?.mockEngine, !engine.isRunning {
+                engine.attach(AVAudioMixerNode())
+                try? engine.start()
+            }
+        }
+        
+        sut.loadProject(testProject)
+        
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // Should eventually succeed
+        XCTAssertEqual(sut.loadingState, .ready)
+        XCTAssertGreaterThan(startAttempts, 1, "Should retry engine start")
+    }
+    
+    // MARK: - Generation Cancellation Tests
+    
+    func testConcurrentProjectLoadsCancelPrevious() async throws {
+        let project1 = AudioProject(name: "Project 1", tempo: 120, timeSignature: .fourFour)
+        let project2 = AudioProject(name: "Project 2", tempo: 140, timeSignature: .fourFour)
+        
+        // Start first load
+        sut.loadProject(project1)
+        
+        // Immediately start second load (should cancel first)
+        try await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        sut.loadProject(project2)
+        
+        // Wait for second to complete
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // Second project should be loaded
+        XCTAssertEqual(sut.currentProject?.name, "Project 2")
+        XCTAssertEqual(sut.loadingState, .ready)
+    }
+    
+    func testGenerationIncrementsCancelsInFlightLoad() async throws {
+        var setupCallsForProject1 = 0
+        
+        sut.onSetupTracks = { [weak self] project in
+            if project.name == "Project 1" {
+                setupCallsForProject1 += 1
+            }
+            self?.setupTracksCallCount += 1
+        }
+        
+        let project1 = AudioProject(name: "Project 1", tempo: 120, timeSignature: .fourFour)
+        let project2 = AudioProject(name: "Project 2", tempo: 140, timeSignature: .fourFour)
+        
+        sut.loadProject(project1)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        sut.loadProject(project2)
+        
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // First project's setup may have been called, but loading should have been cancelled
+        XCTAssertEqual(sut.loadingState, .ready)
+        XCTAssertEqual(sut.currentProject?.name, "Project 2")
+    }
+    
+    // MARK: - Graph Stability Tests
+    
+    func testProjectLoadingSetsGraphUnstableDuringLoad() async throws {
+        sut.loadProject(testProject)
+        
+        // Graph should be immediately marked unstable
+        XCTAssertEqual(graphStableStates.first, false, "Graph should be unstable at start of load")
+        
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // Graph should be stable after successful load
+        XCTAssertEqual(graphStableStates.last, true, "Graph should be stable after load")
+    }
+    
+    func testProjectLoadingRestoresStabilityOnFailure() async throws {
+        // Force engine failure
+        sut.onStartEngine = { [weak self] in
+            self?.startEngineCallCount += 1
+            // Engine never starts
+        }
+        
+        sut.loadProject(testProject)
+        
+        try await Task.sleep(nanoseconds: 300_000_000)
+        
+        // Graph stability should be restored even on failure
+        XCTAssertTrue(graphStableStates.contains(false), "Should have set unstable")
+        XCTAssertEqual(graphStableStates.last, true, "Should restore stable state on failure")
+    }
+    
+    // MARK: - Lightweight Update Tests
+    
+    func testUpdateProjectDataDoesNotRebuildGraph() {
+        sut.updateProjectData(testProject)
+        
+        // Should NOT call any setup functions
+        XCTAssertEqual(setupTracksCallCount, 0)
+        XCTAssertEqual(setupBusesCallCount, 0)
+        XCTAssertEqual(restorePluginsCallCount, 0)
+    }
+    
+    func testUpdateProjectDataUpdatesCurrentProject() {
+        let updatedProject = AudioProject(name: "Updated", tempo: 140, timeSignature: .fourFour)
+        
+        sut.updateProjectData(updatedProject)
+        
+        XCTAssertEqual(sut.currentProject?.name, "Updated")
+        XCTAssertEqual(sut.currentProject?.tempo, 140)
+    }
+    
+    // MARK: - Error Recovery Tests
+    
+    func testProjectLoadingHandlesSetupFailure() async throws {
+        // Make setup throw error
+        sut.onSetupTracks = { _ in
+            throw NSError(domain: "TestError", code: 1)
+        }
+        
+        sut.loadProject(testProject)
+        
+        try await Task.sleep(nanoseconds: 300_000_000)
+        
+        // Should restore stable state
+        XCTAssertTrue(graphStableStates.last == true)
+    }
+    
+    func testProjectLoadingHandlesPluginRestoreFailure() async throws {
+        sut.onRestorePlugins = {
+            throw NSError(domain: "PluginError", code: 1)
+        }
+        
+        sut.loadProject(testProject)
+        
+        try await Task.sleep(nanoseconds: 300_000_000)
+        
+        // Should restore stable state
+        XCTAssertTrue(graphStableStates.last == true)
+    }
+    
+    // MARK: - Integration Tests
+    
+    func testCompleteProjectLoadFlow() async throws {
+        sut.loadProject(testProject)
+        
+        // Wait for completion
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        // Verify complete flow
+        XCTAssertEqual(sut.loadingState, .ready)
+        XCTAssertEqual(sut.currentProject?.name, testProject.name)
+        
+        // Verify all callbacks were called in order
+        XCTAssertGreaterThan(startEngineCallCount, 0)
+        XCTAssertEqual(setupTracksCallCount, 1)
+        XCTAssertEqual(setupBusesCallCount, 1)
+        XCTAssertEqual(updateAutomationCallCount, 1)
+        XCTAssertEqual(restorePluginsCallCount, 1)
+        XCTAssertEqual(connectInstrumentsCallCount, 1)
+        XCTAssertEqual(validateConnectionsCallCount, 1)
+        
+        // Graph should be stable and ready
+        XCTAssertEqual(graphStableStates.last, true)
+        XCTAssertEqual(graphReadyStates.last, true)
+    }
+    
+    func testProjectLoadWithEmptyProject() async throws {
+        let emptyProject = AudioProject(name: "Empty", tempo: 120, timeSignature: .fourFour)
+        
+        sut.loadProject(emptyProject)
+        
+        try await Task.sleep(nanoseconds: 500_000_000)
+        
+        XCTAssertEqual(sut.loadingState, .ready)
+        XCTAssertEqual(setupTracksCallCount, 1, "Should still call setup even with empty project")
+    }
+    
+    func testProjectLoadWithManyTracks() async throws {
+        let largeProject = AudioProject(name: "Large", tempo: 120, timeSignature: .fourFour)
+        
+        // Add 50 tracks
+        for i in 0..<50 {
+            largeProject.tracks.append(AudioTrack(name: "Track \(i)", trackType: .audio))
+        }
+        
+        sut.loadProject(largeProject)
+        
+        try await Task.sleep(nanoseconds: 1_000_000_000) // 1s for large project
+        
+        XCTAssertEqual(sut.loadingState, .ready)
+        XCTAssertEqual(sut.currentProject?.tracks.count, 50)
+    }
+    
+    // MARK: - Performance Tests
+    
+    func testProjectLoadingPerformance() {
+        measure {
+            sut.loadProject(testProject)
+            // Note: This measures synchronous overhead only
+        }
+    }
+    
+    func testLightweightUpdatePerformance() {
+        measure {
+            sut.updateProjectData(testProject)
+        }
+    }
+}

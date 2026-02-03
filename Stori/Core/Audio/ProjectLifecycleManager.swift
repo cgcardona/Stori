@@ -1,0 +1,214 @@
+//
+//  ProjectLifecycleManager.swift
+//  Stori
+//
+//  Manages project loading, unloading, and lifecycle state transitions.
+//  Extracted from AudioEngine.swift for better maintainability.
+//
+
+import Foundation
+import AVFoundation
+import Observation
+
+/// Manages project loading and unloading with explicit state machine
+@Observable
+@MainActor
+final class ProjectLifecycleManager {
+    
+    // MARK: - Types
+    
+    /// State machine for project loading - explicit states replace scattered asyncAfter delays
+    enum LoadingState: String {
+        case idle
+        case preparingEngine
+        case settingUpTracks
+        case restoringPlugins
+        case connectingInstruments
+        case validating
+        case ready
+        case failed
+    }
+    
+    // MARK: - Properties
+    
+    /// Current project loading state (for debugging and UI feedback)
+    private(set) var loadingState: LoadingState = .idle
+    
+    /// Generation counter for cancelling stale loads
+    @ObservationIgnored
+    private var projectLoadGeneration: Int = 0
+    
+    /// Current project (synchronized with AudioEngine)
+    @ObservationIgnored
+    var currentProject: AudioProject?
+    
+    // MARK: - Dependencies (set by AudioEngine)
+    
+    @ObservationIgnored
+    var engine: AVAudioEngine!
+    
+    @ObservationIgnored
+    var automationProcessor: AutomationProcessor!
+    
+    @ObservationIgnored
+    var onSetupTracks: ((AudioProject) -> Void)?
+    
+    @ObservationIgnored
+    var onSetupBuses: ((AudioProject) -> Void)?
+    
+    @ObservationIgnored
+    var onUpdateAutomation: (() -> Void)?
+    
+    @ObservationIgnored
+    var onRestorePlugins: (() async -> Void)?
+    
+    @ObservationIgnored
+    var onConnectInstruments: ((AudioProject) async -> Void)?
+    
+    @ObservationIgnored
+    var onValidateConnections: (() -> Void)?
+    
+    @ObservationIgnored
+    var onStartEngine: (() -> Void)?
+    
+    @ObservationIgnored
+    var onStopPlayback: (() -> Void)?
+    
+    @ObservationIgnored
+    var onSetGraphStable: ((Bool) -> Void)?
+    
+    @ObservationIgnored
+    var onSetGraphReady: ((Bool) -> Void)?
+    
+    @ObservationIgnored
+    var onSetTransportStopped: (() -> Void)?
+    
+    @ObservationIgnored
+    var logDebug: ((String, String) -> Void)?
+    
+    // MARK: - Initialization
+    
+    init() {}
+    
+    // MARK: - Public API
+    
+    /// Lightweight project data update - does NOT rebuild audio graph
+    /// Use this for region edits (resize, move, loop) that don't require graph changes
+    func updateProjectData(_ project: AudioProject) {
+        currentProject = project
+        logDebug?("📝 updateProjectData - lightweight update for '\(project.name)'", "PROJECT")
+    }
+    
+    /// Synchronous entry point that kicks off async loading
+    func loadProject(_ project: AudioProject) {
+        logDebug?("⚡️ loadProject called for '\(project.name)' with \(project.tracks.count) tracks", "PROJECT")
+        
+        // Mark graph as unstable during rebuild
+        onSetGraphStable?(false)
+        loadingState = .idle
+        
+        onSetTransportStopped?()
+        onStopPlayback?()
+        currentProject = project
+        
+        // Increment generation to invalidate any pending async operations
+        projectLoadGeneration += 1
+        let thisGeneration = projectLoadGeneration
+        logDebug?("Project generation: \(thisGeneration)", "PROJECT")
+        
+        // Clear and reload automation data
+        automationProcessor?.clearAll()
+        
+        // Launch async loading with proper state machine
+        Task { @MainActor in
+            await loadProjectAsync(project, generation: thisGeneration)
+        }
+    }
+    
+    // MARK: - Private Implementation
+    
+    /// Async project loading with explicit state machine (no asyncAfter delays)
+    /// RAII Pattern: isGraphStable is always restored on exit via defer
+    @MainActor
+    private func loadProjectAsync(_ project: AudioProject, generation: Int) async {
+        // RAII: Ensure isGraphStable is restored even on early returns
+        var loadSucceeded = false
+        defer {
+            if !loadSucceeded {
+                // Load was cancelled or failed - restore stable state to allow retry
+                onSetGraphStable?(true)
+                onSetGraphReady?(true)
+                logDebug?("⚠️ Project load did not complete - restoring stable state", "PROJECT")
+            }
+        }
+        
+        // STATE 1: Preparing Engine
+        loadingState = .preparingEngine
+        logDebug?("State: \(loadingState.rawValue)", "PROJECT")
+        
+        // Ensure engine is running
+        if engine?.isRunning == false {
+            onStartEngine?()
+            engine?.prepare()
+        }
+        
+        // Verify engine is ready (poll briefly if needed, but no arbitrary delay)
+        var engineAttempts = 0
+        while engine?.isRunning == false && engineAttempts < 10 {
+            try? await Task.sleep(nanoseconds: 20_000_000) // 20ms per attempt, max 200ms
+            engineAttempts += 1
+        }
+        
+        guard engine?.isRunning == true else {
+            loadingState = .failed
+            AppLogger.shared.error("Project load failed: Engine could not start")
+            return  // defer will restore stable state
+        }
+        
+        // Check generation is still valid
+        guard generation == projectLoadGeneration else {
+            logDebug?("Project load cancelled (generation mismatch)", "PROJECT")
+            return  // defer will restore stable state
+        }
+        
+        // STATE 2: Setting Up Tracks
+        loadingState = .settingUpTracks
+        logDebug?("State: \(loadingState.rawValue)", "PROJECT")
+        
+        onSetupTracks?(project)
+        onSetupBuses?(project)
+        onUpdateAutomation?()
+        
+        guard generation == projectLoadGeneration else { return }
+        
+        // STATE 3: Restoring Plugins
+        loadingState = .restoringPlugins
+        logDebug?("State: \(loadingState.rawValue)", "PROJECT")
+        
+        await onRestorePlugins?()
+        
+        guard generation == projectLoadGeneration else { return }
+        
+        // STATE 4: Connecting MIDI Instruments
+        loadingState = .connectingInstruments
+        logDebug?("State: \(loadingState.rawValue)", "PROJECT")
+        
+        await onConnectInstruments?(project)
+        
+        guard generation == projectLoadGeneration else { return }
+        
+        // STATE 5: Validating
+        loadingState = .validating
+        logDebug?("State: \(loadingState.rawValue)", "PROJECT")
+        
+        onValidateConnections?()
+        
+        // STATE 6: Ready - Mark success before setting stable
+        loadSucceeded = true
+        loadingState = .ready
+        onSetGraphStable?(true)
+        onSetGraphReady?(true)
+        
+        logDebug?("✅ State: \(loadingState.rawValue) - Graph is stable", "PROJECT")
+    }
+}

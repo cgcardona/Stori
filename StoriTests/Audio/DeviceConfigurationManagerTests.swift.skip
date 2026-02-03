@@ -1,0 +1,412 @@
+//
+//  DeviceConfigurationManagerTests.swift
+//  StoriTests
+//
+//  Comprehensive tests for audio device configuration changes
+//  CRITICAL: Device changes must preserve playback state and not corrupt audio
+//
+
+import XCTest
+@testable import Stori
+import AVFoundation
+
+@MainActor
+final class DeviceConfigurationManagerTests: XCTestCase {
+    
+    var sut: DeviceConfigurationManager!
+    var mockEngine: AVAudioEngine!
+    var mockMixer: AVAudioMixerNode!
+    var mockMasterEQ: AVAudioUnitEQ!
+    var mockMasterLimiter: AVAudioUnitEffect!
+    var mockGraphFormat: AVAudioFormat!
+    var mockBusManager: BusManager!
+    
+    var graphFormatUpdates: [AVAudioFormat]!
+    var graphReadyStates: [Bool]!
+    var stopCallCount: Int!
+    var playCallCount: Int!
+    var seekToBeats: [Double]!
+    var reconnectAllTracksCallCount: Int!
+    var reprimeInstrumentsCallCount: Int!
+    
+    override func setUp() async throws {
+        try await super.setUp()
+        
+        sut = DeviceConfigurationManager()
+        mockEngine = AVAudioEngine()
+        mockMixer = AVAudioMixerNode()
+        mockMasterEQ = AVAudioUnitEQ(numberOfBands: 3)
+        mockMasterLimiter = AVAudioUnitEffect()
+        mockGraphFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+        
+        graphFormatUpdates = []
+        graphReadyStates = []
+        stopCallCount = 0
+        playCallCount = 0
+        seekToBeats = []
+        reconnectAllTracksCallCount = 0
+        reprimeInstrumentsCallCount = 0
+        
+        // Wire up dependencies
+        sut.engine = mockEngine
+        sut.mixer = mockMixer
+        sut.masterEQ = mockMasterEQ
+        sut.masterLimiter = mockMasterLimiter
+        
+        sut.getGraphFormat = { [weak self] in
+            self?.mockGraphFormat
+        }
+        sut.setGraphFormat = { [weak self] format in
+            self?.mockGraphFormat = format
+            self?.graphFormatUpdates.append(format)
+        }
+        sut.getTrackNodes = { [:] }
+        sut.getCurrentProject = { nil }
+        sut.getTransportState = { .stopped }
+        sut.getCurrentPosition = { PlaybackPosition(beats: 0) }
+        
+        sut.onStop = { [weak self] in
+            self?.stopCallCount += 1
+        }
+        sut.onSeekToBeat = { [weak self] beat in
+            self?.seekToBeats.append(beat)
+        }
+        sut.onPlay = { [weak self] in
+            self?.playCallCount += 1
+        }
+        sut.onReconnectAllTracks = { [weak self] in
+            self?.reconnectAllTracksCallCount += 1
+        }
+        sut.onReprimeInstruments = { [weak self] in
+            self?.reprimeInstrumentsCallCount += 1
+        }
+        sut.setGraphReady = { [weak self] ready in
+            self?.graphReadyStates.append(ready)
+        }
+    }
+    
+    override func tearDown() async throws {
+        if mockEngine.isRunning {
+            mockEngine.stop()
+        }
+        mockEngine = nil
+        mockMixer = nil
+        mockMasterEQ = nil
+        mockMasterLimiter = nil
+        mockGraphFormat = nil
+        sut = nil
+        try await super.tearDown()
+    }
+    
+    // MARK: - Observer Setup Tests
+    
+    func testSetupObserverOnlyOnce() {
+        sut.setupObserver()
+        sut.setupObserver()
+        sut.setupObserver()
+        
+        // Should only register once (no easy way to verify without exposing internal state)
+        // But multiple calls should not crash or cause issues
+    }
+    
+    // MARK: - Configuration Change Handling Tests
+    
+    func testConfigurationChangeStopsAndRestartsEngine() {
+        // Start engine
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        XCTAssertTrue(mockEngine.isRunning)
+        
+        sut.handleConfigurationChange()
+        
+        // Engine should be restarted
+        XCTAssertTrue(mockEngine.isRunning)
+    }
+    
+    func testConfigurationChangeResetsEngine() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Engine.reset() should have been called (clears pending audio data)
+        // Hard to verify directly, but engine should restart successfully
+        XCTAssertTrue(mockEngine.isRunning)
+    }
+    
+    func testConfigurationChangeUpdatesGraphFormat() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        let initialFormat = mockGraphFormat!
+        
+        sut.handleConfigurationChange()
+        
+        // Graph format should be updated
+        XCTAssertFalse(graphFormatUpdates.isEmpty, "Should update graph format")
+        
+        // New format should match output node's format
+        let newFormat = graphFormatUpdates.last!
+        XCTAssertEqual(newFormat.sampleRate, mockEngine.outputNode.outputFormat(forBus: 0).sampleRate)
+    }
+    
+    func testConfigurationChangeUpdatesPluginChainFormats() {
+        // Create a mock track node with plugin chain
+        let trackNode = createMockTrackNode()
+        
+        sut.getTrackNodes = { [trackNode.id: trackNode] }
+        
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Plugin chain format should have been updated
+        // (Hard to verify without exposing internals, but should not crash)
+    }
+    
+    func testConfigurationChangeReconnectsTracks() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        XCTAssertEqual(reconnectAllTracksCallCount, 1, "Should reconnect all tracks")
+    }
+    
+    func testConfigurationChangeReprimesInstruments() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        XCTAssertEqual(reprimeInstrumentsCallCount, 1, "Should reprime instruments")
+    }
+    
+    // MARK: - Playback State Preservation Tests
+    
+    func testConfigurationChangePreservesStoppedState() {
+        sut.getTransportState = { .stopped }
+        
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Should not resume playback
+        XCTAssertEqual(playCallCount, 0, "Should not play when transport was stopped")
+    }
+    
+    func testConfigurationChangeResumesPlayback() {
+        sut.getTransportState = { .playing }
+        sut.getCurrentPosition = { PlaybackPosition(beats: 16.5) }
+        
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Should seek and resume playback
+        XCTAssertEqual(seekToBeats.last, 16.5, "Should seek to saved position")
+        XCTAssertEqual(playCallCount, 1, "Should resume playback")
+    }
+    
+    func testConfigurationChangeStopsPlaybackDuringChange() {
+        sut.getTransportState = { .playing }
+        
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Should stop playback during device change
+        XCTAssertEqual(stopCallCount, 1, "Should stop playback during device change")
+    }
+    
+    // MARK: - Graph Ready Flag Tests
+    
+    func testConfigurationChangeSetsGraphNotReadyDuringChange() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        XCTAssertEqual(graphReadyStates.first, false, "Should set graph not ready at start")
+        XCTAssertEqual(graphReadyStates.last, true, "Should set graph ready at end")
+    }
+    
+    func testConfigurationChangeRestoresGraphReadyOnError() {
+        // Force engine start failure
+        mockEngine.attach(mockMixer)
+        // Don't connect mixer, will cause start() to fail
+        
+        sut.handleConfigurationChange()
+        
+        // Should still restore graph ready state
+        XCTAssertTrue(graphReadyStates.contains(false), "Should set not ready")
+        XCTAssertEqual(graphReadyStates.last, true, "Should restore ready even on error")
+    }
+    
+    // MARK: - Sample Rate Change Tests
+    
+    func testConfigurationChangeHandles44100Hz() {
+        // Simulate device with 44.1kHz sample rate
+        // (Difficult to test directly without a real audio device)
+        
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Should handle sample rate change successfully
+        XCTAssertTrue(mockEngine.isRunning)
+    }
+    
+    func testConfigurationChangeHandles96000Hz() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        XCTAssertTrue(mockEngine.isRunning)
+    }
+    
+    // MARK: - Master Chain Reconnection Tests
+    
+    func testConfigurationChangeReconnectsMasterChain() {
+        mockEngine.attach(mockMixer)
+        mockEngine.attach(mockMasterEQ)
+        mockEngine.attach(mockMasterLimiter)
+        
+        // Set up initial connections
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+        mockEngine.connect(mockMixer, to: mockMasterEQ, format: format)
+        mockEngine.connect(mockMasterEQ, to: mockMasterLimiter, format: format)
+        mockEngine.connect(mockMasterLimiter, to: mockEngine.outputNode, format: format)
+        
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Master chain should be reconnected with new format
+        let outputConnections = mockEngine.outputConnectionPoints(for: mockMasterLimiter, outputBus: 0)
+        XCTAssertFalse(outputConnections.isEmpty, "Master limiter should be connected to output")
+    }
+    
+    // MARK: - Debouncing Tests
+    
+    func testMultipleRapidConfigurationChangesDebounced() async throws {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        // Trigger multiple rapid changes
+        sut.setupObserver()
+        
+        // Post multiple configuration change notifications
+        for _ in 0..<5 {
+            NotificationCenter.default.post(
+                name: .AVAudioEngineConfigurationChange,
+                object: mockEngine
+            )
+            try await Task.sleep(nanoseconds: 50_000_000) // 50ms between notifications
+        }
+        
+        // Wait for debounce period to expire
+        try await Task.sleep(nanoseconds: 500_000_000) // 500ms
+        
+        // Should only handle once due to debouncing
+        // (Hard to verify exact count without exposing internal state)
+    }
+    
+    // MARK: - Error Handling Tests
+    
+    func testConfigurationChangeHandlesEngineStartFailure() {
+        // Don't attach or connect anything - engine.start() will fail
+        
+        sut.handleConfigurationChange()
+        
+        // Should not crash and should restore graph ready state
+        XCTAssertEqual(graphReadyStates.last, true, "Should restore ready state even on failure")
+    }
+    
+    func testConfigurationChangeHandlesReconnectionFailure() {
+        // Note: onReconnectAllTracks is () -> Void, so cannot throw
+        // Removed this test as it tests non-existent behavior
+    }
+    
+    // MARK: - Integration Tests
+    
+    func testCompleteDeviceChangeFlow() {
+        // Set up playing state
+        sut.getTransportState = { .playing }
+        sut.getCurrentPosition = { PlaybackPosition(beats: 8.0) }
+        
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        sut.handleConfigurationChange()
+        
+        // Verify complete flow
+        XCTAssertEqual(stopCallCount, 1, "Should stop playback")
+        XCTAssertTrue(mockEngine.isRunning, "Engine should be restarted")
+        XCTAssertEqual(reconnectAllTracksCallCount, 1, "Should reconnect tracks")
+        XCTAssertEqual(reprimeInstrumentsCallCount, 1, "Should reprime instruments")
+        XCTAssertEqual(seekToBeats.last, 8.0, "Should seek to saved position")
+        XCTAssertEqual(playCallCount, 1, "Should resume playback")
+        
+        XCTAssertEqual(graphReadyStates.first, false, "Should disable graph during change")
+        XCTAssertEqual(graphReadyStates.last, true, "Should enable graph after change")
+    }
+    
+    // MARK: - Performance Tests
+    
+    func testConfigurationChangePerformance() {
+        mockEngine.attach(mockMixer)
+        mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
+        try? mockEngine.start()
+        
+        measure {
+            sut.handleConfigurationChange()
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func createMockTrackNode() -> TrackAudioNode {
+        let playerNode = AVAudioPlayerNode()
+        let volumeNode = AVAudioMixerNode()
+        let panNode = AVAudioMixerNode()
+        let eqNode = AVAudioUnitEQ(numberOfBands: 3)
+        let timePitch = AVAudioUnitTimePitch()
+        let pluginChain = PluginChain(id: UUID(), maxSlots: 8)
+        
+        return TrackAudioNode(
+            id: UUID(),
+            playerNode: playerNode,
+            volumeNode: volumeNode,
+            panNode: panNode,
+            eqNode: eqNode,
+            pluginChain: pluginChain,
+            timePitchUnit: timePitch,
+            volume: 0.8,
+            pan: 0.0,
+            isMuted: false,
+            isSolo: false
+        )
+    }
+}
