@@ -481,7 +481,7 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     /// Track duration in beats (requires tempo for audio region conversion)
     func durationInBeats(tempo: Double) -> Double? {
         let audioEndBeat = regions.isEmpty ? nil : regions.map { $0.endBeat }.max()
-        let midiEndBeat = midiRegions.isEmpty ? nil : midiRegions.map { $0.endTime }.max()
+        let midiEndBeat = midiRegions.isEmpty ? nil : midiRegions.map { $0.endBeat }.max()
         
         switch (audioEndBeat, midiEndBeat) {
         case (nil, nil): return nil

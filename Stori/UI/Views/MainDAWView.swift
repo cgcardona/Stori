@@ -627,7 +627,7 @@ struct MainDAWView: View {
                 // Get file attributes
                 let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path)
                 let fileSize = attributes[.size] as? Int64 ?? 0
-                let totalDuration = region.duration + 2.0
+                let totalDuration = region.durationBeats + 2.0
                 
                 // Create AudioFile from bounced file
                 let audioFile = AudioFile(
@@ -642,11 +642,11 @@ struct MainDAWView: View {
                 )
                 
                 // Create audio region
-                // MIDIRegion.startTime is already in beats, use it directly
+                // MIDIRegion.startBeat is already in beats, use it directly
                 let audioRegion = AudioRegion(
                     audioFile: audioFile,
-                    startBeat: region.startTime,
-                    durationBeats: region.duration,
+                    startBeat: region.startBeat,
+                    durationBeats: region.durationBeats,
                     tempo: projectTempo
                 )
                 
@@ -943,16 +943,16 @@ struct MainDAWView: View {
         let region = MIDIRegion(
             name: trackName,
             notes: midiTrack.notes,
-            duration: midiTrack.notes.map { $0.endTime }.max() ?? 4.0,
-            contentLength: midiTrack.notes.map { $0.endTime }.max() ?? 4.0
+            durationBeats: midiTrack.notes.map { $0.endBeat }.max() ?? 4.0,
+            contentLengthBeats: midiTrack.notes.map { $0.endBeat }.max() ?? 4.0
         )
         
         #if DEBUG
         print("🎹 [MIDI Import] Created region '\(trackName)':")
         print("   - Note count: \(midiTrack.notes.count)")
-        print("   - Duration: \(region.duration) beats")
+        print("   - Duration: \(region.durationBeats) beats")
         print("   - GM Program: \(midiTrack.gmProgram.map { String($0) } ?? "none")")
-        print("   - First 5 notes: \(midiTrack.notes.prefix(5).map { "pitch=\($0.pitch) start=\($0.startTime) dur=\($0.duration)" })")
+        print("   - First 5 notes: \(midiTrack.notes.prefix(5).map { "pitch=\($0.pitch) start=\($0.startBeat) dur=\($0.durationBeats)" })")
         #endif
         
         // Add to project
@@ -988,7 +988,7 @@ struct MainDAWView: View {
             let region = MIDIRegion(
                 name: midiTrack.name.isEmpty ? newTrack.name : midiTrack.name,
                 notes: midiTrack.notes,
-                duration: midiTrack.notes.map { $0.endTime }.max() ?? 4.0
+                durationBeats: midiTrack.notes.map { $0.endBeat }.max() ?? 4.0
             )
             
             #if DEBUG
@@ -1790,7 +1790,7 @@ extension MainDAWView {
                 if !midiTracks.isEmpty {
                     ScoreView(
                         region: Binding(
-                            get: { selectedMIDIRegion ?? MIDIRegion(name: "Empty", duration: 4) },
+                            get: { selectedMIDIRegion ?? MIDIRegion(name: "Empty", durationBeats: 4) },
                             set: { newRegion in
                                 selectedMIDIRegion = newRegion
                                 if let trackId = selectedMIDITrackId {

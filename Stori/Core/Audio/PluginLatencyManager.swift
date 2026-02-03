@@ -9,6 +9,7 @@
 import Foundation
 import AVFoundation
 import Observation
+import os.lock
 
 // MARK: - Plugin Latency Manager
 
@@ -42,9 +43,13 @@ class PluginLatencyManager {
     @ObservationIgnored
     private var trackLatencies: [UUID: TrackLatencyInfo] = [:]
     
-    /// Compensation delays applied to each track
+    /// Compensation delays applied to each track (protected by compensationLock)
     @ObservationIgnored
-    private var compensationDelays: [UUID: UInt32] = [:]
+    private nonisolated(unsafe) var compensationDelays: [UUID: UInt32] = [:]
+    
+    /// Lock for thread-safe access to compensation delays from audio thread
+    @ObservationIgnored
+    private nonisolated(unsafe) var compensationLock = os_unfair_lock_s()
     
     // MARK: - Types
     
@@ -152,12 +157,19 @@ class PluginLatencyManager {
             compensation[info.trackId] = needed
         }
         
+        // Thread-safe write
+        os_unfair_lock_lock(&compensationLock)
         self.compensationDelays = compensation
+        os_unfair_lock_unlock(&compensationLock)
+        
         return compensation
     }
     
     /// Get the compensation delay for a specific track
-    func getCompensationDelay(for trackId: UUID) -> UInt32 {
+    /// Thread-safe: Can be called from audio thread (MIDI dispatch)
+    nonisolated func getCompensationDelay(for trackId: UUID) -> UInt32 {
+        os_unfair_lock_lock(&compensationLock)
+        defer { os_unfair_lock_unlock(&compensationLock) }
         return compensationDelays[trackId] ?? 0
     }
     
@@ -171,13 +183,20 @@ class PluginLatencyManager {
     /// Remove latency tracking for a track (when track is deleted)
     func removeTrack(_ trackId: UUID) {
         trackLatencies.removeValue(forKey: trackId)
+        
+        os_unfair_lock_lock(&compensationLock)
         compensationDelays.removeValue(forKey: trackId)
+        os_unfair_lock_unlock(&compensationLock)
     }
     
     /// Clear all latency data
     func reset() {
         trackLatencies.removeAll()
+        
+        os_unfair_lock_lock(&compensationLock)
         compensationDelays.removeAll()
+        os_unfair_lock_unlock(&compensationLock)
+        
         maxLatencySamples = 0
         maxLatencyMs = 0.0
     }

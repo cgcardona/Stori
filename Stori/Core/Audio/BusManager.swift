@@ -406,7 +406,7 @@ class BusManager {
     
     // MARK: - Track Send Management
     
-    func setupTrackSend(_ trackId: UUID, to busId: UUID, level: Double) {
+    func setupTrackSend(_ trackId: UUID, to busId: UUID, level: Double, isPreFader: Bool = false) {
         let sendKey = "\(trackId)-\(busId)"
         
         // Prevent duplicate setup - if this send already exists, just update the level
@@ -445,17 +445,40 @@ class BusManager {
         let trackBusNumber = AVAudioNodeBus(trackIndex)
         let inBus = sendMixer.nextAvailableInputBus
         
+        // CRITICAL: Choose tap point based on pre/post-fader setting
+        // Signal flow: playerNode → plugins → volumeNode → panNode → mixer
+        // Pre-fader: Tap AFTER plugins/volume but BEFORE track fader is applied to send
+        // Post-fader: Tap AFTER volume/pan (normal behavior)
+        let tapNode = isPreFader ? trackNode.volumeNode : trackNode.panNode
+        
         modifyGraphSafely { [self] in
             let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: trackBusNumber)
             let sendConnectionPoint = AVAudioConnectionPoint(node: sendMixer, bus: inBus)
             
-            engine.disconnectNodeOutput(trackNode.panNode)
-            engine.connect(
-                trackNode.panNode,
-                to: [mainConnectionPoint, sendConnectionPoint],
-                fromBus: 0,
-                format: deviceFormat
-            )
+            if isPreFader {
+                // Pre-fader: Split signal after volumeNode
+                // volumeNode → [panNode (normal flow), sendBus]
+                engine.disconnectNodeOutput(trackNode.volumeNode)
+                engine.connect(
+                    trackNode.volumeNode,
+                    to: [
+                        AVAudioConnectionPoint(node: trackNode.panNode, bus: 0),
+                        sendConnectionPoint
+                    ],
+                    fromBus: 0,
+                    format: deviceFormat
+                )
+            } else {
+                // Post-fader: Split signal after panNode (current behavior)
+                // panNode → [mixer, sendBus]
+                engine.disconnectNodeOutput(trackNode.panNode)
+                engine.connect(
+                    trackNode.panNode,
+                    to: [mainConnectionPoint, sendConnectionPoint],
+                    fromBus: 0,
+                    format: deviceFormat
+                )
+            }
             
             trackSendIds[sendKey] = UUID()
             trackSendInputBus[sendKey] = inBus
@@ -463,7 +486,7 @@ class BusManager {
         
         // Set send level immediately after graph mutation completes
         // The engine is now running again and the connection is established
-        if let mixing = trackNode.panNode as? AVAudioMixing,
+        if let mixing = tapNode as? AVAudioMixing,
            let destination = mixing.destination(forMixer: sendMixer, bus: inBus) {
             destination.volume = Float(level)
         }

@@ -106,8 +106,8 @@ class ScoreEntryController {
         let newNote = MIDINote(
             pitch: pitch,
             velocity: velocity,
-            startTime: startTime,
-            duration: duration
+            startBeat: startTime,
+            durationBeats: duration
         )
         
         region.notes.append(newNote)
@@ -171,7 +171,7 @@ class ScoreEntryController {
     func doubleDuration(notes: [UUID], in region: inout MIDIRegion) {
         for i in 0..<region.notes.count {
             if notes.contains(region.notes[i].id) {
-                region.notes[i].duration *= 2
+                region.notes[i].durationBeats *= 2
             }
         }
         onRegionUpdate?(region)
@@ -181,7 +181,7 @@ class ScoreEntryController {
     func halveDuration(notes: [UUID], in region: inout MIDIRegion) {
         for i in 0..<region.notes.count {
             if notes.contains(region.notes[i].id) {
-                region.notes[i].duration /= 2
+                region.notes[i].durationBeats /= 2
             }
         }
         onRegionUpdate?(region)
@@ -204,11 +204,11 @@ class ScoreEntryController {
         let selectedIndices = region.notes.indices.filter { notes.contains(region.notes[$0].id) }
         guard selectedIndices.count > 1 else { return }
         
-        let startTimes = selectedIndices.map { region.notes[$0].startTime }
+        let startTimes = selectedIndices.map { region.notes[$0].startBeat }
         let reversedStartTimes = startTimes.reversed()
         
         for (index, startTime) in zip(selectedIndices, reversedStartTimes) {
-            region.notes[index].startTime = startTime
+            region.notes[index].startBeat = startTime
         }
         
         onRegionUpdate?(region)
@@ -220,8 +220,8 @@ class ScoreEntryController {
         
         for i in 0..<region.notes.count {
             if notes.contains(region.notes[i].id) {
-                let quantizedStart = round(region.notes[i].startTime / gridSize) * gridSize
-                region.notes[i].startTime = quantizedStart
+                let quantizedStart = round(region.notes[i].startBeat / gridSize) * gridSize
+                region.notes[i].startBeat = quantizedStart
             }
         }
         onRegionUpdate?(region)

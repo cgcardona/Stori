@@ -105,11 +105,11 @@ class InstrumentManager: InstrumentManagerProtocol {
     private var recordedNotes: [MIDINote] = []
     
     /// Active notes (note on received, waiting for note off)
-    /// Key: pitch, Value: (startTime, velocity)
-    private var activeRecordingNotes: [UInt8: (startTime: TimeInterval, velocity: UInt8)] = [:]
+    /// Key: pitch, Value: (startBeat, velocity)
+    private var activeRecordingNotes: [UInt8: (startBeat: Double, velocity: UInt8)] = [:]
     
     /// Playhead position when recording started
-    private var recordingStartTime: TimeInterval = 0
+    private var recordingStartBeat: Double = 0
     
     /// Recording region counter for naming
     private var recordingCounter: Int = 1
@@ -383,7 +383,7 @@ class InstrumentManager: InstrumentManagerProtocol {
         // Record the note if recording is active (use beats for MIDI timing)
         if isRecording {
             let timeInBeats = currentPlayheadBeats
-            activeRecordingNotes[pitch] = (startTime: timeInBeats, velocity: velocity)
+            activeRecordingNotes[pitch] = (startBeat: timeInBeats, velocity: velocity)
         }
     }
     
@@ -402,12 +402,12 @@ class InstrumentManager: InstrumentManagerProtocol {
         
         // Record the note if recording is active (use beats for MIDI timing)
         if isRecording, let noteInfo = activeRecordingNotes[pitch] {
-            let durationInBeats = currentPlayheadBeats - noteInfo.startTime
+            let durationInBeats = currentPlayheadBeats - noteInfo.startBeat
             let note = MIDINote(
                 pitch: pitch,
                 velocity: noteInfo.velocity,
-                startTime: noteInfo.startTime - recordingStartTime,
-                duration: max(0.1, durationInBeats),
+                startBeat: noteInfo.startBeat - recordingStartBeat,
+                durationBeats: max(0.1, durationInBeats),
                 channel: 0
             )
             recordedNotes.append(note)
@@ -567,7 +567,7 @@ class InstrumentManager: InstrumentManagerProtocol {
         
         isRecording = true
         recordingTrackId = trackId
-        recordingStartTime = positionBeats
+        recordingStartBeat = positionBeats
         recordedNotes = []
         activeRecordingNotes = [:]
         
@@ -584,12 +584,12 @@ class InstrumentManager: InstrumentManagerProtocol {
         // Close any still-active notes (held when recording stopped) - use beats
         let stopTimeBeats = currentPlayheadBeats
         for (pitch, noteInfo) in activeRecordingNotes {
-            let durationInBeats = stopTimeBeats - noteInfo.startTime
+            let durationInBeats = stopTimeBeats - noteInfo.startBeat
             let note = MIDINote(
                 pitch: pitch,
                 velocity: noteInfo.velocity,
-                startTime: noteInfo.startTime - recordingStartTime,
-                duration: max(0.1, durationInBeats),
+                startBeat: noteInfo.startBeat - recordingStartBeat,
+                durationBeats: max(0.1, durationInBeats),
                 channel: 0
             )
             recordedNotes.append(note)
@@ -602,7 +602,7 @@ class InstrumentManager: InstrumentManagerProtocol {
         }
         
         // Calculate region duration from captured notes (in beats)
-        let regionDuration = recordedNotes.map { $0.endTime }.max() ?? 4.0
+        let regionDuration = recordedNotes.map { $0.endBeat }.max() ?? 4.0
         
         // Get track color and name for the region
         var trackColor: Color = .purple // Default purple
@@ -619,8 +619,8 @@ class InstrumentManager: InstrumentManagerProtocol {
             id: UUID(),
             name: trackName,
             notes: recordedNotes,
-            startTime: recordingStartTime,
-            duration: regionDuration,
+            startBeat: recordingStartBeat,
+            durationBeats: regionDuration,
             instrumentId: nil,
             color: trackColor,
             isLooped: false,

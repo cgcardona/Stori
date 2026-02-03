@@ -105,7 +105,7 @@ struct ScoreView: View {
             GeometryReader { geometry in
                 let scaledMeasureWidth = measureWidth * horizontalZoom
                 let contentStartX: CGFloat = trackLabelWidth + 60  // Track label + clef/sig area
-                let maxMeasures = scoreTracks.compactMap { $0.region?.notes.map { $0.endTime }.max() }.max().map { Int(ceil($0 / configuration.timeSignature.measureDuration)) } ?? 4
+                let maxMeasures = scoreTracks.compactMap { $0.region?.notes.map { $0.endBeat }.max() }.max().map { Int(ceil($0 / configuration.timeSignature.measureDuration)) } ?? 4
                 let totalWidth = max(geometry.size.width, CGFloat(max(4, maxMeasures)) * scaledMeasureWidth + contentStartX + 50)
                 let totalStaffHeight = CGFloat(max(1, scoreTracks.count)) * staffRowHeight
                 
@@ -665,7 +665,7 @@ struct ScoreView: View {
             if let measure = measures.first(where: { $0.notes.contains { $0.id == noteId } }),
                let scoreNote = measure.notes.first(where: { $0.id == noteId }) {
                 if let index = region.notes.firstIndex(where: { $0.id == scoreNote.midiNoteId }) {
-                    region.notes[index].duration *= factor
+                    region.notes[index].durationBeats *= factor
                 }
             }
         }
@@ -708,25 +708,25 @@ struct ScoreView: View {
         
         guard selectedIndices.count > 1 else { return }
         
-        let startTimes = selectedIndices.map { region.notes[$0].startTime }
+        let startTimes = selectedIndices.map { region.notes[$0].startBeat }
         let reversedStartTimes = Array(startTimes.reversed())
         
         for (i, index) in selectedIndices.enumerated() {
-            region.notes[index].startTime = reversedStartTimes[i]
+            region.notes[index].startBeat = reversedStartTimes[i]
         }
         quantizeMIDI()
     }
     
     private func quantizeSelected(to resolution: NoteDuration) {
-        // Note: MIDI startTime is in beats, resolution.rawValue is also in beats
+        // Note: MIDI startBeat is in beats, resolution.rawValue is also in beats
         let gridSize = resolution.rawValue
         
         for noteId in selectedNotes {
             if let measure = measures.first(where: { $0.notes.contains { $0.id == noteId } }),
                let scoreNote = measure.notes.first(where: { $0.id == noteId }) {
                 if let index = region.notes.firstIndex(where: { $0.id == scoreNote.midiNoteId }) {
-                    let quantizedStart = round(region.notes[index].startTime / gridSize) * gridSize
-                    region.notes[index].startTime = quantizedStart
+                    let quantizedStart = round(region.notes[index].startBeat / gridSize) * gridSize
+                    region.notes[index].startBeat = quantizedStart
                 }
             }
         }
@@ -1079,12 +1079,12 @@ struct ScoreView: View {
         let totalBeat = Double(measureIndex) * configuration.timeSignature.measureDuration + beatInMeasure
         
         // Create MIDI note
-        // Note: MIDI note startTime and duration are stored in BEATS, not seconds!
+        // Note: MIDI note startBeat and durationBeats are stored in BEATS, not seconds!
         let newNote = MIDINote(
             pitch: pitch,
             velocity: 80,
-            startTime: totalBeat,
-            duration: currentDuration.rawValue
+            startBeat: totalBeat,
+            durationBeats: currentDuration.rawValue
         )
         
         region.notes.append(newNote)

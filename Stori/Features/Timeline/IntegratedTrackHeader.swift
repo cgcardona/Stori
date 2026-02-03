@@ -142,8 +142,8 @@ struct IntegratedTrackHeader: View {
                 id: UUID(),
                 name: newTrack.name,  // Use new track's name (regions display track name)
                 notes: region.notes,
-                startTime: region.startTime,
-                duration: region.duration,
+                startBeat: region.startBeat,
+                durationBeats: region.durationBeats,
                 instrumentId: region.instrumentId,
                 color: region.color,
                 isLooped: region.isLooped,
@@ -151,7 +151,7 @@ struct IntegratedTrackHeader: View {
                 isMuted: region.isMuted,
                 controllerEvents: region.controllerEvents,
                 pitchBendEvents: region.pitchBendEvents,
-                contentLength: region.contentLength
+                contentLengthBeats: region.contentLengthBeats
             )
         }
         

@@ -170,8 +170,8 @@ class MIDIImporter {
                             let note = MIDINote(
                                 pitch: pitch,
                                 velocity: noteOn.velocity,
-                                startTime: startTime,
-                                duration: max(0.1, duration)
+                                startBeat: startTime,
+                                durationBeats: max(0.1, duration)
                             )
                             notes.append(note)
                             activeNotes.removeValue(forKey: pitch)
@@ -249,8 +249,8 @@ class MIDIImporter {
                 let note = MIDINote(
                     pitch: pitch,
                     velocity: noteOn.velocity,
-                    startTime: startTime,
-                    duration: max(0.1, duration)
+                    startBeat: startTime,
+                    durationBeats: max(0.1, duration)
                 )
                 notes.append(note)
             }

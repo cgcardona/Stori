@@ -47,8 +47,8 @@ struct PianoRollView: View {
     @State private var isDuplicatingDrag = false
     @State private var draggedNotesOriginalIds: Set<UUID> = []
     @State private var hasDuplicatedForCurrentDrag = false
-    @State private var duplicateStartPositions: [UUID: (time: TimeInterval, pitch: UInt8)] = [:]
-    @State private var originalPositionsBeforeDrag: [UUID: (time: TimeInterval, pitch: UInt8)] = [:]
+    @State private var duplicateStartPositions: [UUID: (beat: Double, pitch: UInt8)] = [:]
+    @State private var originalPositionsBeforeDrag: [UUID: (beat: Double, pitch: UInt8)] = [:]
     
     // For pitch preview during drag (debouncing to avoid audio spam)
     @State private var lastPreviewedPitch: UInt8 = 0
@@ -279,7 +279,7 @@ struct PianoRollView: View {
                                     MIDICCAutomationLane(
                                         lane: $lane,
                                         region: $region,
-                                        duration: region.duration,
+                                        durationBeats: region.durationBeats,
                                         pixelsPerBeat: scaledPixelsPerBeat,
                                         height: automationLaneHeight
                                     )
@@ -418,8 +418,8 @@ struct PianoRollView: View {
     private var gridWidth: CGFloat {
         // Ensure grid extends well beyond visible notes for comfortable editing
         // Minimum 128 beats (32 bars) for usability, extend based on content
-        let maxNoteEnd = region.notes.map { $0.endTime }.max() ?? 0
-        let effectiveDuration = max(region.duration, maxNoteEnd, 128.0) // Minimum 128 beats (32 bars)
+        let maxNoteEnd = region.notes.map { $0.endBeat }.max() ?? 0
+        let effectiveDuration = max(region.durationBeats, maxNoteEnd, 128.0) // Minimum 128 beats (32 bars)
         return CGFloat(effectiveDuration) * pixelsPerBeat * horizontalZoom + 800
     }
     
@@ -1138,10 +1138,10 @@ struct PianoRollView: View {
     }
     
     private func noteView(for note: MIDINote, isSelected: Bool, isPreview: Bool) -> some View {
-        let x = note.startTime * scaledPixelsPerBeat
+        let x = note.startBeat * scaledPixelsPerBeat
         // Calculate y position relative to the limited pitch range (C0-C8)
         let y = CGFloat(maxPitch - Int(note.pitch)) * scaledNoteHeight
-        let width = max(4, note.duration * scaledPixelsPerBeat)
+        let width = max(4, note.durationBeats * scaledPixelsPerBeat)
         
         // Determine if this is an original note being duplicated (show half-transparent)
         let isOriginalDuringDuplication = isDuplicatingDrag && draggedNotesOriginalIds.contains(note.id)
@@ -1201,28 +1201,28 @@ struct PianoRollView: View {
                 drawStartPosition = value.startLocation
                 
                 let pitch = pitchAt(y: value.startLocation.y)
-                let rawTime = timeAt(x: value.startLocation.x)
-                var startTime = rawTime
+                let rawBeat = timeAt(x: value.startLocation.x)
+                var startBeat = rawBeat
                 
                 if snapResolution != .off {
-                    startTime = snapResolution.quantize(rawTime)
+                    startBeat = snapResolution.quantize(rawBeat)
                 }
                 
                 drawingNote = MIDINote(
                     pitch: pitch,
                     velocity: 100,  // ~78% velocity - standard DAW default
-                    startTime: startTime,
-                    duration: snapResolution.duration > 0 ? snapResolution.duration : 0.25
+                    startBeat: startBeat,
+                    durationBeats: snapResolution.duration > 0 ? snapResolution.duration : 0.25
                 )
                 
                 onPreviewNote?(pitch)
             } else if var note = drawingNote {
                 // Update note duration while dragging
-                var endTime = timeAt(x: value.location.x)
+                var endBeat = timeAt(x: value.location.x)
                 if snapResolution != .off {
-                    endTime = snapResolution.quantize(endTime)
+                    endBeat = snapResolution.quantize(endBeat)
                 }
-                note.duration = max(snapResolution.duration > 0 ? snapResolution.duration : 0.1, endTime - note.startTime)
+                note.durationBeats = max(snapResolution.duration > 0 ? snapResolution.duration : 0.1, endBeat - note.startBeat)
                 drawingNote = note
             }
             
@@ -1232,7 +1232,7 @@ struct PianoRollView: View {
             let time = timeAt(x: value.location.x)
             
             if let noteToDelete = region.notes.first(where: { note in
-                note.pitch == pitch && note.startTime <= time && note.endTime > time
+                note.pitch == pitch && note.startBeat <= time && note.endBeat > time
             }) {
                 deleteNote(noteToDelete)
             }
@@ -1256,9 +1256,9 @@ struct PianoRollView: View {
             // Find notes within the marquee rectangle
             var newSelection = Set<UUID>()
             for note in region.notes {
-                let noteX = note.startTime * scaledPixelsPerBeat
+                let noteX = note.startBeat * scaledPixelsPerBeat
                 let noteY = CGFloat(maxPitch - Int(note.pitch)) * scaledNoteHeight
-                let noteWidth = note.duration * scaledPixelsPerBeat
+                let noteWidth = note.durationBeats * scaledPixelsPerBeat
                 let noteRect = CGRect(x: noteX, y: noteY, width: noteWidth, height: scaledNoteHeight)
                 
                 if rect.intersects(noteRect) {
@@ -1276,27 +1276,27 @@ struct PianoRollView: View {
             }
             
             let pitch = pitchAt(y: value.location.y)
-            var startTime = timeAt(x: value.location.x)
+            var startBeat = timeAt(x: value.location.x)
             
             // Snap to grid
             if snapResolution != .off {
-                startTime = snapResolution.quantize(startTime)
+                startBeat = snapResolution.quantize(startBeat)
             }
             
             // Check if a note already exists at this grid position
             let duration = snapResolution.duration > 0 ? snapResolution.duration : 0.25
             let noteExists = region.notes.contains { note in
                 note.pitch == pitch && 
-                abs(note.startTime - startTime) < 0.01  // Same grid position
+                abs(note.startBeat - startBeat) < 0.01  // Same grid position
             }
             
             // Only add if no note exists at this position
-            if !noteExists && startTime >= 0 && startTime < region.duration {
+            if !noteExists && startBeat >= 0 && startBeat < region.durationBeats {
                 let newNote = MIDINote(
                     pitch: pitch,
                     velocity: 100,
-                    startTime: startTime,
-                    duration: duration
+                    startBeat: startBeat,
+                    durationBeats: duration
                 )
                 region.notes.append(newNote)
                 brushPaintedNotes.insert(newNote.id)
@@ -1420,7 +1420,7 @@ struct PianoRollView: View {
     private func sliceNote(_ note: MIDINote, at relativePosition: TimeInterval) {
         // Calculate the two new note durations
         let firstDuration = relativePosition
-        let secondDuration = note.duration - relativePosition
+        let secondDuration = note.durationBeats - relativePosition
         
         // Ensure both parts have meaningful duration
         guard firstDuration >= 0.05 && secondDuration >= 0.05 else { return }
@@ -1433,8 +1433,8 @@ struct PianoRollView: View {
             id: UUID(),
             pitch: note.pitch,
             velocity: note.velocity,
-            startTime: note.startTime,
-            duration: firstDuration,
+            startBeat: note.startBeat,
+            durationBeats: firstDuration,
             channel: note.channel
         )
         
@@ -1443,8 +1443,8 @@ struct PianoRollView: View {
             id: UUID(),
             pitch: note.pitch,
             velocity: note.velocity,
-            startTime: note.startTime + relativePosition,
-            duration: secondDuration,
+            startBeat: note.startBeat + relativePosition,
+            durationBeats: secondDuration,
             channel: note.channel
         )
         
@@ -1471,14 +1471,14 @@ struct PianoRollView: View {
     /// Merge a note with the next adjacent note of the same pitch
     private func glueNote(_ note: MIDINote) {
         // Find the next adjacent note with same pitch
-        let noteEndTime = note.startTime + note.duration
+        let noteEndTime = note.startBeat + note.durationBeats
         
         // Find notes that start at or very close to where this note ends (within 0.01 beats tolerance)
         let tolerance = 0.01
         guard let nextNote = region.notes.first(where: {
             $0.id != note.id &&
             $0.pitch == note.pitch &&
-            abs($0.startTime - noteEndTime) < tolerance
+            abs($0.startBeat - noteEndTime) < tolerance
         }) else {
             // No adjacent note found
             return
@@ -1492,8 +1492,8 @@ struct PianoRollView: View {
             id: UUID(),
             pitch: note.pitch,
             velocity: note.velocity,  // Keep velocity of first note
-            startTime: note.startTime,
-            duration: note.duration + nextNote.duration,
+            startBeat: note.startBeat,
+            durationBeats: note.durationBeats + nextNote.durationBeats,
             channel: note.channel
         )
         
@@ -1518,27 +1518,27 @@ struct PianoRollView: View {
     
     /// Extend a note to reach the start of the next note (same pitch or any pitch)
     private func legatoNote(_ note: MIDINote) {
-        let noteEndTime = note.startTime + note.duration
+        let noteEndTime = note.startBeat + note.durationBeats
         
-        // Find the next note that starts after this one (any pitch, sorted by start time)
+        // Find the next note that starts after this one (any pitch, sorted by start beat)
         let notesAfter = region.notes
-            .filter { $0.id != note.id && $0.startTime > note.startTime }
-            .sorted { $0.startTime < $1.startTime }
+            .filter { $0.id != note.id && $0.startBeat > note.startBeat }
+            .sorted { $0.startBeat < $1.startBeat }
         
         guard let nextNote = notesAfter.first else {
             // No next note - extend to end of region
-            let newDuration = region.duration - note.startTime
-            if newDuration > note.duration {
+            let newDuration = region.durationBeats - note.startBeat
+            if newDuration > note.durationBeats {
                 updateNoteDuration(note, to: newDuration)
             }
             return
         }
         
         // Calculate new duration to reach the next note
-        let newDuration = nextNote.startTime - note.startTime
+        let newDuration = nextNote.startBeat - note.startBeat
         
         // Only extend if new duration is longer
-        if newDuration > note.duration {
+        if newDuration > note.durationBeats {
             updateNoteDuration(note, to: newDuration)
         }
     }
@@ -1550,7 +1550,7 @@ struct PianoRollView: View {
         
         // Find and update the note
         if let index = region.notes.firstIndex(where: { $0.id == note.id }) {
-            region.notes[index].duration = newDuration
+            region.notes[index].durationBeats = newDuration
         }
         
         // Register undo
@@ -1578,20 +1578,20 @@ struct PianoRollView: View {
             guard let originalNote = region.notes.first(where: { $0.id == noteId }) else { continue }
             
             // Use captured position if available (more accurate), otherwise use current position
-            let (startTime, pitch) = originalPositionsBeforeDrag[noteId] ?? (originalNote.startTime, originalNote.pitch)
+            let (startBeat, pitch) = originalPositionsBeforeDrag[noteId] ?? (originalNote.startBeat, originalNote.pitch)
             
             // Create a new note with a new ID but same properties
             let duplicatedNote = MIDINote(
                 id: UUID(), // New unique ID
                 pitch: pitch,
                 velocity: originalNote.velocity,
-                startTime: startTime,
-                duration: originalNote.duration,
+                startBeat: startBeat,
+                durationBeats: originalNote.durationBeats,
                 channel: originalNote.channel
             )
             
             // Store the starting position for offset calculations (use captured position)
-            duplicateStartPositions[duplicatedNote.id] = (startTime, pitch)
+            duplicateStartPositions[duplicatedNote.id] = (startBeat, pitch)
             
             newNotes.append(duplicatedNote)
             newSelection.insert(duplicatedNote.id)
@@ -1612,7 +1612,7 @@ struct PianoRollView: View {
             let notesToCapture = selectedNotes.isEmpty ? [note.id] : selectedNotes
             for noteId in notesToCapture {
                 if let originalNote = region.notes.first(where: { $0.id == noteId }) {
-                    originalPositionsBeforeDrag[noteId] = (originalNote.startTime, originalNote.pitch)
+                    originalPositionsBeforeDrag[noteId] = (originalNote.startBeat, originalNote.pitch)
                 }
             }
         }
@@ -1634,7 +1634,7 @@ struct PianoRollView: View {
                 // They may have moved before we detected Option key
                 for (originalId, originalPos) in originalPositionsBeforeDrag {
                     if let index = region.notes.firstIndex(where: { $0.id == originalId }) {
-                        region.notes[index].startTime = originalPos.time
+                        region.notes[index].startBeat = originalPos.beat
                         region.notes[index].pitch = originalPos.pitch
                     }
                 }
@@ -1671,20 +1671,20 @@ struct PianoRollView: View {
             // Otherwise, calculate incrementally from current position
             if isDuplicatingDrag, let startPos = duplicateStartPositions[noteId] {
                 // Calculate absolute position from start
-                var newStartTime = startPos.time + rawTimeOffset
+                var newStartBeat = startPos.beat + rawTimeOffset
                 if snapResolution != .off {
-                    newStartTime = snapResolution.quantize(newStartTime)
+                    newStartBeat = snapResolution.quantize(newStartBeat)
                 }
-                movedNote.startTime = max(0, newStartTime)
+                movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(startPos.pitch) + pitchOffset)
             } else {
                 // Normal drag: calculate offset from current position
-                var actualTimeOffset = rawTimeOffset
+                var actualBeatOffset = rawTimeOffset
                 if snapResolution != .off {
-                    let newStartTime = snapResolution.quantize(note.startTime + rawTimeOffset)
-                    actualTimeOffset = newStartTime - note.startTime
+                    let newStartBeat = snapResolution.quantize(note.startBeat + rawTimeOffset)
+                    actualBeatOffset = newStartBeat - note.startBeat
                 }
-                movedNote.startTime = max(0, movedNote.startTime + actualTimeOffset)
+                movedNote.startBeat = max(0, movedNote.startBeat + actualBeatOffset)
                 movedNote.pitch = UInt8(clamping: Int(movedNote.pitch) + pitchOffset)
             }
             
@@ -1734,7 +1734,7 @@ struct PianoRollView: View {
         let oldNotes = region.notes
         
         let durationDelta = delta / scaledPixelsPerBeat
-        var newDuration = note.duration + durationDelta
+        var newDuration = note.durationBeats + durationDelta
         
         if snapResolution != .off {
             newDuration = max(snapResolution.duration, snapResolution.quantize(newDuration))
@@ -1742,7 +1742,7 @@ struct PianoRollView: View {
             newDuration = max(0.01, newDuration)
         }
         
-        region.notes[index].duration = newDuration
+        region.notes[index].durationBeats = newDuration
         
         // Register undo
         if let undoManager = undoManager {
@@ -1780,10 +1780,10 @@ struct PianoRollView: View {
         
         for id in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == id }) {
-                region.notes[index].startTime = snapResolution.quantize(region.notes[index].startTime)
-                region.notes[index].duration = max(
+                region.notes[index].startBeat = snapResolution.quantize(region.notes[index].startBeat)
+                region.notes[index].durationBeats = max(
                     snapResolution.duration,
-                    snapResolution.quantize(region.notes[index].duration)
+                    snapResolution.quantize(region.notes[index].durationBeats)
                 )
             }
         }
@@ -1949,7 +1949,7 @@ struct NoteView: View {
             Divider()
             Text("Pitch: \(note.noteName)")
             Text("Velocity: \(note.velocity)")
-            Text("Duration: \(String(format: "%.2f", note.duration)) beats")
+            Text("Duration: \(String(format: "%.2f", note.durationBeats)) beats")
         }
     }
     
@@ -2006,7 +2006,7 @@ struct NoteView: View {
                 
                 // Only slice if click is not too close to edges (min 0.1 beats from each edge)
                 let minSliceMargin = 0.1
-                if relativeBeats > minSliceMargin && relativeBeats < (note.duration - minSliceMargin) {
+                if relativeBeats > minSliceMargin && relativeBeats < (note.durationBeats - minSliceMargin) {
                     onSlice(relativeBeats)
                 }
             }
@@ -2037,7 +2037,7 @@ private struct PianoRollPlayhead: View {
 struct MIDICCAutomationLane: View {
     @Binding var lane: AutomationLane
     @Binding var region: MIDIRegion
-    let duration: TimeInterval
+    let durationBeats: TimeInterval
     let pixelsPerBeat: CGFloat
     let height: CGFloat
     
@@ -2321,7 +2321,7 @@ struct MIDICCAutomationLane: View {
                     // Convert from -1...1 to 0...1 range for display
                     let displayValue = (event.normalizedValue + 1) / 2
                     return AutomationPoint(
-                        beat: event.time,
+                        beat: event.beat,
                         value: displayValue,
                         curve: .linear
                     )
@@ -2334,7 +2334,7 @@ struct MIDICCAutomationLane: View {
         let relevantEvents = region.controllerEvents.filter { $0.controller == ccNumber }
         lane.points = relevantEvents.map { event in
             AutomationPoint(
-                beat: event.time,
+                beat: event.beat,
                 value: Float(event.value) / 127.0,
                 curve: .linear
             )
@@ -2347,7 +2347,7 @@ struct MIDICCAutomationLane: View {
             // Handle pitch bend separately
             if lane.parameter == .pitchBend {
                 region.pitchBendEvents = lane.sortedPoints.map { point in
-                    MIDIPitchBendEvent.fromNormalized(point.value * 2 - 1, time: point.beat)
+                    MIDIPitchBendEvent.fromNormalized(point.value * 2 - 1, beat: point.beat)
                 }
             }
             return
@@ -2360,7 +2360,7 @@ struct MIDICCAutomationLane: View {
             let event = MIDICCEvent(
                 controller: ccNumber,
                 value: UInt8(clamping: Int(point.value * 127)),
-                time: point.beat
+                beat: point.beat
             )
             region.controllerEvents.append(event)
         }

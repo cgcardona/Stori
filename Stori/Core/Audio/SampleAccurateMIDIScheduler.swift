@@ -455,12 +455,12 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         let loopCount = region.isLooped ? region.loopCount : 1
         
         for loopIndex in 0..<loopCount {
-            let loopOffsetBeats = Double(loopIndex) * region.duration
+            let loopOffsetBeats = Double(loopIndex) * region.durationBeats
             
             // Schedule note events
             for note in region.notes {
-                let noteStartBeat = region.startTime + note.startTime + loopOffsetBeats
-                let noteEndBeat = noteStartBeat + note.duration
+                let noteStartBeat = region.startBeat + note.startBeat + loopOffsetBeats
+                let noteEndBeat = noteStartBeat + note.durationBeats
                 
                 events.append(.noteOn(
                     at: noteStartBeat,
@@ -478,7 +478,7 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
             
             // Schedule CC events
             for ccEvent in region.controllerEvents {
-                let eventBeat = region.startTime + ccEvent.time + loopOffsetBeats
+                let eventBeat = region.startBeat + ccEvent.beat + loopOffsetBeats
                 
                 events.append(.controlChange(
                     at: eventBeat,
@@ -490,7 +490,7 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
             
             // Schedule pitch bend events
             for pbEvent in region.pitchBendEvents {
-                let eventBeat = region.startTime + pbEvent.time + loopOffsetBeats
+                let eventBeat = region.startBeat + pbEvent.beat + loopOffsetBeats
                 
                 events.append(.pitchBend(
                     at: eventBeat,
@@ -602,6 +602,26 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
                 beat: currentBeat,
                 tempo: newTempo,
                 sampleRate: sampleRate
+            )
+        }
+        os_unfair_lock_unlock(&stateLock)
+    }
+    
+    /// Update timing reference when audio device sample rate changes
+    /// Called when user switches audio interface (e.g., built-in → external interface)
+    /// CRITICAL: Must regenerate timing reference with new sample rate to maintain timing accuracy
+    func updateSampleRate(_ newSampleRate: Double) {
+        guard let currentBeat = currentBeatProvider?() else { return }
+        
+        os_unfair_lock_lock(&stateLock)
+        sampleRate = newSampleRate
+        
+        // Regenerate timing reference with new sample rate if currently playing
+        if _isPlaying {
+            timingReference = MIDITimingReference.now(
+                beat: currentBeat,
+                tempo: tempo,
+                sampleRate: newSampleRate
             )
         }
         os_unfair_lock_unlock(&stateLock)

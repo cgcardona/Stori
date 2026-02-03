@@ -13,112 +13,112 @@ final class MIDIModelsTests: XCTestCase {
     // MARK: - MIDINote Tests
     
     func testMIDINoteInitialization() {
-        let note = MIDINote(pitch: 60, velocity: 100, startTime: 0, duration: 1.0)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 0, durationBeats: 1.0)
         
         XCTAssertEqual(note.pitch, 60)
         XCTAssertEqual(note.velocity, 100)
-        XCTAssertEqual(note.startTime, 0)
-        XCTAssertEqual(note.duration, 1.0)
+        XCTAssertEqual(note.startBeat, 0)
+        XCTAssertEqual(note.durationBeats, 1.0)
         XCTAssertEqual(note.channel, 0)
     }
     
     func testMIDINoteEndTime() {
-        let note = MIDINote(pitch: 60, startTime: 2.0, duration: 1.5)
-        XCTAssertEqual(note.endTime, 3.5)
+        let note = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 1.5)
+        XCTAssertEqual(note.endBeat, 3.5)
     }
     
     func testMIDINoteOctave() {
         // C4 = MIDI 60
-        let c4 = MIDINote(pitch: 60, startTime: 0, duration: 1.0)
+        let c4 = MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0)
         XCTAssertEqual(c4.octave, 4)
         
         // C-1 = MIDI 0
-        let cMinus1 = MIDINote(pitch: 0, startTime: 0, duration: 1.0)
+        let cMinus1 = MIDINote(pitch: 0, startBeat: 0, durationBeats: 1.0)
         XCTAssertEqual(cMinus1.octave, -1)
         
         // G9 = MIDI 127
-        let g9 = MIDINote(pitch: 127, startTime: 0, duration: 1.0)
+        let g9 = MIDINote(pitch: 127, startBeat: 0, durationBeats: 1.0)
         XCTAssertEqual(g9.octave, 9)
     }
     
     func testMIDINoteInOctave() {
         // C = 0, C# = 1, D = 2, etc.
-        let c = MIDINote(pitch: 60, startTime: 0, duration: 1.0)  // C4
+        let c = MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0)  // C4
         XCTAssertEqual(c.noteInOctave, 0)
         
-        let fSharp = MIDINote(pitch: 66, startTime: 0, duration: 1.0)  // F#4
+        let fSharp = MIDINote(pitch: 66, startBeat: 0, durationBeats: 1.0)  // F#4
         XCTAssertEqual(fSharp.noteInOctave, 6)
         
-        let b = MIDINote(pitch: 71, startTime: 0, duration: 1.0)  // B4
+        let b = MIDINote(pitch: 71, startBeat: 0, durationBeats: 1.0)  // B4
         XCTAssertEqual(b.noteInOctave, 11)
     }
     
     func testMIDINoteIsBlackKey() {
         // White keys: C, D, E, F, G, A, B (0, 2, 4, 5, 7, 9, 11)
-        let c = MIDINote(pitch: 60, startTime: 0, duration: 1.0)
+        let c = MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0)
         XCTAssertFalse(c.isBlackKey)
         
         // Black keys: C#, D#, F#, G#, A# (1, 3, 6, 8, 10)
-        let cSharp = MIDINote(pitch: 61, startTime: 0, duration: 1.0)
+        let cSharp = MIDINote(pitch: 61, startBeat: 0, durationBeats: 1.0)
         XCTAssertTrue(cSharp.isBlackKey)
         
-        let fSharp = MIDINote(pitch: 66, startTime: 0, duration: 1.0)
+        let fSharp = MIDINote(pitch: 66, startBeat: 0, durationBeats: 1.0)
         XCTAssertTrue(fSharp.isBlackKey)
     }
     
     func testMIDINoteFrequency() {
         // A4 = 440 Hz
-        let a4 = MIDINote(pitch: 69, startTime: 0, duration: 1.0)
+        let a4 = MIDINote(pitch: 69, startBeat: 0, durationBeats: 1.0)
         assertApproximatelyEqual(a4.frequencyHz, 440.0, tolerance: 0.01)
         
         // A5 = 880 Hz (one octave up)
-        let a5 = MIDINote(pitch: 81, startTime: 0, duration: 1.0)
+        let a5 = MIDINote(pitch: 81, startBeat: 0, durationBeats: 1.0)
         assertApproximatelyEqual(a5.frequencyHz, 880.0, tolerance: 0.01)
         
         // A3 = 220 Hz (one octave down)
-        let a3 = MIDINote(pitch: 57, startTime: 0, duration: 1.0)
+        let a3 = MIDINote(pitch: 57, startBeat: 0, durationBeats: 1.0)
         assertApproximatelyEqual(a3.frequencyHz, 220.0, tolerance: 0.01)
     }
     
     func testMIDINoteCodable() {
-        let note = MIDINote(pitch: 64, velocity: 80, startTime: 1.5, duration: 0.5, channel: 2)
+        let note = MIDINote(pitch: 64, velocity: 80, startBeat: 1.5, durationBeats: 0.5, channel: 2)
         assertCodableRoundTrip(note)
     }
     
     func testMIDINoteFromNoteName() {
-        let c4 = MIDINote.fromNoteName("C4", velocity: 100, startTime: 0, duration: 1.0)
+        let c4 = MIDINote.fromNoteName("C4", velocity: 100, startBeat: 0, durationBeats: 1.0)
         XCTAssertNotNil(c4)
         XCTAssertEqual(c4?.pitch, 60)
         
-        let fSharp5 = MIDINote.fromNoteName("F#5", velocity: 80, startTime: 0, duration: 0.5)
+        let fSharp5 = MIDINote.fromNoteName("F#5", velocity: 80, startBeat: 0, durationBeats: 0.5)
         XCTAssertNotNil(fSharp5)
         XCTAssertEqual(fSharp5?.pitch, 78)
         
-        let invalid = MIDINote.fromNoteName("XYZ", startTime: 0, duration: 1.0)
+        let invalid = MIDINote.fromNoteName("XYZ", startBeat: 0, durationBeats: 1.0)
         XCTAssertNil(invalid)
     }
     
     // MARK: - MIDIRegion Tests
     
     func testMIDIRegionInitialization() {
-        let region = MIDIRegion(name: "Melody", startTime: 4.0, duration: 8.0)
+        let region = MIDIRegion(name: "Melody", startBeat: 4.0, durationBeats: 8.0)
         
         XCTAssertEqual(region.name, "Melody")
-        XCTAssertEqual(region.startTime, 4.0)
-        XCTAssertEqual(region.duration, 8.0)
+        XCTAssertEqual(region.startBeat, 4.0)
+        XCTAssertEqual(region.durationBeats, 8.0)
         XCTAssertTrue(region.notes.isEmpty)
         XCTAssertFalse(region.isLooped)
         XCTAssertFalse(region.isMuted)
     }
     
     func testMIDIRegionEndTime() {
-        let region = MIDIRegion(startTime: 4.0, duration: 8.0)
-        XCTAssertEqual(region.endTime, 12.0)
+        let region = MIDIRegion(startBeat: 4.0, durationBeats: 8.0)
+        XCTAssertEqual(region.endBeat, 12.0)
     }
     
     func testMIDIRegionAddNote() {
-        var region = MIDIRegion(duration: 4.0)
-        let note = MIDINote(pitch: 60, startTime: 0, duration: 1.0)
+        var region = MIDIRegion(durationBeats: 4.0)
+        let note = MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0)
         
         region.addNote(note)
         
@@ -127,18 +127,18 @@ final class MIDIModelsTests: XCTestCase {
     }
     
     func testMIDIRegionAutoExtendDuration() {
-        var region = MIDIRegion(duration: 4.0)
-        let longNote = MIDINote(pitch: 60, startTime: 3.0, duration: 3.0)  // Ends at 6.0
+        var region = MIDIRegion(durationBeats: 4.0)
+        let longNote = MIDINote(pitch: 60, startBeat: 3.0, durationBeats: 3.0)  // Ends at 6.0
         
         region.addNote(longNote)
         
-        XCTAssertEqual(region.duration, 6.0, "Region should auto-extend to contain note")
+        XCTAssertEqual(region.durationBeats, 6.0, "Region should auto-extend to contain note")
     }
     
     func testMIDIRegionRemoveNotes() {
         var region = MIDIRegion()
-        let note1 = MIDINote(pitch: 60, startTime: 0, duration: 1.0)
-        let note2 = MIDINote(pitch: 64, startTime: 1.0, duration: 1.0)
+        let note1 = MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0)
+        let note2 = MIDINote(pitch: 64, startBeat: 1.0, durationBeats: 1.0)
         
         region.addNote(note1)
         region.addNote(note2)
@@ -151,9 +151,9 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDIRegionNotesAtTime() {
         var region = MIDIRegion()
-        let note1 = MIDINote(pitch: 60, startTime: 0, duration: 2.0)    // 0-2
-        let note2 = MIDINote(pitch: 64, startTime: 1.0, duration: 2.0)  // 1-3
-        let note3 = MIDINote(pitch: 67, startTime: 2.5, duration: 1.0)  // 2.5-3.5
+        let note1 = MIDINote(pitch: 60, startBeat: 0, durationBeats: 2.0)    // 0-2
+        let note2 = MIDINote(pitch: 64, startBeat: 1.0, durationBeats: 2.0)  // 1-3
+        let note3 = MIDINote(pitch: 67, startBeat: 2.5, durationBeats: 1.0)  // 2.5-3.5
         
         region.addNote(note1)
         region.addNote(note2)
@@ -171,9 +171,9 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDIRegionNotesInRange() {
         var region = MIDIRegion()
-        let note1 = MIDINote(pitch: 60, startTime: 0, duration: 1.0)
-        let note2 = MIDINote(pitch: 64, startTime: 2.0, duration: 1.0)
-        let note3 = MIDINote(pitch: 67, startTime: 4.0, duration: 1.0)
+        let note1 = MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0)
+        let note2 = MIDINote(pitch: 64, startBeat: 2.0, durationBeats: 1.0)
+        let note3 = MIDINote(pitch: 67, startBeat: 4.0, durationBeats: 1.0)
         
         region.addNote(note1)
         region.addNote(note2)
@@ -186,8 +186,8 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDIRegionTranspose() {
         var region = MIDIRegion()
-        region.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 64, startTime: 1.0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 64, startBeat: 1.0, durationBeats: 1.0))
         
         region.transpose(by: 5)
         
@@ -197,7 +197,7 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDIRegionTransposeClamping() {
         var region = MIDIRegion()
-        region.addNote(MIDINote(pitch: 250, startTime: 0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 250, startBeat: 0, durationBeats: 1.0))
         
         region.transpose(by: 10)  // Would go to 260, but UInt8 clamps to 255
         
@@ -206,38 +206,38 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDIRegionShift() {
         var region = MIDIRegion()
-        region.addNote(MIDINote(pitch: 60, startTime: 1.0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 64, startTime: 2.0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 64, startBeat: 2.0, durationBeats: 1.0))
         
         region.shift(by: 2.0)
         
-        assertApproximatelyEqual(region.notes[0].startTime, 3.0)
-        assertApproximatelyEqual(region.notes[1].startTime, 4.0)
+        assertApproximatelyEqual(region.notes[0].startBeat, 3.0)
+        assertApproximatelyEqual(region.notes[1].startBeat, 4.0)
     }
     
     func testMIDIRegionShiftNonNegative() {
         var region = MIDIRegion()
-        region.addNote(MIDINote(pitch: 60, startTime: 1.0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.0))
         
         region.shift(by: -5.0)  // Would make startTime negative
         
-        assertApproximatelyEqual(region.notes[0].startTime, 0.0)
+        assertApproximatelyEqual(region.notes[0].startBeat, 0.0)
     }
     
     func testMIDIRegionPitchRange() {
         var region = MIDIRegion()
         XCTAssertNil(region.pitchRange)
         
-        region.addNote(MIDINote(pitch: 48, startTime: 0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 60, startTime: 1.0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 72, startTime: 2.0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 48, startBeat: 0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 72, startBeat: 2.0, durationBeats: 1.0))
         
         XCTAssertEqual(region.pitchRange, 48...72)
     }
     
     func testMIDIRegionCodable() {
-        var region = MIDIRegion(name: "Test Region", startTime: 4.0, duration: 8.0)
-        region.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
+        var region = MIDIRegion(name: "Test Region", startBeat: 4.0, durationBeats: 8.0)
+        region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
         region.isLooped = true
         
         assertCodableRoundTrip(region)
@@ -246,72 +246,72 @@ final class MIDIModelsTests: XCTestCase {
     // MARK: - MIDICCEvent Tests
     
     func testMIDICCEventInitialization() {
-        let event = MIDICCEvent(controller: 7, value: 100, time: 2.0)
+        let event = MIDICCEvent(controller: 7, value: 100, beat: 2.0)
         
         XCTAssertEqual(event.controller, 7)
         XCTAssertEqual(event.value, 100)
-        XCTAssertEqual(event.time, 2.0)
+        XCTAssertEqual(event.beat, 2.0)
         XCTAssertEqual(event.channel, 0)
     }
     
     func testMIDICCEventControllerNames() {
-        let modWheel = MIDICCEvent(controller: MIDICCEvent.modWheel, value: 64, time: 0)
+        let modWheel = MIDICCEvent(controller: MIDICCEvent.modWheel, value: 64, beat: 0)
         XCTAssertEqual(modWheel.controllerName, "Mod Wheel")
         
-        let volume = MIDICCEvent(controller: MIDICCEvent.volume, value: 100, time: 0)
+        let volume = MIDICCEvent(controller: MIDICCEvent.volume, value: 100, beat: 0)
         XCTAssertEqual(volume.controllerName, "Volume")
         
-        let unknown = MIDICCEvent(controller: 50, value: 64, time: 0)
+        let unknown = MIDICCEvent(controller: 50, value: 64, beat: 0)
         XCTAssertEqual(unknown.controllerName, "CC 50")
     }
     
     func testMIDICCEventNormalizedValue() {
-        let event = MIDICCEvent(controller: 7, value: 127, time: 0)
+        let event = MIDICCEvent(controller: 7, value: 127, beat: 0)
         assertApproximatelyEqual(event.normalizedValue, 1.0)
         
-        let event2 = MIDICCEvent(controller: 7, value: 0, time: 0)
+        let event2 = MIDICCEvent(controller: 7, value: 0, beat: 0)
         assertApproximatelyEqual(event2.normalizedValue, 0.0)
         
-        let event3 = MIDICCEvent(controller: 7, value: 64, time: 0)
+        let event3 = MIDICCEvent(controller: 7, value: 64, beat: 0)
         assertApproximatelyEqual(event3.normalizedValue, 64.0 / 127.0)
     }
     
     func testMIDICCEventCodable() {
-        let event = MIDICCEvent(controller: 74, value: 80, time: 1.5, channel: 5)
+        let event = MIDICCEvent(controller: 74, value: 80, beat: 1.5, channel: 5)
         assertCodableRoundTrip(event)
     }
     
     // MARK: - MIDIPitchBendEvent Tests
     
     func testMIDIPitchBendEventInitialization() {
-        let event = MIDIPitchBendEvent(value: 4000, time: 1.0)
+        let event = MIDIPitchBendEvent(value: 4000, beat: 1.0)
         
         XCTAssertEqual(event.value, 4000)
-        XCTAssertEqual(event.time, 1.0)
+        XCTAssertEqual(event.beat, 1.0)
         XCTAssertEqual(event.channel, 0)
     }
     
     func testMIDIPitchBendEventClamping() {
-        let tooHigh = MIDIPitchBendEvent(value: 10000, time: 0)
+        let tooHigh = MIDIPitchBendEvent(value: 10000, beat: 0)
         XCTAssertEqual(tooHigh.value, MIDIPitchBendEvent.maxUp)
         
-        let tooLow = MIDIPitchBendEvent(value: -10000, time: 0)
+        let tooLow = MIDIPitchBendEvent(value: -10000, beat: 0)
         XCTAssertEqual(tooLow.value, MIDIPitchBendEvent.maxDown)
     }
     
     func testMIDIPitchBendEventNormalizedValue() {
-        let center = MIDIPitchBendEvent(value: 0, time: 0)
+        let center = MIDIPitchBendEvent(value: 0, beat: 0)
         assertApproximatelyEqual(center.normalizedValue, 0.0)
         
-        let maxUp = MIDIPitchBendEvent(value: MIDIPitchBendEvent.maxUp, time: 0)
+        let maxUp = MIDIPitchBendEvent(value: MIDIPitchBendEvent.maxUp, beat: 0)
         assertApproximatelyEqual(maxUp.normalizedValue, 1.0)
         
-        let maxDown = MIDIPitchBendEvent(value: MIDIPitchBendEvent.maxDown, time: 0)
+        let maxDown = MIDIPitchBendEvent(value: MIDIPitchBendEvent.maxDown, beat: 0)
         assertApproximatelyEqual(maxDown.normalizedValue, -1.0)
     }
     
     func testMIDIPitchBendEventSemitoneOffset() {
-        let event = MIDIPitchBendEvent(value: MIDIPitchBendEvent.maxUp, time: 0)
+        let event = MIDIPitchBendEvent(value: MIDIPitchBendEvent.maxUp, beat: 0)
         
         // Default bend range is 2 semitones
         assertApproximatelyEqual(event.semitoneOffset(), 2.0)
@@ -321,15 +321,15 @@ final class MIDIModelsTests: XCTestCase {
     }
     
     func testMIDIPitchBendEventFromNormalized() {
-        let event = MIDIPitchBendEvent.fromNormalized(0.5, time: 1.0)
+        let event = MIDIPitchBendEvent.fromNormalized(0.5, beat: 1.0)
         assertApproximatelyEqual(event.normalizedValue, 0.5)
         
-        let negative = MIDIPitchBendEvent.fromNormalized(-0.5, time: 0)
+        let negative = MIDIPitchBendEvent.fromNormalized(-0.5, beat: 0)
         assertApproximatelyEqual(negative.normalizedValue, -0.5)
     }
     
     func testMIDIPitchBendEventCodable() {
-        let event = MIDIPitchBendEvent(value: 2048, time: 3.5, channel: 1)
+        let event = MIDIPitchBendEvent(value: 2048, beat: 3.5, channel: 1)
         assertCodableRoundTrip(event)
     }
     
@@ -424,11 +424,11 @@ final class MIDIModelsTests: XCTestCase {
     func testMIDITrackTotalNoteCount() {
         var track = MIDITrack()
         var region1 = MIDIRegion()
-        region1.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
-        region1.addNote(MIDINote(pitch: 64, startTime: 1.0, duration: 1.0))
+        region1.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
+        region1.addNote(MIDINote(pitch: 64, startBeat: 1.0, durationBeats: 1.0))
         
         var region2 = MIDIRegion()
-        region2.addNote(MIDINote(pitch: 67, startTime: 0, duration: 1.0))
+        region2.addNote(MIDINote(pitch: 67, startBeat: 0, durationBeats: 1.0))
         
         track.addRegion(region1)
         track.addRegion(region2)
@@ -438,12 +438,12 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDITrackDuration() {
         var track = MIDITrack()
-        XCTAssertEqual(track.duration, 0)
+        XCTAssertEqual(track.durationBeats, 0)
         
-        track.addRegion(MIDIRegion(startTime: 0, duration: 4.0))
-        track.addRegion(MIDIRegion(startTime: 8.0, duration: 4.0))
+        track.addRegion(MIDIRegion(startBeat: 0, durationBeats: 4.0))
+        track.addRegion(MIDIRegion(startBeat: 8.0, durationBeats: 4.0))
         
-        XCTAssertEqual(track.duration, 12.0)
+        XCTAssertEqual(track.durationBeats, 12.0)
     }
     
     func testMIDITrackCodable() {
@@ -458,7 +458,7 @@ final class MIDIModelsTests: XCTestCase {
     func testMIDINoteCreationPerformance() {
         measure {
             for i in 0..<1000 {
-                _ = MIDINote(pitch: UInt8(i % 128), startTime: Double(i), duration: 0.5)
+                _ = MIDINote(pitch: UInt8(i % 128), startBeat: Double(i), durationBeats: 0.5)
             }
         }
     }
@@ -466,7 +466,7 @@ final class MIDIModelsTests: XCTestCase {
     func testMIDIRegionNoteQueryPerformance() {
         var region = MIDIRegion()
         for i in 0..<1000 {
-            region.addNote(MIDINote(pitch: 60, startTime: Double(i) * 0.25, duration: 0.25))
+            region.addNote(MIDINote(pitch: 60, startBeat: Double(i) * 0.25, durationBeats: 0.25))
         }
         
         measure {

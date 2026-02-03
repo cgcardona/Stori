@@ -145,8 +145,8 @@ class StepInputEngine {
             id: UUID(),
             pitch: pitch,
             velocity: noteVelocity,
-            startTime: stepPositionBeats,
-            duration: stepDuration.duration,
+            startBeat: stepPositionBeats,
+            durationBeats: stepDuration.duration,
             channel: 0
         )
         
@@ -174,8 +174,8 @@ class StepInputEngine {
                 id: UUID(),
                 pitch: pitch,
                 velocity: vel,
-                startTime: stepPositionBeats,
-                duration: stepDuration.duration,
+                startBeat: stepPositionBeats,
+                durationBeats: stepDuration.duration,
                 channel: 0
             )
             region.addNote(note)
@@ -202,7 +202,7 @@ class StepInputEngine {
         // Find notes at the previous step beat position
         let prevPositionBeats = max(0, stepPositionBeats - stepDuration.duration)
         let notesAtPosition = region.notes.filter { 
-            abs($0.startTime - prevPositionBeats) < 0.001 
+            abs($0.startBeat - prevPositionBeats) < 0.001 
         }
         
         if let lastNote = notesAtPosition.last {
@@ -295,7 +295,7 @@ class StepInputEngine {
     /// Notes at current beat position
     var notesAtCurrentPosition: [MIDINote] {
         targetRegion?.notes.filter { 
-            abs($0.startTime - stepPositionBeats) < 0.001 
+            abs($0.startBeat - stepPositionBeats) < 0.001 
         } ?? []
     }
 }

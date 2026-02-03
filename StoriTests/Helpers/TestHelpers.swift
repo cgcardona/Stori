@@ -224,14 +224,14 @@ struct TestDataFactory {
     static func createMIDINote(
         pitch: UInt8 = 60,
         velocity: UInt8 = 100,
-        startTime: TimeInterval = 0,
-        duration: TimeInterval = 1.0
+        startBeat: Double = 0,
+        durationBeats: Double = 1.0
     ) -> MIDINote {
         MIDINote(
             pitch: pitch,
             velocity: velocity,
-            startTime: startTime,
-            duration: duration
+            startBeat: startBeat,
+            durationBeats: durationBeats
         )
     }
     
@@ -239,21 +239,21 @@ struct TestDataFactory {
     static func createMIDIRegion(
         name: String = "Test Region",
         noteCount: Int = 4,
-        startTime: TimeInterval = 0,
-        duration: TimeInterval = 4.0
+        startBeat: Double = 0,
+        durationBeats: Double = 4.0
     ) -> MIDIRegion {
         var region = MIDIRegion(
             name: name,
-            startTime: startTime,
-            duration: duration
+            startBeat: startBeat,
+            durationBeats: durationBeats
         )
         
         for i in 0..<noteCount {
             let note = MIDINote(
                 pitch: UInt8(60 + i),
                 velocity: 100,
-                startTime: TimeInterval(i),
-                duration: 0.5
+                startBeat: Double(i),
+                durationBeats: 0.5
             )
             region.addNote(note)
         }

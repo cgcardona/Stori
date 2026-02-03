@@ -18,8 +18,8 @@ struct MIDINote: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var pitch: UInt8           // 0-127 (C-1 to G9)
     var velocity: UInt8        // 0-127 (0 = note off in some contexts)
-    var startTime: TimeInterval // Position in region (beats)
-    var duration: TimeInterval  // Note length (beats)
+    var startBeat: Double      // Position in region (musical time, beats)
+    var durationBeats: Double  // Note length (musical time, beats)
     var channel: UInt8         // MIDI channel (0-15)
     
     // MARK: - Computed Properties
@@ -33,8 +33,8 @@ struct MIDINote: Identifiable, Codable, Equatable, Hashable {
     /// Note within octave (0-11, where 0 = C)
     var noteInOctave: Int { Int(pitch % 12) }
     
-    /// End time of the note
-    var endTime: TimeInterval { startTime + duration }
+    /// End beat of the note
+    var endBeat: Double { startBeat + durationBeats }
     
     /// Whether this is a black key
     var isBlackKey: Bool { MIDIHelper.isBlackKey(pitch) }
@@ -48,24 +48,24 @@ struct MIDINote: Identifiable, Codable, Equatable, Hashable {
         id: UUID = UUID(),
         pitch: UInt8,
         velocity: UInt8 = 100,
-        startTime: TimeInterval,
-        duration: TimeInterval,
+        startBeat: Double,
+        durationBeats: Double,
         channel: UInt8 = 0
     ) {
         self.id = id
         self.pitch = pitch
         self.velocity = velocity
-        self.startTime = startTime
-        self.duration = duration
+        self.startBeat = startBeat
+        self.durationBeats = durationBeats
         self.channel = channel
     }
     
     // MARK: - Factory Methods
     
     /// Create a note from note name string (e.g., "C4", "F#5")
-    static func fromNoteName(_ name: String, velocity: UInt8 = 100, startTime: TimeInterval, duration: TimeInterval) -> MIDINote? {
+    static func fromNoteName(_ name: String, velocity: UInt8 = 100, startBeat: Double, durationBeats: Double) -> MIDINote? {
         guard let pitch = MIDIHelper.pitch(for: name) else { return nil }
-        return MIDINote(pitch: pitch, velocity: velocity, startTime: startTime, duration: duration)
+        return MIDINote(pitch: pitch, velocity: velocity, startBeat: startBeat, durationBeats: durationBeats)
     }
 }
 
@@ -76,8 +76,8 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var notes: [MIDINote]
-    var startTime: TimeInterval      // Position on timeline (beats)
-    var duration: TimeInterval       // Region length (beats)
+    var startBeat: Double            // Position on timeline (musical time, beats)
+    var durationBeats: Double        // Region length (musical time, beats)
     var instrumentId: UUID?          // Linked virtual instrument
     var colorHex: String             // Color as hex string for Codable
     var isLooped: Bool
@@ -87,7 +87,7 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
     /// Content length for one loop iteration (in beats). Defaults to original note content duration.
     /// When resized with empty space, this becomes larger than the original notes span.
     /// Looping repeats this contentLength, not the original notes duration.
-    var contentLength: TimeInterval
+    var contentLengthBeats: Double
     
     // Controller data
     var controllerEvents: [MIDICCEvent]
@@ -100,13 +100,13 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
         set { colorHex = newValue.toHex() }
     }
     
-    /// End time of the region
-    var endTime: TimeInterval { startTime + duration }
+    /// End beat of the region
+    var endBeat: Double { startBeat + durationBeats }
     
-    /// Total duration - same as duration since duration already represents the full region length
-    /// Note: loopCount is legacy and redundant; duration is updated when looping via resize
-    var totalDuration: TimeInterval {
-        duration  // duration already includes the full looped length
+    /// Total duration - same as durationBeats since it already represents the full region length
+    /// Note: loopCount is legacy and redundant; durationBeats is updated when looping via resize
+    var totalDurationBeats: Double {
+        durationBeats  // durationBeats already includes the full looped length
     }
     
     /// Number of notes in this region
@@ -125,8 +125,8 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         name: String = "MIDI Region",
         notes: [MIDINote] = [],
-        startTime: TimeInterval = 0,
-        duration: TimeInterval = 4.0,
+        startBeat: Double = 0,
+        durationBeats: Double = 4.0,
         instrumentId: UUID? = nil,
         color: Color = .blue,
         isLooped: Bool = false,
@@ -134,14 +134,14 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
         isMuted: Bool = false,
         controllerEvents: [MIDICCEvent] = [],
         pitchBendEvents: [MIDIPitchBendEvent] = [],
-        contentLength: TimeInterval? = nil
+        contentLengthBeats: Double? = nil
     ) {
         self.id = id
         self.name = name
         self.notes = notes
         // Ensure non-negative timeline values
-        self.startTime = max(0, startTime)
-        self.duration = max(0, duration)
+        self.startBeat = max(0, startBeat)
+        self.durationBeats = max(0, durationBeats)
         self.instrumentId = instrumentId
         self.colorHex = color.toHex()
         self.isLooped = isLooped
@@ -149,8 +149,8 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
         self.isMuted = isMuted
         self.controllerEvents = controllerEvents
         self.pitchBendEvents = pitchBendEvents
-        // Default contentLength to duration if not specified
-        self.contentLength = contentLength ?? max(0, duration)
+        // Default contentLength to durationBeats if not specified
+        self.contentLengthBeats = contentLengthBeats ?? max(0, durationBeats)
     }
     
     // MARK: - Note Editing
@@ -159,10 +159,10 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
     mutating func addNote(_ note: MIDINote) {
         notes.append(note)
         // Auto-extend duration if needed
-        if note.endTime > duration {
-            duration = note.endTime
+        if note.endBeat > durationBeats {
+            durationBeats = note.endBeat
             // Keep contentLength in sync for proper looping behavior
-            contentLength = max(contentLength, note.endTime)
+            contentLengthBeats = max(contentLengthBeats, note.endBeat)
         }
     }
     
@@ -171,14 +171,14 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
         notes.removeAll { ids.contains($0.id) }
     }
     
-    /// Get notes at a specific time
-    func notes(at time: TimeInterval) -> [MIDINote] {
-        notes.filter { $0.startTime <= time && $0.endTime > time }
+    /// Get notes at a specific beat
+    func notes(at beat: Double) -> [MIDINote] {
+        notes.filter { $0.startBeat <= beat && $0.endBeat > beat }
     }
     
-    /// Get notes in a time range
-    func notes(in range: ClosedRange<TimeInterval>) -> [MIDINote] {
-        notes.filter { $0.startTime < range.upperBound && $0.endTime > range.lowerBound }
+    /// Get notes in a beat range
+    func notes(in range: ClosedRange<Double>) -> [MIDINote] {
+        notes.filter { $0.startBeat < range.upperBound && $0.endBeat > range.lowerBound }
     }
     
     /// Transpose all notes by semitones
@@ -191,10 +191,10 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
     }
     
     /// Shift all notes in time
-    mutating func shift(by beats: TimeInterval) {
+    mutating func shift(by beats: Double) {
         notes = notes.map { note in
             var shifted = note
-            shifted.startTime = max(0, note.startTime + beats)
+            shifted.startBeat = max(0, note.startBeat + beats)
             return shifted
         }
     }
@@ -207,7 +207,7 @@ struct MIDICCEvent: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var controller: UInt8      // CC number (0-127)
     var value: UInt8           // 0-127
-    var time: TimeInterval     // Position in region (beats)
+    var beat: Double           // Position in region (beats)
     var channel: UInt8         // MIDI channel (0-15)
     
     // MARK: - Common CC Numbers
@@ -264,13 +264,13 @@ struct MIDICCEvent: Identifiable, Codable, Equatable, Hashable {
         id: UUID = UUID(),
         controller: UInt8,
         value: UInt8,
-        time: TimeInterval,
+        beat: Double,
         channel: UInt8 = 0
     ) {
         self.id = id
         self.controller = controller
         self.value = value
-        self.time = time
+        self.beat = beat
         self.channel = channel
     }
 }
@@ -281,7 +281,7 @@ struct MIDICCEvent: Identifiable, Codable, Equatable, Hashable {
 struct MIDIPitchBendEvent: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var value: Int16           // -8192 to +8191 (0 = center)
-    var time: TimeInterval     // Position in region (beats)
+    var beat: Double           // Position in region (beats)
     var channel: UInt8         // MIDI channel (0-15)
     
     // MARK: - Constants
@@ -312,24 +312,24 @@ struct MIDIPitchBendEvent: Identifiable, Codable, Equatable, Hashable {
     init(
         id: UUID = UUID(),
         value: Int16,
-        time: TimeInterval,
+        beat: Double,
         channel: UInt8 = 0
     ) {
         self.id = id
         self.value = value.clamped(to: Self.range)
-        self.time = time
+        self.beat = beat
         self.channel = channel
     }
     
     /// Create from normalized value (-1.0 to 1.0)
-    static func fromNormalized(_ normalized: Float, time: TimeInterval, channel: UInt8 = 0) -> MIDIPitchBendEvent {
+    static func fromNormalized(_ normalized: Float, beat: Double, channel: UInt8 = 0) -> MIDIPitchBendEvent {
         let value: Int16
         if normalized >= 0 {
             value = Int16(normalized * Float(maxUp))
         } else {
             value = Int16(normalized * Float(-maxDown))
         }
-        return MIDIPitchBendEvent(value: value, time: time, channel: channel)
+        return MIDIPitchBendEvent(value: value, beat: beat, channel: channel)
     }
 }
 
@@ -367,9 +367,9 @@ struct MIDITrack: Identifiable, Codable, Equatable {
         regions.reduce(0) { $0 + $1.noteCount }
     }
     
-    /// Track duration (end of last region)
-    var duration: TimeInterval {
-        regions.map(\.endTime).max() ?? 0
+    /// Track duration (end of last region, in beats)
+    var durationBeats: Double {
+        regions.map(\.endBeat).max() ?? 0
     }
     
     // MARK: - Initialization
@@ -420,16 +420,16 @@ struct MIDITrack: Identifiable, Codable, Equatable {
         regions.removeAll { $0.id == id }
     }
     
-    /// Get regions at a specific time
-    func regions(at time: TimeInterval) -> [MIDIRegion] {
-        regions.filter { $0.startTime <= time && $0.endTime > time }
+    /// Get regions at a specific beat
+    func regions(at beat: Double) -> [MIDIRegion] {
+        regions.filter { $0.startBeat <= beat && $0.endBeat > beat }
     }
     
-    /// Get all notes at a specific time across all regions
-    func notes(at time: TimeInterval) -> [MIDINote] {
-        regions(at: time).flatMap { region in
-            let relativeTime = time - region.startTime
-            return region.notes(at: relativeTime)
+    /// Get all notes at a specific beat across all regions
+    func notes(at beat: Double) -> [MIDINote] {
+        regions(at: beat).flatMap { region in
+            let relativeBeat = beat - region.startBeat
+            return region.notes(at: relativeBeat)
         }
     }
 }

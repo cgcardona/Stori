@@ -210,7 +210,7 @@ final class UndoServiceTests: XCTestCase {
     
     func testMIDINoteEditUndo() {
         var region = MIDIRegion(name: "Test")
-        let note = MIDINote(pitch: 60, velocity: 100, startTime: 0, duration: 1.0)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 0, durationBeats: 1.0)
         
         // Save state before edit
         let originalPitch = note.pitch
@@ -229,18 +229,18 @@ final class UndoServiceTests: XCTestCase {
     }
     
     func testMIDIRegionMoveUndo() {
-        var region = MIDIRegion(startTime: 4.0, duration: 8.0)
+        var region = MIDIRegion(startBeat: 4.0, durationBeats: 8.0)
         
         // Save original position
-        let originalStart = region.startTime
+        let originalStart = region.startBeat
         
         // Move region
-        region.startTime = 8.0
-        XCTAssertEqual(region.startTime, 8.0)
+        region.startBeat = 8.0
+        XCTAssertEqual(region.startBeat, 8.0)
         
         // Undo move
-        region.startTime = originalStart
-        XCTAssertEqual(region.startTime, 4.0)
+        region.startBeat = originalStart
+        XCTAssertEqual(region.startBeat, 4.0)
     }
     
     // MARK: - Mixer Settings Undo Tests

@@ -802,8 +802,8 @@ class LLMComposerClient {
                 regionId: region.id.uuidString,
                 name: region.name,
                 type: "midi",
-                startBeat: region.startTime,
-                durationBeats: region.duration,
+                startBeat: region.startBeat,
+                durationBeats: region.durationBeats,
                 noteCount: region.notes.count,
                 isAIGenerated: false,
                 isMuted: region.isMuted

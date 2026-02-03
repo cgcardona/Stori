@@ -454,10 +454,10 @@ struct MIDITransformView: View {
     private func applyQuantize(to noteIds: Set<UUID>, resolution: SnapResolution, strength: Double) {
         for i in region.notes.indices {
             if noteIds.contains(region.notes[i].id) {
-                let original = region.notes[i].startTime
+                let original = region.notes[i].startBeat
                 let quantized = resolution.quantize(original)
                 // Apply strength: lerp between original and quantized
-                region.notes[i].startTime = original + (quantized - original) * strength
+                region.notes[i].startBeat = original + (quantized - original) * strength
             }
         }
     }
@@ -468,7 +468,7 @@ struct MIDITransformView: View {
                 // Add random timing variation (convert ms to beats at ~120 BPM)
                 let timingBeats = (timingMs / 1000) * 2  // Rough conversion
                 let timingOffset = Double.random(in: -timingBeats...timingBeats)
-                region.notes[i].startTime = max(0, region.notes[i].startTime + timingOffset)
+                region.notes[i].startBeat = max(0, region.notes[i].startBeat + timingOffset)
                 
                 // Add random velocity variation
                 let velocityOffset = Int.random(in: -velocityRange...velocityRange)
@@ -497,7 +497,7 @@ struct MIDITransformView: View {
     
     private func applyVelocityRamp(to noteIds: Set<UUID>, start: UInt8, end: UInt8) {
         // Sort notes by start time
-        let sortedNotes = region.notes.filter { noteIds.contains($0.id) }.sorted { $0.startTime < $1.startTime }
+        let sortedNotes = region.notes.filter { noteIds.contains($0.id) }.sorted { $0.startBeat < $1.startBeat }
         guard sortedNotes.count > 1 else { return }
         
         for (index, note) in sortedNotes.enumerated() {
@@ -513,16 +513,16 @@ struct MIDITransformView: View {
     private func applyTimeStretch(to noteIds: Set<UUID>, percent: Double) {
         // Find the earliest note start time as anchor
         let relevantNotes = region.notes.filter { noteIds.contains($0.id) }
-        guard let anchor = relevantNotes.map({ $0.startTime }).min() else { return }
+        guard let anchor = relevantNotes.map({ $0.startBeat }).min() else { return }
         
         for i in region.notes.indices {
             if noteIds.contains(region.notes[i].id) {
                 // Scale position relative to anchor
-                let relativePosition = region.notes[i].startTime - anchor
-                region.notes[i].startTime = anchor + relativePosition * percent
+                let relativePosition = region.notes[i].startBeat - anchor
+                region.notes[i].startBeat = anchor + relativePosition * percent
                 
                 // Scale duration
-                region.notes[i].duration = region.notes[i].duration * percent
+                region.notes[i].durationBeats = region.notes[i].durationBeats * percent
             }
         }
     }
@@ -532,21 +532,21 @@ struct MIDITransformView: View {
         guard relevantNotes.count > 1 else { return }
         
         // Get time range
-        let minTime = relevantNotes.map { $0.startTime }.min() ?? 0
-        let maxTime = relevantNotes.map { $0.startTime + $0.duration }.max() ?? 0
+        let minTime = relevantNotes.map { $0.startBeat }.min() ?? 0
+        let maxTime = relevantNotes.map { $0.startBeat + $0.durationBeats }.max() ?? 0
         
         for i in region.notes.indices {
             if noteIds.contains(region.notes[i].id) {
                 // Mirror the position around the center
-                let noteEnd = region.notes[i].startTime + region.notes[i].duration
+                let noteEnd = region.notes[i].startBeat + region.notes[i].durationBeats
                 let newStart = maxTime - noteEnd + minTime
-                region.notes[i].startTime = max(0, newStart)
+                region.notes[i].startBeat = max(0, newStart)
             }
         }
     }
     
     private func applyLegatoAll(to noteIds: Set<UUID>) {
-        let sortedNotes = region.notes.filter { noteIds.contains($0.id) }.sorted { $0.startTime < $1.startTime }
+        let sortedNotes = region.notes.filter { noteIds.contains($0.id) }.sorted { $0.startBeat < $1.startBeat }
         
         for i in 0..<sortedNotes.count - 1 {
             let currentNote = sortedNotes[i]
@@ -554,9 +554,9 @@ struct MIDITransformView: View {
             
             // Extend current note to start of next
             if let index = region.notes.firstIndex(where: { $0.id == currentNote.id }) {
-                let newDuration = nextNote.startTime - currentNote.startTime
+                let newDuration = nextNote.startBeat - currentNote.startBeat
                 if newDuration > 0 {
-                    region.notes[index].duration = newDuration
+                    region.notes[index].durationBeats = newDuration
                 }
             }
         }

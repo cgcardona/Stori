@@ -660,21 +660,21 @@ class ProjectManager {
     }
     
     /// Move a MIDI region to a new start time on the same track
-    func moveMIDIRegion(_ regionId: UUID, on trackId: UUID, to newStartTime: TimeInterval) {
+    func moveMIDIRegion(_ regionId: UUID, on trackId: UUID, to newStartBeat: Double) {
         guard var project = currentProject else { return }
         
         if let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
            let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) {
             // Round to avoid floating-point precision errors
-            let roundedStartTime = roundBeatValue(max(0, newStartTime))
-            project.tracks[trackIndex].midiRegions[regionIndex].startTime = roundedStartTime
+            let roundedStartBeat = roundBeatValue(max(0, newStartBeat))
+            project.tracks[trackIndex].midiRegions[regionIndex].startBeat = roundedStartBeat
             currentProject = project
             hasUnsavedChanges = true  // Mark as unsaved, don't auto-save
         }
     }
     
     /// Move a MIDI region to a different track
-    func moveMIDIRegionToTrack(_ regionId: UUID, from sourceTrackId: UUID, to targetTrackId: UUID, newStartTime: TimeInterval) {
+    func moveMIDIRegionToTrack(_ regionId: UUID, from sourceTrackId: UUID, to targetTrackId: UUID, newStartBeat: Double) {
         guard var project = currentProject else { return }
         
         guard let sourceIndex = project.tracks.firstIndex(where: { $0.id == sourceTrackId }),
@@ -692,7 +692,7 @@ class ProjectManager {
         var region = project.tracks[sourceIndex].midiRegions.remove(at: regionIndex)
         
         // Update start time with rounding to avoid floating-point precision errors
-        region.startTime = roundBeatValue(max(0, newStartTime))
+        region.startBeat = roundBeatValue(max(0, newStartBeat))
         
         // Add to target track
         project.tracks[targetIndex].midiRegions.append(region)
@@ -702,7 +702,7 @@ class ProjectManager {
     }
     
     /// Duplicate a MIDI region on the same track at a new start time
-    func duplicateMIDIRegion(_ regionId: UUID, on trackId: UUID, at newStartTime: TimeInterval) {
+    func duplicateMIDIRegion(_ regionId: UUID, on trackId: UUID, at newStartBeat: Double) {
         guard var project = currentProject else { return }
         
         guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
@@ -713,11 +713,11 @@ class ProjectManager {
         let originalRegion = project.tracks[trackIndex].midiRegions[regionIndex]
         
         // Create a new region with copied notes
-        // Round startTime to avoid floating-point precision errors
+        // Round startBeat to avoid floating-point precision errors
         var newRegion = MIDIRegion(
             name: "\(originalRegion.name) Copy",
-            startTime: roundBeatValue(max(0, newStartTime)),
-            duration: originalRegion.duration
+            startBeat: roundBeatValue(max(0, newStartBeat)),
+            durationBeats: originalRegion.durationBeats
         )
         newRegion.notes = originalRegion.notes
         
@@ -727,7 +727,7 @@ class ProjectManager {
     }
     
     /// Duplicate a MIDI region to a different track
-    func duplicateMIDIRegionToTrack(_ regionId: UUID, from sourceTrackId: UUID, to targetTrackId: UUID, at newStartTime: TimeInterval) {
+    func duplicateMIDIRegionToTrack(_ regionId: UUID, from sourceTrackId: UUID, to targetTrackId: UUID, at newStartBeat: Double) {
         guard var project = currentProject else { return }
         
         guard let sourceIndex = project.tracks.firstIndex(where: { $0.id == sourceTrackId }),
@@ -744,11 +744,11 @@ class ProjectManager {
         let originalRegion = project.tracks[sourceIndex].midiRegions[regionIndex]
         
         // Create a new region with copied notes
-        // Round startTime to avoid floating-point precision errors
+        // Round startBeat to avoid floating-point precision errors
         var newRegion = MIDIRegion(
             name: "\(originalRegion.name) Copy",
-            startTime: roundBeatValue(max(0, newStartTime)),
-            duration: originalRegion.duration
+            startBeat: roundBeatValue(max(0, newStartBeat)),
+            durationBeats: originalRegion.durationBeats
         )
         newRegion.notes = originalRegion.notes
         
@@ -910,8 +910,19 @@ class ProjectManager {
     // MARK: - Project Property Updates
     func updateTempo(_ newTempo: Double) {
         guard var project = currentProject else { return }
+        let oldTempo = project.tempo
         project.tempo = newTempo
         project.modifiedAt = Date()
+        
+        // CRITICAL: Update all audio regions for tempo change
+        // Audio regions are time-locked (duration in seconds is constant),
+        // but their beat representation must change with tempo
+        for trackIndex in 0..<project.tracks.count {
+            for regionIndex in 0..<project.tracks[trackIndex].regions.count {
+                project.tracks[trackIndex].regions[regionIndex].updateForTempoChange(newTempo: newTempo)
+            }
+        }
+        
         currentProject = project
         hasUnsavedChanges = true
         

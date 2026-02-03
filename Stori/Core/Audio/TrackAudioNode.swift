@@ -153,12 +153,27 @@ final class TrackAudioNode: @unchecked Sendable {
     
     /// Set volume with smoothing to prevent zippering during automation playback
     /// Thread-safe - can be called from automation queue
+    /// Smoothing is adaptive: large changes use less smoothing (for step curves),
+    /// small changes use more smoothing (for smooth curves)
     func setVolumeSmoothed(_ newVolume: Float) {
         let targetVolume = max(0.0, min(1.0, newVolume))
         
         os_unfair_lock_lock(&automationLock)
-        // Apply exponential smoothing
-        _smoothedVolume = _smoothedVolume * AudioConstants.automationSmoothingFactor + targetVolume * (1.0 - AudioConstants.automationSmoothingFactor)
+        
+        // Adaptive smoothing based on rate of change
+        // Large jumps (> 0.2) use minimal smoothing (step-like behavior)
+        // Small changes use more smoothing (zipper prevention)
+        let delta = abs(targetVolume - _smoothedVolume)
+        let smoothingFactor: Float
+        if delta > 0.2 {
+            smoothingFactor = 0.1  // Minimal smoothing for step curves (90% new value)
+        } else if delta > 0.05 {
+            smoothingFactor = 0.5  // Light smoothing for linear curves
+        } else {
+            smoothingFactor = 0.7  // Heavy smoothing for smooth curves
+        }
+        
+        _smoothedVolume = _smoothedVolume * smoothingFactor + targetVolume * (1.0 - smoothingFactor)
         let smoothedValue = _smoothedVolume
         os_unfair_lock_unlock(&automationLock)
         
@@ -175,12 +190,25 @@ final class TrackAudioNode: @unchecked Sendable {
     
     /// Set pan with smoothing to prevent zippering during automation playback
     /// Thread-safe - can be called from automation queue
+    /// Smoothing is adaptive: large changes use less smoothing (for step curves),
+    /// small changes use more smoothing (for smooth curves)
     func setPanSmoothed(_ newPan: Float) {
         let targetPan = max(-1.0, min(1.0, newPan))
         
         os_unfair_lock_lock(&automationLock)
-        // Apply exponential smoothing
-        _smoothedPan = _smoothedPan * AudioConstants.automationSmoothingFactor + targetPan * (1.0 - AudioConstants.automationSmoothingFactor)
+        
+        // Adaptive smoothing based on rate of change
+        let delta = abs(targetPan - _smoothedPan)
+        let smoothingFactor: Float
+        if delta > 0.4 {  // Pan range is -1 to 1, so threshold is 2x volume
+            smoothingFactor = 0.1  // Minimal smoothing for step curves
+        } else if delta > 0.1 {
+            smoothingFactor = 0.5  // Light smoothing for linear curves
+        } else {
+            smoothingFactor = 0.7  // Heavy smoothing for smooth curves
+        }
+        
+        _smoothedPan = _smoothedPan * smoothingFactor + targetPan * (1.0 - smoothingFactor)
         let smoothedValue = _smoothedPan
         os_unfair_lock_unlock(&automationLock)
         
@@ -236,19 +264,36 @@ final class TrackAudioNode: @unchecked Sendable {
     }
     
     /// Set EQ with smoothing (thread-safe)
+    /// Smoothing is adaptive: large changes use less smoothing (for step curves),
+    /// small changes use more smoothing (for smooth curves)
     private func setEQSmoothed(low: Float?, mid: Float?, high: Float?) {
         os_unfair_lock_lock(&automationLock)
         
-        let smoothingFactor = AudioConstants.automationSmoothingFactor
+        // Helper to calculate adaptive smoothing factor based on delta
+        func adaptiveSmoothingFactor(for delta: Float) -> Float {
+            if delta > 6.0 {  // Large EQ change (> 6dB)
+                return 0.1  // Minimal smoothing
+            } else if delta > 2.0 {  // Medium EQ change (> 2dB)
+                return 0.5  // Light smoothing
+            } else {
+                return 0.7  // Heavy smoothing
+            }
+        }
         
         if let lowVal = low {
-            _smoothedEqLow = _smoothedEqLow * smoothingFactor + lowVal * (1.0 - smoothingFactor)
+            let delta = abs(lowVal - _smoothedEqLow)
+            let factor = adaptiveSmoothingFactor(for: delta)
+            _smoothedEqLow = _smoothedEqLow * factor + lowVal * (1.0 - factor)
         }
         if let midVal = mid {
-            _smoothedEqMid = _smoothedEqMid * smoothingFactor + midVal * (1.0 - smoothingFactor)
+            let delta = abs(midVal - _smoothedEqMid)
+            let factor = adaptiveSmoothingFactor(for: delta)
+            _smoothedEqMid = _smoothedEqMid * factor + midVal * (1.0 - factor)
         }
         if let highVal = high {
-            _smoothedEqHigh = _smoothedEqHigh * smoothingFactor + highVal * (1.0 - smoothingFactor)
+            let delta = abs(highVal - _smoothedEqHigh)
+            let factor = adaptiveSmoothingFactor(for: delta)
+            _smoothedEqHigh = _smoothedEqHigh * factor + highVal * (1.0 - factor)
         }
         
         let finalLow = _smoothedEqLow

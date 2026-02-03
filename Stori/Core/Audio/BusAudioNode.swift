@@ -113,8 +113,14 @@ class BusAudioNode {
         // Remove any existing taps first to prevent conflicts
         stopLevelMonitoring()
         
-        // PERFORMANCE: Use larger buffers and throttle updates
-        inputMixer.installTap(onBus: 0, bufferSize: AudioConstants.masterMeteringBufferSize, format: nil) { [weak self] buffer, _ in
+        // Calculate dynamic buffer size for consistent ~20ms update interval across sample rates
+        // This matches TrackAudioNode behavior and ensures meters respond identically at different rates
+        let sampleRate = inputMixer.outputFormat(forBus: 0).sampleRate
+        let targetUpdateIntervalMs: Double = 20.0
+        let dynamicBufferSize = AVAudioFrameCount((targetUpdateIntervalMs / 1000.0) * sampleRate)
+        let bufferSize = max(512, min(4096, dynamicBufferSize))  // Clamp to reasonable range
+        
+        inputMixer.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
             guard let self = self else { return }
             self.inputLevelCounter += 1
             guard self.inputLevelCounter >= self.levelUpdateInterval else { return }
@@ -127,7 +133,7 @@ class BusAudioNode {
         }
         inputTapInstalled = true
         
-        outputMixer.installTap(onBus: 0, bufferSize: AudioConstants.masterMeteringBufferSize, format: nil) { [weak self] buffer, _ in
+        outputMixer.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
             guard let self = self else { return }
             self.outputLevelCounter += 1
             guard self.outputLevelCounter >= self.levelUpdateInterval else { return }

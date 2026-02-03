@@ -28,15 +28,15 @@ struct PianoRollSheet: View {
     @State private var testRegion = MIDIRegion(
         name: "Demo MIDI Region",
         notes: [
-            MIDINote(pitch: 60, velocity: 100, startTime: 0, duration: 1),
-            MIDINote(pitch: 64, velocity: 80, startTime: 1, duration: 0.5),
-            MIDINote(pitch: 67, velocity: 90, startTime: 1.5, duration: 1.5),
-            MIDINote(pitch: 72, velocity: 100, startTime: 3, duration: 1),
-            MIDINote(pitch: 65, velocity: 85, startTime: 4, duration: 0.75),
-            MIDINote(pitch: 69, velocity: 95, startTime: 5, duration: 1.25),
-            MIDINote(pitch: 60, velocity: 110, startTime: 6.5, duration: 1.5)
+            MIDINote(pitch: 60, velocity: 100, startBeat: 0, durationBeats: 1),
+            MIDINote(pitch: 64, velocity: 80, startBeat: 1, durationBeats: 0.5),
+            MIDINote(pitch: 67, velocity: 90, startBeat: 1.5, durationBeats: 1.5),
+            MIDINote(pitch: 72, velocity: 100, startBeat: 3, durationBeats: 1),
+            MIDINote(pitch: 65, velocity: 85, startBeat: 4, durationBeats: 0.75),
+            MIDINote(pitch: 69, velocity: 95, startBeat: 5, durationBeats: 1.25),
+            MIDINote(pitch: 60, velocity: 110, startBeat: 6.5, durationBeats: 1.5)
         ],
-        duration: 8.0
+        durationBeats: 8.0
     )
     
     var body: some View {
@@ -256,7 +256,7 @@ struct PianoRollPanelContent: View {
     @State private var emptyRegion = MIDIRegion(
         name: "Empty Region",
         notes: [],  // No notes - shows blank piano roll
-        duration: 8.0
+        durationBeats: 8.0
     )
     
     /// For auto-releasing preview notes

@@ -73,6 +73,8 @@ final class RecordingController: @unchecked Sendable {
     private var mixerPullTapInstalled: Bool = false
     @ObservationIgnored
     private var recordingSilentPlayer: AVAudioPlayerNode?
+    @ObservationIgnored
+    private var recordingFirstBufferReceived: Bool = false
     
     /// Pre-allocated buffer pool for real-time safe recording
     @ObservationIgnored
@@ -222,8 +224,8 @@ final class RecordingController: @unchecked Sendable {
         onStartRecordingMode()
         isRecording = true
         
-        // Set recordingStartBeat to current beat position for proper region creation
-        recordingStartBeat = getCurrentPosition().beats
+        // NOTE: recordingStartBeat will be captured when first buffer arrives at the tap
+        // This ensures sample-accurate alignment with the timeline
         
         // Start MIDI recording for record-enabled MIDI tracks
         let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
@@ -254,8 +256,8 @@ final class RecordingController: @unchecked Sendable {
         // Check for record-enabled tracks
         let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
         
-        // Record from current playhead beat position
-        recordingStartBeat = getCurrentPosition().beats
+        // NOTE: recordingStartBeat will be captured when first buffer arrives at the tap
+        // This ensures sample-accurate alignment with the timeline
         
         // Set recording state
         onStartRecordingMode()
@@ -363,8 +365,20 @@ final class RecordingController: @unchecked Sendable {
             
             startSilentPlayerForRecording()
             
+            // Reset first buffer flag for accurate start beat capture
+            recordingFirstBufferReceived = false
+            
             // Install input tap
             inputNode.installTap(onBus: 0, bufferSize: AudioConstants.recordingTapBufferSize, format: inputFormat) { [weak self] buffer, _ in
+                guard let self = self else { return }
+                
+                // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
+                // This ensures sample-accurate alignment with timeline
+                if !self.recordingFirstBufferReceived {
+                    self.recordingFirstBufferReceived = true
+                    self.recordingStartBeat = self.getCurrentPosition().beats
+                }
+                
                 guard let bufferCopy = bufferPool.acquireAndCopy(from: buffer) else { return }
                 
                 // Calculate RMS for metering
@@ -398,14 +412,11 @@ final class RecordingController: @unchecked Sendable {
                 
                 // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
                 // os_unfair_lock is designed for this exact use case (minimal overhead, no priority inversion).
-                guard let self = self else { return }
                 let amplifiedLevel = rms * 8.0
                 os_unfair_lock_lock(&self.inputLevelLock)
                 self._inputLevel = amplifiedLevel
                 os_unfair_lock_unlock(&self.inputLevelLock)
             }
-            
-            recordingStartBeat = getCurrentPosition().beats
             
             if inputMonitoringEnabled {
                 setupInputMonitoring()
@@ -443,7 +454,19 @@ final class RecordingController: @unchecked Sendable {
         )
         recordingBufferPool = bufferPool
         
+        // Reset first buffer flag for accurate start beat capture
+        recordingFirstBufferReceived = false
+        
         inputNode.installTap(onBus: 0, bufferSize: AudioConstants.recordingTapBufferSize, format: inputFormat) { [weak self] buffer, _ in
+            guard let self = self else { return }
+            
+            // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
+            // This ensures sample-accurate alignment with timeline
+            if !self.recordingFirstBufferReceived {
+                self.recordingFirstBufferReceived = true
+                self.recordingStartBeat = self.getCurrentPosition().beats
+            }
+            
             guard let bufferCopy = bufferPool.acquireAndCopy(from: buffer) else { return }
             
             var rms: Float = 0.0
@@ -475,14 +498,11 @@ final class RecordingController: @unchecked Sendable {
             
             // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
             // os_unfair_lock is designed for this exact use case (minimal overhead, no priority inversion).
-            guard let self = self else { return }
             let amplifiedLevel = rms * 8.0
             os_unfair_lock_lock(&self.inputLevelLock)
             self._inputLevel = amplifiedLevel
             os_unfair_lock_unlock(&self.inputLevelLock)
         }
-        
-        recordingStartBeat = getCurrentPosition().beats
         
         if inputMonitoringEnabled {
             setupInputMonitoring()

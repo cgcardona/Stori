@@ -39,7 +39,7 @@ class NotationQuantizer {
         let measureDuration = timeSignature.measureDuration
         
         // Find the total duration (endTime is already in beats)
-        let maxEndBeat = notes.map { $0.endTime }.max() ?? 0
+        let maxEndBeat = notes.map { $0.endBeat }.max() ?? 0
         let measureCount = min(100, max(1, Int(ceil(maxEndBeat / measureDuration)))) // Safety: limit to 100 measures
         
         // Create empty measures
@@ -50,8 +50,8 @@ class NotationQuantizer {
         // Convert each MIDI note to a score note
         // Note: startTime and duration are already in beats!
         for midiNote in notes {
-            let startBeat = midiNote.startTime
-            let durationBeats = midiNote.duration
+            let startBeat = midiNote.startBeat
+            let durationBeats = midiNote.durationBeats
             
             // Determine which measure this note starts in
             let measureIndex = Int(startBeat / measureDuration)

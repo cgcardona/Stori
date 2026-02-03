@@ -183,7 +183,7 @@ final class AutomationProcessor: @unchecked Sendable {
         
         /// Get interpolated value at a specific beat using binary search
         /// O(log n) complexity for real-time safety
-        /// Returns nil for positions before the first point (use mixer/slider value)
+        /// Returns first point's value for positions before the first point (deterministic playback)
         func value(atBeat beat: Double) -> Float? {
             guard !points.isEmpty else { return nil }
             
@@ -191,9 +191,10 @@ final class AutomationProcessor: @unchecked Sendable {
             var low = 0
             var high = points.count - 1
             
-            // Before first point - return nil so mixer setting (slider) is used
+            // Before first point - use first point's value for consistent playback
+            // This ensures "what you hear is what you get" regardless of mixer slider position
             if beat < points[0].beat {
-                return nil
+                return points[0].value
             }
             
             // After last point - return last point's value (stay at final level)

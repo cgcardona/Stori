@@ -179,14 +179,14 @@ class MIDIEngine {
                 guard !region.isMuted else { continue }
                 
                 // Check if region is in our window
-                if region.startTime > windowEnd || region.endTime < lastPosition {
+                if region.startBeat > windowEnd || region.endBeat < lastPosition {
                     continue
                 }
                 
                 // Process notes in this region
                 for note in region.notes {
-                    let absoluteNoteStart = region.startTime + note.startTime
-                    let absoluteNoteEnd = absoluteNoteStart + note.duration
+                    let absoluteNoteStart = region.startBeat + note.startBeat
+                    let absoluteNoteEnd = absoluteNoteStart + note.durationBeats
                     
                     // Apply track transpose and velocity offset
                     let transposedPitch = UInt8(clamping: Int(note.pitch) + Int(track.transpose))
@@ -206,7 +206,7 @@ class MIDIEngine {
                 
                 // Process CC events
                 for ccEvent in region.controllerEvents {
-                    let absoluteTime = region.startTime + ccEvent.time
+                    let absoluteTime = region.startBeat + ccEvent.beat
                     
                     if absoluteTime >= lastPosition && absoluteTime < windowEnd {
                         applyControlChange(
@@ -317,13 +317,13 @@ enum QuantizationEngine {
             var quantized = note
             
             // Quantize start time
-            let quantizedStart = resolution.quantize(note.startTime, strength: strength)
-            quantized.startTime = max(0, quantizedStart)
+            let quantizedStart = resolution.quantize(note.startBeat, strength: strength)
+            quantized.startBeat = max(0, quantizedStart)
             
             // Quantize duration if requested
             if quantizeDuration {
-                let quantizedDuration = resolution.quantize(note.duration)
-                quantized.duration = max(resolution.duration, quantizedDuration)
+                let quantizedDuration = resolution.quantize(note.durationBeats)
+                quantized.durationBeats = max(resolution.duration, quantizedDuration)
             }
             
             return quantized
@@ -344,13 +344,13 @@ enum QuantizationEngine {
             var swung = note
             
             // Check if note is on an off-beat
-            let gridPosition = note.startTime / gridDuration
+            let gridPosition = note.startBeat / gridDuration
             let isOffBeat = (Int(gridPosition) % 2) == 1
             
             if isOffBeat {
                 // Push the note later based on swing amount
                 let swingOffset = gridDuration * Double(amount) * 0.5
-                swung.startTime += swingOffset
+                swung.startBeat += swingOffset
             }
             
             return swung
@@ -368,7 +368,7 @@ enum QuantizationEngine {
             
             // Randomize timing
             let timeOffset = Double.random(in: -timingVariation...timingVariation)
-            humanized.startTime = max(0, note.startTime + timeOffset)
+            humanized.startBeat = max(0, note.startBeat + timeOffset)
             
             // Randomize velocity
             let velOffset = Int.random(in: -Int(velocityVariation)...Int(velocityVariation))
@@ -380,7 +380,7 @@ enum QuantizationEngine {
     
     /// Legato: extend each note to connect with the next
     static func legato(notes: [MIDINote]) -> [MIDINote] {
-        let sortedNotes = notes.sorted { $0.startTime < $1.startTime }
+        let sortedNotes = notes.sorted { $0.startBeat < $1.startBeat }
         var result: [MIDINote] = []
         
         for i in 0..<sortedNotes.count {
@@ -389,7 +389,7 @@ enum QuantizationEngine {
             if i < sortedNotes.count - 1 {
                 let nextNote = sortedNotes[i + 1]
                 // Extend to next note start, leaving tiny gap
-                note.duration = nextNote.startTime - note.startTime - 0.01
+                note.durationBeats = nextNote.startBeat - note.startBeat - 0.01
             }
             
             result.append(note)
@@ -402,8 +402,8 @@ enum QuantizationEngine {
     static func staccato(notes: [MIDINote], factor: Float = 0.5) -> [MIDINote] {
         return notes.map { note in
             var staccato = note
-            staccato.duration *= Double(factor)
-            staccato.duration = max(0.01, staccato.duration)
+            staccato.durationBeats *= Double(factor)
+            staccato.durationBeats = max(0.01, staccato.durationBeats)
             return staccato
         }
     }
@@ -470,14 +470,14 @@ enum ScaleSnapEngine {
     
     /// Retrograde: reverse note order
     static func retrograde(notes: [MIDINote]) -> [MIDINote] {
-        let sortedNotes = notes.sorted { $0.startTime < $1.startTime }
+        let sortedNotes = notes.sorted { $0.startBeat < $1.startBeat }
         guard let lastNote = sortedNotes.last else { return notes }
         
-        let totalDuration = lastNote.endTime
+        let totalDuration = lastNote.endBeat
         
         return sortedNotes.map { note in
             var reversed = note
-            reversed.startTime = totalDuration - note.endTime
+            reversed.startBeat = totalDuration - note.endBeat
             return reversed
         }
     }

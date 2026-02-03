@@ -223,9 +223,17 @@ extension MIDIPlaybackEngine {
     }
     
     /// Update sample rate (call when audio device changes)
+    /// CRITICAL: Must update timing reference if playing to maintain timing accuracy
     func setSampleRate(_ newSampleRate: Double) {
         self.sampleRate = newSampleRate
-        scheduler.configure(tempo: tempo, sampleRate: newSampleRate)
+        
+        // If currently playing, update timing reference immediately
+        if isPlaying {
+            scheduler.updateSampleRate(newSampleRate)
+        } else {
+            // If not playing, just configure for next playback
+            scheduler.configure(tempo: tempo, sampleRate: newSampleRate)
+        }
     }
     
     /// Sync with AudioEngine transport state
@@ -318,14 +326,23 @@ extension MIDIPlaybackEngine {
             return
         }
         
+        // PDC: Get plugin latency compensation for this track
+        // MIDI must be triggered EARLIER to compensate for plugin processing delay
+        // This ensures MIDI output aligns with audio tracks
+        let compensationSamples = PluginLatencyManager.shared.getCompensationDelay(for: trackId)
+        
+        // Apply negative compensation (trigger earlier)
+        // If compensation is 1000 samples and sampleTime is 5000, we schedule at 4000
+        let compensatedSampleTime = max(0, sampleTime - AUEventSampleTime(compensationSamples))
+        
         // Clamp data bytes to valid MIDI range (0-127)
         let safeData1 = min(data1, 127)
         let safeData2 = min(data2, 127)
         
-        // Schedule with calculated sample time for precise timing
+        // Schedule with compensated sample time for phase-aligned timing
         // The AU will fire the event at exactly this sample offset
         var midiData: [UInt8] = [status, safeData1, safeData2]
-        block(sampleTime, 0, 3, &midiData)
+        block(compensatedSampleTime, 0, 3, &midiData)
     }
 }
 

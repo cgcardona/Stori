@@ -82,14 +82,14 @@ class MIDIBounceEngine {
             throw BounceError.noNotes
         }
         
-        guard region.duration > 0 else {
+        guard region.durationBeats > 0 else {
             throw BounceError.invalidDuration
         }
         
         state = .preparing
         
         // Calculate total duration including tail
-        let totalDuration = region.duration + tailDuration
+        let totalDuration = region.durationBeats + tailDuration
         let totalSamples = Int(totalDuration * sampleRate)
         
         // Create output buffer
@@ -111,7 +111,7 @@ class MIDIBounceEngine {
         state = .bouncing(progress: 0)
         
         // Sort notes by start time
-        let sortedNotes = region.notes.sorted { $0.startTime < $1.startTime }
+        let sortedNotes = region.notes.sorted { $0.startBeat < $1.startBeat }
         
         // Get synth engine
         guard let synth = instrument.synthEngine else {
@@ -145,13 +145,13 @@ class MIDIBounceEngine {
             // Trigger notes that start in this chunk
             while noteIndex < sortedNotes.count {
                 let note = sortedNotes[noteIndex]
-                if note.startTime >= currentTime && note.startTime < endTime {
+                if note.startBeat >= currentTime && note.startBeat < endTime {
                     // Note starts in this chunk
                     synth.noteOn(pitch: note.pitch, velocity: note.velocity)
-                    let noteSampleEnd = Int((note.startTime + note.duration) * sampleRate)
+                    let noteSampleEnd = Int((note.startBeat + note.durationBeats) * sampleRate)
                     activeNotes[note.pitch] = (endSample: noteSampleEnd, velocity: note.velocity)
                     noteIndex += 1
-                } else if note.startTime >= endTime {
+                } else if note.startBeat >= endTime {
                     break
                 } else {
                     noteIndex += 1

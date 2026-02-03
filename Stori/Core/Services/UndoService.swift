@@ -648,19 +648,19 @@ extension UndoService {
     }
     
     /// Register undo for moving a MIDI region
-    func registerMoveMIDIRegion(_ regionId: UUID, in trackId: UUID, from oldStartTime: TimeInterval, to newStartTime: TimeInterval, projectManager: ProjectManager) {
+    func registerMoveMIDIRegion(_ regionId: UUID, in trackId: UUID, from oldStartBeat: Double, to newStartBeat: Double, projectManager: ProjectManager) {
         registerUndo(actionName: "Move MIDI Region") { [weak projectManager] in
             guard var project = projectManager?.currentProject,
                   let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
                   let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) else { return }
-            project.tracks[trackIndex].midiRegions[regionIndex].startTime = oldStartTime
+            project.tracks[trackIndex].midiRegions[regionIndex].startBeat = oldStartBeat
             projectManager?.currentProject = project
             projectManager?.hasUnsavedChanges = true
         } redo: { [weak projectManager] in
             guard var project = projectManager?.currentProject,
                   let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
                   let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) else { return }
-            project.tracks[trackIndex].midiRegions[regionIndex].startTime = newStartTime
+            project.tracks[trackIndex].midiRegions[regionIndex].startBeat = newStartBeat
             projectManager?.currentProject = project
             projectManager?.hasUnsavedChanges = true
         }

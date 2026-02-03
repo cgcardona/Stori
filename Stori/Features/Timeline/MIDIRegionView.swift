@@ -70,7 +70,7 @@ struct MIDIRegionView: View {
     
     /// Region width in pixels - uses pixelsPerBeat since duration is in BEATS
     private var regionWidth: CGFloat {
-        max(20, CGFloat(region.duration) * pixelsPerBeat)
+        max(20, CGFloat(region.durationBeats) * pixelsPerBeat)
     }
     
     // [PHASE-7] Display width accounts for live resize during drag
@@ -85,13 +85,13 @@ struct MIDIRegionView: View {
     
     /// Effective content length - the duration of one loop unit (notes + any empty space from resize)
     private var effectiveContentLength: TimeInterval {
-        region.contentLength > 0 ? region.contentLength : region.duration
+        region.contentLengthBeats > 0 ? region.contentLengthBeats : region.durationBeats
     }
     
     /// Preview loop count during resize - only counts if resizing in loop mode
     private var displayLoopCount: Int {
         guard effectiveContentLength > 0 else { return 1 }
-        let duration = liveResizeWidth != nil ? (liveResizeWidth! / pixelsPerBeat) : region.duration
+        let duration = liveResizeWidth != nil ? (liveResizeWidth! / pixelsPerBeat) : region.durationBeats
         // Only show loop count if actually looping (resizeType == .loop) or region is already looped
         if resizeType == .loop || region.isLooped {
             return max(1, Int(ceil(duration / effectiveContentLength)))
@@ -103,9 +103,9 @@ struct MIDIRegionView: View {
     private var originalNotesDuration: TimeInterval {
         // If contentLength was set (from resize), the original notes fill a portion of it
         // For now, use the span of actual notes, or default to 4 beats (1 bar)
-        guard !region.notes.isEmpty else { return min(region.contentLength, 4.0) }
-        let maxNoteEnd = region.notes.map { $0.startTime + $0.duration }.max() ?? 4.0
-        return min(maxNoteEnd, region.contentLength)
+        guard !region.notes.isEmpty else { return min(region.contentLengthBeats, 4.0) }
+        let maxNoteEnd = region.notes.map { $0.startBeat + $0.durationBeats }.max() ?? 4.0
+        return min(maxNoteEnd, region.contentLengthBeats)
     }
     
     /// Calculate the note range for proper vertical scaling
@@ -143,8 +143,8 @@ struct MIDIRegionView: View {
         for note in region.notes {
             hasher.combine(note.id)
             hasher.combine(note.pitch)
-            hasher.combine(note.startTime)
-            hasher.combine(note.duration)
+            hasher.combine(note.startBeat)
+            hasher.combine(note.durationBeats)
         }
         return hasher.finalize()
     }
@@ -328,7 +328,7 @@ struct MIDIRegionView: View {
         ]
         
         var grid: [[Bool]] = Array(repeating: Array(repeating: false, count: 16), count: 16)
-        let stepDuration = region.duration / 16.0
+        let stepDuration = region.durationBeats / 16.0
         
         var noteCount = 0
         var cellCount = 0
@@ -337,7 +337,7 @@ struct MIDIRegionView: View {
         for note in region.notes {
             noteCount += 1
             if let row = drumPitchToRow[note.pitch] {
-                let column = Int(note.startTime / stepDuration)
+                let column = Int(note.startBeat / stepDuration)
                 if column >= 0 && column < 16 {
                     if !grid[row][column] {
                         cellCount += 1
@@ -361,7 +361,7 @@ struct MIDIRegionView: View {
                     ? (liveResizeWidth! / pixelsPerBeat) 
                     : effectiveContentLength
                 let displayIsLooped = (resizeType == .loop && isResizing) || region.isLooped
-                // 16 columns are built from region.duration (stepDuration = region.duration/16),
+                // 16 columns are built from region.durationBeats (stepDuration = region.durationBeats/16),
                 // so pattern width must equal region width — use displayDuration, not originalNotesDuration
                 let stepSeqPatternDuration = displayDuration
                 
@@ -402,7 +402,7 @@ struct MIDIRegionView: View {
                     
                     // [PHASE-8] Viewport culling: Calculate visible time range based on scroll position
                     // The region is positioned at regionStartX in the timeline
-                    let regionStartX = CGFloat(region.startTime) * pixelsPerBeat
+                    let regionStartX = CGFloat(region.startBeat) * pixelsPerBeat
                     
                     // Add buffer zone to render notes slightly beyond viewport edges (prevents clipping at edges)
                     let bufferZone: CGFloat = 500  // 500px buffer on each side
@@ -422,9 +422,9 @@ struct MIDIRegionView: View {
                     // Pre-filter notes to only those visible in the VIEWPORT (not just Canvas)
                     // This dramatically reduces iteration count from 5000+ to ~100-500 visible notes
                     let visibleNotes = region.notes.filter { note in
-                        let noteEndTime = note.startTime + note.duration
+                        let noteEndTime = note.startBeat + note.durationBeats
                         // Note is visible if it overlaps with the viewport
-                        return noteEndTime >= visibleStartBeat && note.startTime <= visibleEndBeat
+                        return noteEndTime >= visibleStartBeat && note.startBeat <= visibleEndBeat
                     }
                     
                     
@@ -453,8 +453,8 @@ struct MIDIRegionView: View {
                             
                             // Calculate position within this content unit
                             // Note: startTime and duration are in BEATS, use pixelsPerBeat
-                            let noteX = contentUnitX + CGFloat(note.startTime) * pixelsPerBeat
-                            let noteW = max(2, CGFloat(note.duration) * pixelsPerBeat)
+                            let noteX = contentUnitX + CGFloat(note.startBeat) * pixelsPerBeat
+                            let noteW = max(2, CGFloat(note.durationBeats) * pixelsPerBeat)
                             
                             // Clamp pitch to visible range (prevents overflow when range is capped)
                             let clampedPitch = max(noteMin, min(noteMax, note.pitch))
@@ -509,7 +509,7 @@ struct MIDIRegionView: View {
             }
         }
         // Force redraw when ANY note property changes or contentLength changes
-        .id("\(notesHash)-\(region.contentLength)")
+        .id("\(notesHash)-\(region.contentLengthBeats)")
     }
     
     // MARK: - Resize Indicator Overlay (popup during resize/loop like audio regions)

@@ -373,8 +373,8 @@ struct StepSequencerView: View {
                 id: UUID(),
                 pitch: event.note,
                 velocity: event.velocity,
-                startTime: event.timestamp,
-                duration: event.duration,
+                startBeat: event.timestamp,
+                durationBeats: event.duration,
                 channel: event.channel
             )
         }
@@ -384,8 +384,8 @@ struct StepSequencerView: View {
             id: UUID(),
             name: sequencer.pattern.name,
             notes: midiNotes,
-            startTime: audioEngine.currentPosition.beats,  // Start at current playhead position
-            duration: durationBeats,
+            startBeat: audioEngine.currentPosition.beats,  // Start at current playhead position
+            durationBeats: durationBeats,
             instrumentId: nil,
             color: .cyan,  // Use drum sequencer color
             isLooped: false,
@@ -393,7 +393,7 @@ struct StepSequencerView: View {
             isMuted: false,
             controllerEvents: [],
             pitchBendEvents: [],
-            contentLength: durationBeats
+            contentLengthBeats: durationBeats
         )
         
         // Add the MIDI region to the target track

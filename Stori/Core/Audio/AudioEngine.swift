@@ -117,18 +117,15 @@ class AudioEngine: AudioEngineContext {
         componentFlagsMask: 0
     ))
     
-    // MARK: - Graph Mutation Serialization
-    /// Flag indicating if a graph mutation is currently in progress
-    @ObservationIgnored
-    private var isGraphMutationInProgress = false
+    // NOTE: Graph mutation coordination is now handled by AudioGraphManager
     
     @ObservationIgnored
     private var pendingGraphMutations: [() -> Void] = []
     
-    /// Graph generation counter - incremented on structural changes
-    /// Used to detect stale async operations after await points
-    @ObservationIgnored
-    private var graphGeneration: Int = 0
+    /// Graph generation counter - delegated to AudioGraphManager
+    private var graphGeneration: Int {
+        graphManager?.graphGeneration ?? 0
+    }
     
     /// Error thrown when an async operation is cancelled due to state change
     enum AsyncOperationError: Error, LocalizedError {
@@ -150,16 +147,13 @@ class AudioEngine: AudioEngineContext {
     }
     
     /// Check graph generation consistency after an await point
-    /// - Parameters:
-    ///   - capturedGeneration: The generation captured before the await
-    ///   - context: Description of the operation for logging
-    /// - Returns: true if generation matches, false if stale
+    /// DELEGATED to AudioGraphManager
     private func isGraphGenerationValid(_ capturedGeneration: Int, context: String = "") -> Bool {
-        if capturedGeneration != graphGeneration {
+        let valid = graphManager.isGraphGenerationValid(capturedGeneration)
+        if !valid {
             logDebug("Stale operation detected after await: \(context) (captured: \(capturedGeneration), current: \(graphGeneration))", category: "ASYNC")
-            return false
         }
-        return true
+        return valid
     }
     
     // MARK: - Graph Ready Gate (prevents scheduler from firing during mutations)
@@ -283,6 +277,26 @@ class AudioEngine: AudioEngineContext {
     /// Handles all bus nodes, bus effects, and track sends
     @ObservationIgnored
     private var busManager: BusManager!
+    
+    // MARK: - Project Lifecycle Manager (Extracted)
+    /// Handles project loading, unloading, and state transitions
+    @ObservationIgnored
+    private var projectLifecycleManager: ProjectLifecycleManager!
+    
+    // MARK: - Device Configuration Manager (Extracted)
+    /// Handles audio device configuration changes and format updates
+    @ObservationIgnored
+    private var deviceConfigManager: DeviceConfigurationManager!
+    
+    // MARK: - Playback Scheduling Coordinator (Extracted)
+    /// Coordinates audio track scheduling and cycle loop handling
+    @ObservationIgnored
+    private var playbackScheduler: PlaybackSchedulingCoordinator!
+    
+    // MARK: - Audio Graph Manager (Extracted)
+    /// Manages audio graph mutations with tiered performance characteristics
+    @ObservationIgnored
+    private var graphManager: AudioGraphManager!
     
     /// Computed accessor for bus nodes (delegates to BusManager)
     private var busNodes: [UUID: BusAudioNode] {
@@ -478,6 +492,69 @@ class AudioEngine: AudioEngineContext {
             onModifyGraphSafely: { [weak self] work in self?.modifyGraphSafely(work) }
         )
         
+        // Initialize project lifecycle manager
+        projectLifecycleManager = ProjectLifecycleManager()
+        projectLifecycleManager.engine = engine
+        projectLifecycleManager.automationProcessor = automationProcessor
+        projectLifecycleManager.onSetupTracks = { [weak self] project in self?.setupTracksForProject(project) }
+        projectLifecycleManager.onSetupBuses = { [weak self] project in self?.setupBusesForProject(project) }
+        projectLifecycleManager.onUpdateAutomation = { [weak self] in self?.updateAllTrackAutomation() }
+        projectLifecycleManager.onRestorePlugins = { [weak self] in await self?.restorePluginsFromProject() }
+        projectLifecycleManager.onConnectInstruments = { [weak self] project in await self?.createAndConnectMIDIInstruments(for: project) }
+        projectLifecycleManager.onValidateConnections = { [weak self] in self?.validateAllTrackConnections() }
+        projectLifecycleManager.onStartEngine = { [weak self] in self?.startAudioEngine() }
+        projectLifecycleManager.onStopPlayback = { [weak self] in self?.stopPlayback() }
+        projectLifecycleManager.onSetGraphStable = { [weak self] value in self?.isGraphStable = value }
+        projectLifecycleManager.onSetGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
+        projectLifecycleManager.onSetTransportStopped = { [weak self] in self?.transportState = .stopped }
+        projectLifecycleManager.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
+        
+        // Initialize device configuration manager
+        deviceConfigManager = DeviceConfigurationManager()
+        deviceConfigManager.engine = engine
+        deviceConfigManager.mixer = mixer
+        deviceConfigManager.masterEQ = masterEQ
+        deviceConfigManager.masterLimiter = masterLimiter
+        deviceConfigManager.getGraphFormat = { [weak self] in self?.graphFormat }
+        deviceConfigManager.setGraphFormat = { [weak self] format in self?.graphFormat = format }
+        deviceConfigManager.getTrackNodes = { [weak self] in self?.trackNodes ?? [:] }
+        deviceConfigManager.getCurrentProject = { [weak self] in self?.currentProject }
+        deviceConfigManager.busManager = busManager
+        deviceConfigManager.midiPlaybackEngine = midiPlaybackEngine
+        deviceConfigManager.transportController = transportController
+        deviceConfigManager.installedMetronome = installedMetronome
+        deviceConfigManager.getTransportState = { [weak self] in self?.transportState ?? .stopped }
+        deviceConfigManager.getCurrentPosition = { [weak self] in self?.currentPosition ?? PlaybackPosition() }
+        deviceConfigManager.onStop = { [weak self] in self?.stop() }
+        deviceConfigManager.onSeekToBeat = { [weak self] beat in self?.seekToBeat(beat) }
+        deviceConfigManager.onPlay = { [weak self] in self?.play() }
+        deviceConfigManager.onReconnectAllTracks = { [weak self] in self?.reconnectAllTracksAfterFormatChange() }
+        deviceConfigManager.onReprimeInstruments = { [weak self] in self?.reprimeAllInstrumentsAfterReset() }
+        deviceConfigManager.setGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
+        
+        // Initialize playback scheduling coordinator
+        playbackScheduler = PlaybackSchedulingCoordinator()
+        playbackScheduler.engine = engine
+        playbackScheduler.getTrackNodes = { [weak self] in self?.trackNodes ?? [:] }
+        playbackScheduler.getCurrentProject = { [weak self] in self?.currentProject }
+        playbackScheduler.midiPlaybackEngine = midiPlaybackEngine
+        playbackScheduler.installedMetronome = installedMetronome
+        playbackScheduler.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
+        
+        // Initialize audio graph manager
+        graphManager = AudioGraphManager()
+        graphManager.engine = engine
+        graphManager.mixer = mixer
+        graphManager.getTrackNodes = { [weak self] in self?.trackNodes ?? [:] }
+        graphManager.getCurrentProject = { [weak self] in self?.currentProject }
+        graphManager.midiPlaybackEngine = midiPlaybackEngine
+        graphManager.transportController = transportController
+        graphManager.installedMetronome = installedMetronome
+        graphManager.getTransportState = { [weak self] in self?.transportState ?? .stopped }
+        graphManager.getCurrentPosition = { [weak self] in self?.currentPosition ?? PlaybackPosition() }
+        graphManager.setGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
+        graphManager.onPlayFromBeat = { [weak self] beat in self?.playFromBeat(beat) }
+        
         transportController.setupPositionTimer()
         automationRecorder.configure(audioEngine: self)
         configureAutomationEngine()
@@ -538,6 +615,11 @@ class AudioEngine: AudioEngineContext {
             if let newTempo = notification.object as? Double {
                 self.midiPlaybackEngine.setTempo(newTempo)
             }
+            
+            // NOTE: AutomationEngine queries beat position from transport,
+            // which already handles tempo changes. No explicit update needed.
+            // The automation engine works in beats, not time, so tempo changes
+            // are automatically reflected through the beat position provider.
         }
     }
     
@@ -554,124 +636,15 @@ class AudioEngine: AudioEngineContext {
         }
     }
     
-    // MARK: - Audio Configuration Change (Debounced)
+    // MARK: - Audio Configuration Change (Delegated to DeviceConfigurationManager)
     
-    /// Guard against double observer registration
-    @ObservationIgnored
-    private var didInstallConfigObserver = false
-    
-    /// Cancellable task for debounced configuration change handling
-    @ObservationIgnored
-    private var reconfigTask: Task<Void, Never>?
-    
-    /// Setup observer for audio hardware configuration changes (e.g., Bluetooth speaker connected)
-    /// This ensures the DAW follows the system default audio output device
+    /// Setup observer for audio hardware configuration changes
+    /// DELEGATED to DeviceConfigurationManager
     private func setupAudioConfigurationChangeObserver() {
-        guard !didInstallConfigObserver else { return }
-        didInstallConfigObserver = true
-        
-        NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: .main
-        ) { [weak self] _ in
-            self?.scheduleConfigurationChangeHandler()
-        }
+        deviceConfigManager.setupObserver()
     }
     
-    /// Schedule the configuration change handler with debouncing using Task cancellation.
-    private func scheduleConfigurationChangeHandler() {
-        reconfigTask?.cancel()
-        reconfigTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 350_000_000) // 0.35s debounce
-            } catch {
-                return // Cancelled
-            }
-            guard !Task.isCancelled else { return }
-            self?.handleAudioConfigurationChange()
-        }
-    }
-    
-    /// Handle audio hardware configuration change (e.g., switching to Bluetooth speakers).
-    /// Rebuilds the audio graph with the new device's format to ensure proper sample rate matching.
-    private func handleAudioConfigurationChange() {
-        let wasPlaying = transportState.isPlaying
-        let savedPosition = currentPosition
-        
-        // 1) Stop transport + stop schedulers first
-        transportController?.stopPositionTimer()
-        if wasPlaying {
-            stop()
-        }
-        midiPlaybackEngine.stop()
-        isGraphReadyForPlayback = false
-        
-        // 2) Stop + reset the engine (reset clears pending audio data)
-        engine.stop()
-        engine.reset()
-        
-        // 3) Get NEW device format and update graphFormat
-        let newDeviceFormat = engine.outputNode.outputFormat(forBus: 0)
-        graphFormat = AVAudioFormat(
-            standardFormatWithSampleRate: newDeviceFormat.sampleRate,
-            channels: 2
-        )!
-        
-        // 3a) Update PDC with new sample rate
-        PluginLatencyManager.shared.setSampleRate(newDeviceFormat.sampleRate)
-        
-        // 4) Reconnect main chain with new format: mixer → masterEQ → masterLimiter → outputNode
-        engine.disconnectNodeOutput(mixer)
-        engine.disconnectNodeOutput(masterEQ)
-        engine.disconnectNodeOutput(masterLimiter)
-        engine.connect(mixer, to: masterEQ, format: graphFormat)
-        engine.connect(masterEQ, to: masterLimiter, format: graphFormat)
-        engine.connect(masterLimiter, to: engine.outputNode, format: graphFormat)
-        
-        // 5) Update plugin chain formats BEFORE reconnecting tracks
-        for (_, trackNode) in trackNodes {
-            trackNode.pluginChain.updateFormat(graphFormat)
-        }
-        
-        // 6) Reconnect all tracks to mixer with new format
-        reconnectAllTracksAfterFormatChange()
-        
-        // 7) Reconnect all buses with new format
-        if let project = currentProject {
-            busManager.reconnectAllBusesAfterEngineReset(deviceFormat: graphFormat)
-            busManager.restoreTrackSendsAfterReset(project: project, deviceFormat: graphFormat)
-        }
-        
-        // 8) Re-prime all instruments (reallocate render resources for new format)
-        reprimeAllInstrumentsAfterReset()
-        installedMetronome?.reconnectNodes(dawMixer: mixer)
-        installedMetronome?.preparePlayerNode()
-        
-        // 9) Reconfigure MIDI scheduling for new sample rate
-        midiPlaybackEngine.configureSampleAccurateScheduling(
-            avEngine: engine,
-            sampleRate: graphFormat.sampleRate,
-            transportController: transportController
-        )
-        
-        // 10) Start engine
-        engine.prepare()
-        do {
-            try engine.start()
-            isGraphReadyForPlayback = true
-            
-            // 11) Resume playback if it was playing
-            if wasPlaying {
-                seekToBeat(savedPosition.beats)
-                play()
-            }
-        } catch {
-            AppLogger.shared.error("Failed to restart engine after device change: \(error)", category: .audio)
-            isGraphReadyForPlayback = true
-        }
-        transportController?.setupPositionTimer()
-    }
+    // NOTE: handleAudioConfigurationChange is now handled by DeviceConfigurationManager
     
     /// Reconnect all track signal chains after a device format change.
     /// Each track's panNode must be reconnected to the mixer with the new graphFormat.
@@ -1065,7 +1038,7 @@ class AudioEngine: AudioEngineContext {
     /// Attempt to recover a stopped engine
     private func attemptEngineRecovery() {
         // Don't attempt recovery during graph mutations
-        guard !isGraphMutationInProgress else { return }
+        guard !graphManager.isGraphMutationInProgress else { return }
         
         // Limit recovery attempts to prevent infinite loops
         guard healthCheckFailureCount <= 3 else {
@@ -1221,143 +1194,25 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Project Management
     
-    /// State machine for project loading - explicit states replace scattered asyncAfter delays
-    enum ProjectLoadingState: String {
-        case idle
-        case preparingEngine
-        case settingUpTracks
-        case restoringPlugins
-        case connectingInstruments
-        case validating
-        case ready
-        case failed
-    }
-    
-    /// Current project loading state (for debugging and UI feedback)
-    @ObservationIgnored
-    private(set) var projectLoadingState: ProjectLoadingState = .idle
-    
-    @ObservationIgnored
-    private var projectLoadGeneration: Int = 0
+    // NOTE: Project loading state is now managed by ProjectLifecycleManager
     
     /// Lightweight project data update - does NOT rebuild audio graph
     /// Use this for region edits (resize, move, loop) that don't require graph changes
+    /// DELEGATED to ProjectLifecycleManager
     func updateProjectData(_ project: AudioProject) {
         currentProject = project
-        logDebug("📝 updateProjectData - lightweight update for '\(project.name)'", category: "PROJECT")
+        projectLifecycleManager.updateProjectData(project)
     }
     
     /// Synchronous entry point that kicks off async loading
+    /// DELEGATED to ProjectLifecycleManager
     func loadProject(_ project: AudioProject) {
-        logDebug("⚡️ loadProject called for '\(project.name)' with \(project.tracks.count) tracks", category: "PROJECT")
-        
-        // Mark graph as unstable during rebuild
-        isGraphStable = false
-        projectLoadingState = .idle
-        
-        transportState = .stopped
-        stopPlayback()
         currentProject = project
-        
-        // Increment generation to invalidate any pending async operations
-        projectLoadGeneration += 1
-        let thisGeneration = projectLoadGeneration
-        logDebug("Project generation: \(thisGeneration)", category: "PROJECT")
-        
-        // Clear and reload automation data
-        automationProcessor.clearAll()
-        
-        // Launch async loading with proper state machine
-        Task { @MainActor in
-            await loadProjectAsync(project, generation: thisGeneration)
-        }
+        projectLifecycleManager.currentProject = project
+        projectLifecycleManager.loadProject(project)
     }
     
-    /// Async project loading with explicit state machine (no asyncAfter delays)
-    /// RAII Pattern: isGraphStable is always restored on exit via defer
-    @MainActor
-    private func loadProjectAsync(_ project: AudioProject, generation: Int) async {
-        // RAII: Ensure isGraphStable is restored even on early returns
-        // Success path sets it to true; failure/cancel paths don't override
-        var loadSucceeded = false
-        defer {
-            if !loadSucceeded {
-                // Load was cancelled or failed - restore stable state to allow retry
-                isGraphStable = true
-                isGraphReadyForPlayback = true
-                logDebug("⚠️ Project load did not complete - restoring stable state", category: "PROJECT")
-            }
-        }
-        
-        // STATE 1: Preparing Engine
-        projectLoadingState = .preparingEngine
-        logDebug("State: \(projectLoadingState.rawValue)", category: "PROJECT")
-        
-        // Ensure engine is running
-        if !engine.isRunning {
-            startAudioEngine()
-            engine.prepare()
-        }
-        
-        // Verify engine is ready (poll briefly if needed, but no arbitrary delay)
-        var engineAttempts = 0
-        while !engine.isRunning && engineAttempts < 10 {
-            try? await Task.sleep(nanoseconds: 20_000_000) // 20ms per attempt, max 200ms
-            engineAttempts += 1
-        }
-        
-        guard engine.isRunning else {
-            projectLoadingState = .failed
-            AppLogger.shared.error("Project load failed: Engine could not start")
-            return  // defer will restore stable state
-        }
-        
-        // Check generation is still valid
-        guard generation == projectLoadGeneration else {
-            logDebug("Project load cancelled (generation mismatch)", category: "PROJECT")
-            return  // defer will restore stable state
-        }
-        
-        // STATE 2: Setting Up Tracks
-        projectLoadingState = .settingUpTracks
-        logDebug("State: \(projectLoadingState.rawValue)", category: "PROJECT")
-        
-        setupTracksForProject(project)
-        setupBusesForProject(project)
-        updateAllTrackAutomation()
-        
-        guard generation == projectLoadGeneration else { return }
-        
-        // STATE 3: Restoring Plugins
-        projectLoadingState = .restoringPlugins
-        logDebug("State: \(projectLoadingState.rawValue)", category: "PROJECT")
-        
-        await restorePluginsFromProject()
-        
-        guard generation == projectLoadGeneration else { return }
-        
-        // STATE 4: Connecting MIDI Instruments
-        projectLoadingState = .connectingInstruments
-        logDebug("State: \(projectLoadingState.rawValue)", category: "PROJECT")
-        
-        await createAndConnectMIDIInstruments(for: project)
-        
-        guard generation == projectLoadGeneration else { return }
-        
-        // STATE 5: Validating
-        projectLoadingState = .validating
-        logDebug("State: \(projectLoadingState.rawValue)", category: "PROJECT")
-        
-        validateAllTrackConnections()
-        
-        // STATE 6: Ready - Mark success before setting stable
-        loadSucceeded = true
-        projectLoadingState = .ready
-        isGraphStable = true
-        isGraphReadyForPlayback = true
-        
-        logDebug("✅ State: \(projectLoadingState.rawValue) - Graph is stable", category: "PROJECT")
-    }
+    // NOTE: loadProjectAsync is now handled by ProjectLifecycleManager
     
     /// Create instruments for MIDI tracks and connect them to plugin chains
     /// Called after plugin restoration to ensure samplers are routed through effects
@@ -1724,192 +1579,27 @@ class AudioEngine: AudioEngineContext {
         }
     }
 
-    // MARK: - Tiered Graph Mutation (Critical Section Pattern)
+    // MARK: - Tiered Graph Mutation (Delegated to AudioGraphManager)
     
-    /// Graph mutation types with different performance characteristics
-    enum GraphMutationType {
-        /// Structural: Adding/removing nodes globally - requires full stop, reset, and restart
-        /// Use for: add/remove tracks, device changes, catastrophic recovery
-        case structural
-        
-        /// Connection: Reconnecting existing nodes - requires pause/resume only
-        /// Use for: routing changes, toggling plugin bypass, bus send changes
-        case connection
-        
-        /// Hot-swap: Adding/removing nodes on a single track - minimal disruption
-        /// Use for: plugin insertion/removal on a specific track
-        /// Only resets the affected track's instruments, not all tracks
-        case hotSwap(trackId: UUID)
-    }
-    
-    /// Performs a structural graph mutation (adding/removing nodes globally).
-    /// This is the heavy-weight path: stops engine, resets, rebuilds, restarts.
-    /// Use for: add/remove tracks, device changes, project load.
+    /// Performs a structural graph mutation
+    /// DELEGATED to AudioGraphManager
     private func modifyGraphSafely(_ work: () throws -> Void) rethrows {
-        try modifyGraph(.structural, work)
+        try graphManager.modifyGraphSafely(work)
     }
     
-    /// Performs a connection-only graph mutation (reconnecting existing nodes).
-    /// This is the light-weight path: pauses engine, reconnects, resumes.
-    /// Use for: routing changes, bus sends, plugin chain rebuilds (no add/remove).
+    /// Performs a connection-only graph mutation
+    /// DELEGATED to AudioGraphManager
     private func modifyGraphConnections(_ work: () throws -> Void) rethrows {
-        try modifyGraph(.connection, work)
+        try graphManager.modifyGraphConnections(work)
     }
     
-    /// Performs a track-scoped hot-swap mutation (adding/removing nodes on one track).
-    /// This is the targeted path: pauses engine, only resets affected track, resumes.
-    /// Use for: plugin insertion/removal on a specific track.
+    /// Performs a track-scoped hot-swap mutation
+    /// DELEGATED to AudioGraphManager
     func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
-        try modifyGraph(.hotSwap(trackId: trackId), work)
+        try graphManager.modifyGraphForTrack(trackId, work)
     }
     
-    /// Core graph mutation implementation with tiered behavior.
-    /// Handles position drift compensation and centralized cleanup.
-    private func modifyGraph(_ type: GraphMutationType, _ work: () throws -> Void) rethrows {
-        // REENTRANCY HANDLING: If already in a mutation, just run the work directly
-        if isGraphMutationInProgress {
-            try work()
-            return
-        }
-        
-        isGraphMutationInProgress = true
-        defer { 
-            isGraphMutationInProgress = false
-            // CENTRALIZED: Always reconnect metronome after any graph mutation
-            installedMetronome?.reconnectNodes(dawMixer: mixer)
-        }
-        
-        let wasRunning = engine.isRunning
-        let wasPlaying = transportState.isPlaying
-        
-        // CRITICAL: Capture position BEFORE stopping engine to compensate for drift
-        let savedBeatPosition = currentPosition.beats
-        let mutationStartTime = CACurrentMediaTime()
-        
-        // Gate playback during mutation
-        isGraphReadyForPlayback = false
-        
-        switch type {
-        case .structural:
-            // STRUCTURAL: Full stop, reset, work, restart
-            // This clears all audio buffers and DSP state across ALL tracks
-            
-            transportController?.stopPositionTimer()
-            
-            if wasPlaying {
-                midiPlaybackEngine.stop()
-            }
-            
-            if wasRunning {
-                engine.stop()
-                engine.reset()
-                
-                // Reset all samplers after engine.reset()
-                for trackId in trackNodes.keys {
-                    if let instrument = InstrumentManager.shared.getInstrument(for: trackId) {
-                        instrument.fullRenderReset()
-                    }
-                }
-            }
-            
-            try work()
-            
-            engine.prepare()
-            
-            if wasRunning {
-                do {
-                    try engine.start()
-                    installedMetronome?.preparePlayerNode()
-                } catch {
-                    AppLogger.shared.error("Engine restart failed after structural mutation", category: .audio)
-                }
-            }
-            
-            isGraphReadyForPlayback = true
-            
-            if wasPlaying {
-                // Compensate for mutation duration to prevent drift
-                let mutationDuration = CACurrentMediaTime() - mutationStartTime
-                let tempo = currentProject?.tempo ?? 120.0
-                let driftBeats = (tempo / 60.0) * mutationDuration
-                let correctedBeat = savedBeatPosition + driftBeats
-                playFromBeat(correctedBeat)
-            }
-            
-            transportController?.setupPositionTimer()
-            
-        case .connection:
-            // CONNECTION: Pause, work, resume - no reset
-            // This preserves audio buffers and DSP state for minimal disruption
-            
-            if wasRunning {
-                engine.pause()
-            }
-            
-            try work()
-            
-            engine.prepare()
-            
-            if wasRunning {
-                do {
-                    try engine.start()
-                } catch {
-                    AppLogger.shared.error("Engine restart failed after connection mutation", category: .audio)
-                }
-            }
-            
-            isGraphReadyForPlayback = true
-            
-            // No need to reschedule audio for connection changes
-            // Playback continues from where it was
-            
-        case .hotSwap(let affectedTrackId):
-            // HOT-SWAP: Pause, reset only affected track, work, resume
-            // This minimizes disruption - other tracks continue playing smoothly
-            
-            if wasRunning {
-                engine.pause()
-            }
-            
-            // Only reset the affected track's instrument (not all tracks!)
-            if let instrument = InstrumentManager.shared.getInstrument(for: affectedTrackId) {
-                instrument.fullRenderReset()
-            }
-            
-            try work()
-            
-            engine.prepare()
-            
-            if wasRunning {
-                do {
-                    try engine.start()
-                } catch {
-                    AppLogger.shared.error("Engine restart failed after hot-swap mutation", category: .audio)
-                }
-            }
-            
-            isGraphReadyForPlayback = true
-            
-            // If playing, only reschedule the affected track with drift compensation
-            if wasPlaying, let trackNode = trackNodes[affectedTrackId],
-               let project = currentProject,
-               let track = project.tracks.first(where: { $0.id == affectedTrackId }) {
-                let tempo = project.tempo
-                let mutationDuration = CACurrentMediaTime() - mutationStartTime
-                let driftBeats = (tempo / 60.0) * mutationDuration
-                let correctedBeat = savedBeatPosition + driftBeats
-                let currentTimeSeconds = correctedBeat * (60.0 / tempo)
-                do {
-                    try trackNode.scheduleFromPosition(currentTimeSeconds, audioRegions: track.regions, tempo: tempo)
-                    if !track.regions.isEmpty {
-                        trackNode.play()
-                    }
-                } catch {
-                    AppLogger.shared.error("Failed to reschedule track after hot-swap", category: .audio)
-                }
-            }
-        }
-    }
+    // NOTE: Core graph mutation implementation is now handled by AudioGraphManager
     
     // MARK: - Centralized Graph Rebuild (Single Source of Truth)
     
@@ -2286,16 +1976,10 @@ class AudioEngine: AudioEngineContext {
     }
     
     /// Called by TransportController during a cycle jump
+    /// Handle cycle loop jump
+    /// DELEGATED to PlaybackSchedulingCoordinator
     private func handleCycleJump(toBeat targetBeat: Double) {
-        logDebug("Cycle jump to beat \(targetBeat)", category: "TRANSPORT")
-        
-        // Reschedule all audio tracks from the new position
-        rescheduleTracksFromBeat(targetBeat)
-        
-        // Sync metronome to new position (already in beats)
-        if let metronome = installedMetronome, metronome.isEnabled {
-            metronome.onTransportSeek(to: targetBeat)
-        }
+        playbackScheduler.handleCycleJump(toBeat: targetBeat)
     }
     
     // MARK: - Recording (Delegated to RecordingController)
@@ -3416,49 +3100,11 @@ extension AudioEngine {
     
     // MARK: - Transport Safe Jump (internal implementation for cycle jumps)
     
-    /// Reschedules all audio tracks from a new position without stopping the engine
-    /// Called by handleCycleJump when TransportController detects a cycle loop
-    private func rescheduleTracksFromBeat(_ targetBeat: Double) {
-        // Stop and reset only the player nodes (NOT the engine!)
-        for (_, trackNode) in trackNodes {
-            trackNode.playerNode.stop()
-            trackNode.playerNode.reset()
-        }
-        
-        // Convert beats to seconds for audio scheduling (AVAudioEngine boundary)
-        let tempo = currentProject?.tempo ?? 120.0
-        let targetTimeSeconds = targetBeat * (60.0 / tempo)
-        
-        // Re-schedule all tracks from the new position
-        for track in currentProject?.tracks ?? [] {
-            guard let trackNode = trackNodes[track.id] else { continue }
-            do {
-                // scheduleFromPosition takes seconds for AVAudioEngine scheduling
-                try trackNode.scheduleFromPosition(targetTimeSeconds, audioRegions: track.regions, tempo: tempo, skipReset: true)
-                if !track.regions.isEmpty {
-                    trackNode.play()
-                }
-            } catch {
-                logDebug("Failed to reschedule track \(track.name): \(error)", category: "TRANSPORT")
-            }
-        }
-        
-        // Seek MIDI playback engine to new position (in beats)
-        midiPlaybackEngine.seek(toBeat: targetBeat)
-    }
-    
-    // MARK: - Safe Play Guard
+    // NOTE: Scheduling methods are now handled by PlaybackSchedulingCoordinator
     
     /// Safe play guard - ensures player has output connections before playing
+    /// Note: Consider moving to PlaybackSchedulingCoordinator in future refactor
     private func safePlay(_ player: AVAudioPlayerNode) {
-        guard player.engine != nil else { return }
-        guard engine.isRunning else { return }
-        guard engine.attachedNodes.contains(player) else { return }
-        
-        // Verify output connections exist before playing
-        let outputConnections = engine.outputConnectionPoints(for: player, outputBus: 0)
-        guard !outputConnections.isEmpty else { return }
-        
-        player.play()
+        playbackScheduler.safePlay(player)
     }
 }

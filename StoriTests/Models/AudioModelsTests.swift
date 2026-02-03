@@ -108,7 +108,7 @@ final class AudioModelsTests: XCTestCase {
         let position = BeatPosition(9.0)  // 9 beats in 4/4 = bar 3
         XCTAssertEqual(position.bar(timeSignature: .fourFour), 3)
         
-        // In 3/4 time: 9 beats = bar 4
+        // In 3/4 beat: 9 beats = bar 4
         XCTAssertEqual(position.bar(timeSignature: .threeFour), 4)
     }
     
@@ -233,8 +233,8 @@ final class AudioModelsTests: XCTestCase {
         
         // Add track with content
         var track = AudioTrack(name: "Track 1", trackType: .midi)
-        var region = MIDIRegion(startTime: 0, duration: 8.0)
-        region.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
+        var region = MIDIRegion(startBeat: 0, durationBeats: 8.0)
+        region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
         track.midiRegions.append(region)
         project.addTrack(track)
         

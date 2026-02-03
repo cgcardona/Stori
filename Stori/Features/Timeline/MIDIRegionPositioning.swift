@@ -134,7 +134,7 @@ struct PositionedMIDIRegion: View {
         RegionDragConfig(
             regionId: region.id,
             trackId: trackId,
-            startPositionBeats: region.startTime,  // MIDI startTime is in beats
+            startPositionBeats: region.startBeat,  // MIDI startTime is in beats
             pixelsPerBeat: pixelsPerBeat,
             tempo: tempo,
             trackHeight: trackHeight,
@@ -163,7 +163,7 @@ struct PositionedMIDIRegion: View {
         }
         
         let region = project.tracks[trackIndex].midiRegions[regionIndex]
-        let loopUnit = region.contentLength > 0 ? region.contentLength : region.duration
+        let loopUnit = region.contentLengthBeats > 0 ? region.contentLengthBeats : region.durationBeats
         let originalNotes = region.notes
         
         let loopCount = Int(ceil(newDuration / loopUnit))
@@ -173,25 +173,25 @@ struct PositionedMIDIRegion: View {
             let timeOffset = loopUnit * Double(loopIndex)
             
             for note in originalNotes {
-                if note.startTime >= loopUnit { continue }
+                if note.startBeat >= loopUnit { continue }
                 
                 let newNote = MIDINote(
                     id: UUID(),
                     pitch: note.pitch,
                     velocity: note.velocity,
-                    startTime: note.startTime + timeOffset,
-                    duration: note.duration,
+                    startBeat: note.startBeat + timeOffset,
+                    durationBeats: note.durationBeats,
                     channel: note.channel
                 )
                 
-                if newNote.startTime < newDuration {
+                if newNote.startBeat < newDuration {
                     loopedNotes.append(newNote)
                 }
             }
         }
         
         project.tracks[trackIndex].midiRegions[regionIndex].notes = loopedNotes
-        project.tracks[trackIndex].midiRegions[regionIndex].duration = newDuration
+        project.tracks[trackIndex].midiRegions[regionIndex].durationBeats = newDuration
         project.tracks[trackIndex].midiRegions[regionIndex].isLooped = newDuration > loopUnit
         
         project.modifiedAt = Date()
@@ -207,8 +207,8 @@ struct PositionedMIDIRegion: View {
         }
         
         let safeDuration = max(0.1, newDuration)
-        project.tracks[trackIndex].midiRegions[regionIndex].duration = safeDuration
-        project.tracks[trackIndex].midiRegions[regionIndex].contentLength = safeDuration
+        project.tracks[trackIndex].midiRegions[regionIndex].durationBeats = safeDuration
+        project.tracks[trackIndex].midiRegions[regionIndex].contentLengthBeats = safeDuration
         project.tracks[trackIndex].midiRegions[regionIndex].isLooped = false
         
         project.modifiedAt = Date()
@@ -235,7 +235,7 @@ struct PositionedMIDIRegion: View {
                     result.regionId,
                     from: result.originalTrackId,
                     to: targetTrackId,
-                    newStartTime: newPositionBeats
+                    newStartBeat: newPositionBeats
                 )
             }
         } else {
@@ -259,7 +259,7 @@ struct PositionedMIDIRegion: View {
     // MARK: - Body
     
     var body: some View {
-        let baseX = CGFloat(region.startTime) * pixelsPerBeat
+        let baseX = CGFloat(region.startBeat) * pixelsPerBeat
         
         return ZStack(alignment: .topLeading) {
             // Ghost region at original position (only visible when dragging)

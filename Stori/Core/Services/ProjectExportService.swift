@@ -151,12 +151,12 @@ class OfflineMIDIRenderer {
         
         
         for loopIndex in 0..<loopCount {
-            let loopOffsetBeats = Double(loopIndex) * region.duration
+            let loopOffsetBeats = Double(loopIndex) * region.durationBeats
             
             for note in region.notes {
                 // Calculate absolute time in beats, then convert to samples
-                let startBeats = region.startTime + note.startTime + loopOffsetBeats
-                let endBeats = startBeats + note.duration
+                let startBeats = region.startBeat + note.startBeat + loopOffsetBeats
+                let endBeats = startBeats + note.durationBeats
                 
                 let startSeconds = startBeats * secondsPerBeat
                 let endSeconds = endBeats * secondsPerBeat
@@ -735,7 +735,7 @@ class ProjectExportService {
             
             // MIDI regions (in beats)
             for midiRegion in track.midiRegions {
-                let endTimeBeats = midiRegion.startTime + midiRegion.totalDuration
+                let endTimeBeats = midiRegion.startBeat + midiRegion.totalDurationBeats
                 maxEndTimeBeats = max(maxEndTimeBeats, endTimeBeats)
             }
         }
@@ -1200,12 +1200,12 @@ class ProjectExportService {
             let loopCount = midiRegion.isLooped ? midiRegion.loopCount : 1
             
             for loopIndex in 0..<loopCount {
-                let loopOffsetBeats = Double(loopIndex) * midiRegion.duration
+                let loopOffsetBeats = Double(loopIndex) * midiRegion.durationBeats
                 
                 // Schedule note events
                 for note in midiRegion.notes {
-                    let startBeats = midiRegion.startTime + note.startTime + loopOffsetBeats
-                    let endBeats = startBeats + note.duration
+                    let startBeats = midiRegion.startBeat + note.startBeat + loopOffsetBeats
+                    let endBeats = startBeats + note.durationBeats
                     
                     let startSeconds = startBeats * secondsPerBeat
                     let endSeconds = endBeats * secondsPerBeat
@@ -1225,7 +1225,7 @@ class ProjectExportService {
                 
                 // Schedule CC events
                 for ccEvent in midiRegion.controllerEvents {
-                    let absoluteBeats = midiRegion.startTime + ccEvent.time + loopOffsetBeats
+                    let absoluteBeats = midiRegion.startBeat + ccEvent.beat + loopOffsetBeats
                     let absoluteSeconds = absoluteBeats * secondsPerBeat
                     let sampleTime = AVAudioFramePosition(absoluteSeconds * sampleRate)
                     
@@ -1237,7 +1237,7 @@ class ProjectExportService {
                 
                 // Schedule pitch bend events
                 for pbEvent in midiRegion.pitchBendEvents {
-                    let absoluteBeats = midiRegion.startTime + pbEvent.time + loopOffsetBeats
+                    let absoluteBeats = midiRegion.startBeat + pbEvent.beat + loopOffsetBeats
                     let absoluteSeconds = absoluteBeats * secondsPerBeat
                     let sampleTime = AVAudioFramePosition(absoluteSeconds * sampleRate)
                     
@@ -1757,24 +1757,24 @@ class ProjectExportService {
         for region in track.midiRegions {
             for note in region.notes {
                 // Convert region-relative time to absolute time
-                let absoluteStart = region.startTime + note.startTime
+                let absoluteStart = region.startBeat + note.startBeat
                 allNotes.append((
                     absoluteTime: absoluteStart,
                     pitch: note.pitch,
                     velocity: note.velocity,
-                    duration: note.duration
+                    duration: note.durationBeats
                 ))
             }
             
             // Collect CC events
             for ccEvent in region.controllerEvents {
-                let absoluteTime = region.startTime + ccEvent.time
+                let absoluteTime = region.startBeat + ccEvent.beat
                 allCCEvents.append((absoluteTime: absoluteTime, controller: ccEvent.controller, value: ccEvent.value))
             }
             
             // Collect pitch bend events
             for pbEvent in region.pitchBendEvents {
-                let absoluteTime = region.startTime + pbEvent.time
+                let absoluteTime = region.startBeat + pbEvent.beat
                 allPitchBendEvents.append((absoluteTime: absoluteTime, value: pbEvent.value))
             }
         }

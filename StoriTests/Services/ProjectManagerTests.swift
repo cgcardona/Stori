@@ -155,12 +155,12 @@ final class ProjectManagerTests: XCTestCase {
         var project = AudioProject(name: "Test")
         var track = AudioTrack(name: "MIDI", trackType: .midi)
         
-        var region = MIDIRegion(startTime: 0, duration: 8.0)
-        region.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
+        var region = MIDIRegion(startBeat: 0, durationBeats: 8.0)
+        region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
         track.midiRegions.append(region)
         
-        var region2 = MIDIRegion(startTime: 8.0, duration: 4.0)
-        region2.addNote(MIDINote(pitch: 62, startTime: 0, duration: 1.0))
+        var region2 = MIDIRegion(startBeat: 8.0, durationBeats: 4.0)
+        region2.addNote(MIDINote(pitch: 62, startBeat: 0, durationBeats: 1.0))
         track.midiRegions.append(region2)
         
         project.addTrack(track)
@@ -173,14 +173,14 @@ final class ProjectManagerTests: XCTestCase {
         
         // Track 1: 8 beats
         var track1 = AudioTrack(name: "Track 1", trackType: .midi)
-        var region1 = MIDIRegion(startTime: 0, duration: 8.0)
-        region1.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
+        var region1 = MIDIRegion(startBeat: 0, durationBeats: 8.0)
+        region1.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
         track1.midiRegions.append(region1)
         
         // Track 2: 16 beats
         var track2 = AudioTrack(name: "Track 2", trackType: .midi)
-        var region2 = MIDIRegion(startTime: 0, duration: 16.0)
-        region2.addNote(MIDINote(pitch: 62, startTime: 0, duration: 1.0))
+        var region2 = MIDIRegion(startBeat: 0, durationBeats: 16.0)
+        region2.addNote(MIDINote(pitch: 62, startBeat: 0, durationBeats: 1.0))
         track2.midiRegions.append(region2)
         
         project.addTrack(track1)
@@ -224,8 +224,8 @@ final class ProjectManagerTests: XCTestCase {
         track1.mixerSettings.pan = 0.3
         
         var track2 = AudioTrack(name: "Bass", trackType: .midi, color: .blue)
-        var region = MIDIRegion(name: "Bass Pattern", startTime: 0, duration: 8.0)
-        region.addNote(MIDINote(pitch: 36, velocity: 100, startTime: 0, duration: 1.0))
+        var region = MIDIRegion(name: "Bass Pattern", startBeat: 0, durationBeats: 8.0)
+        region.addNote(MIDINote(pitch: 36, velocity: 100, startBeat: 0, durationBeats: 1.0))
         track2.midiRegions.append(region)
         
         project.addTrack(track1)
@@ -277,15 +277,15 @@ final class ProjectManagerTests: XCTestCase {
         // Create 50 tracks with MIDI content
         for i in 0..<50 {
             var track = AudioTrack(name: "Track \(i)", trackType: .midi)
-            var region = MIDIRegion(startTime: 0, duration: 16.0)
+            var region = MIDIRegion(startBeat: 0, durationBeats: 16.0)
             
             // Add 32 notes per region
             for j in 0..<32 {
                 region.addNote(MIDINote(
                     pitch: UInt8(48 + (j % 24)),
                     velocity: UInt8(80 + (j % 40)),
-                    startTime: Double(j) * 0.5,
-                    duration: 0.4
+                    startBeat: Double(j) * 0.5,
+                    durationBeats: 0.4
                 ))
             }
             

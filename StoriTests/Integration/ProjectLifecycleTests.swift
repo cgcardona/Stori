@@ -25,7 +25,7 @@ final class ProjectLifecycleTests: XCTestCase {
         
         // Add MIDI track with content
         var midiTrack = AudioTrack(name: "Piano", trackType: .instrument, color: .purple)
-        var region = MIDIRegion(name: "Intro", startTime: 0, duration: 8.0)
+        var region = MIDIRegion(name: "Intro", startBeat: 0, durationBeats: 8.0)
         
         // Add chord progression
         let chord = [60, 64, 67]  // C Major
@@ -33,8 +33,8 @@ final class ProjectLifecycleTests: XCTestCase {
             region.addNote(MIDINote(
                 pitch: UInt8(note),
                 velocity: 80,
-                startTime: 0,
-                duration: 4.0
+                startBeat: 0,
+                durationBeats: 4.0
             ))
         }
         
@@ -96,7 +96,7 @@ final class ProjectLifecycleTests: XCTestCase {
         
         // Create track with detailed MIDI content
         var track = AudioTrack(name: "Lead", trackType: .midi)
-        var region = MIDIRegion(name: "Melody", startTime: 0, duration: 16.0)
+        var region = MIDIRegion(name: "Melody", startBeat: 0, durationBeats: 16.0)
         
         // Add melody with varying velocities
         let melody = [(60, 100), (62, 90), (64, 110), (65, 85), (67, 95)]
@@ -104,14 +104,14 @@ final class ProjectLifecycleTests: XCTestCase {
             region.addNote(MIDINote(
                 pitch: UInt8(pitch),
                 velocity: UInt8(velocity),
-                startTime: TimeInterval(i),
-                duration: 0.8
+                startBeat: TimeInterval(i),
+                durationBeats: 0.8
             ))
         }
         
         // Add CC automation
-        region.controllerEvents.append(MIDICCEvent(controller: 1, value: 64, time: 0))
-        region.controllerEvents.append(MIDICCEvent(controller: 1, value: 100, time: 4.0))
+        region.controllerEvents.append(MIDICCEvent(controller: 1, value: 64, beat: 0))
+        region.controllerEvents.append(MIDICCEvent(controller: 1, value: 100, beat: 4.0))
         
         track.midiRegions.append(region)
         project.addTrack(track)
@@ -175,8 +175,8 @@ final class ProjectLifecycleTests: XCTestCase {
         originalTrack.mixerSettings.pan = -0.3
         
         var region = MIDIRegion(name: "Pattern")
-        region.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 64, startTime: 1.0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 64, startBeat: 1.0, durationBeats: 1.0))
         originalTrack.midiRegions.append(region)
         
         project.addTrack(originalTrack)
@@ -205,12 +205,12 @@ final class ProjectLifecycleTests: XCTestCase {
     // MARK: - Region Editing Workflow
     
     func testMIDIRegionEditing() {
-        var region = MIDIRegion(name: "Editable Region", duration: 8.0)
+        var region = MIDIRegion(name: "Editable Region", durationBeats: 8.0)
         
         // Add initial notes
-        region.addNote(MIDINote(pitch: 60, startTime: 0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 62, startTime: 1.0, duration: 1.0))
-        region.addNote(MIDINote(pitch: 64, startTime: 2.0, duration: 1.0))
+        region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 62, startBeat: 1.0, durationBeats: 1.0))
+        region.addNote(MIDINote(pitch: 64, startBeat: 2.0, durationBeats: 1.0))
         
         XCTAssertEqual(region.noteCount, 3)
         
@@ -224,9 +224,9 @@ final class ProjectLifecycleTests: XCTestCase {
         // Shift in time
         region.shift(by: 4.0)
         
-        assertApproximatelyEqual(region.notes[0].startTime, 4.0)
-        assertApproximatelyEqual(region.notes[1].startTime, 5.0)
-        assertApproximatelyEqual(region.notes[2].startTime, 6.0)
+        assertApproximatelyEqual(region.notes[0].startBeat, 4.0)
+        assertApproximatelyEqual(region.notes[1].startBeat, 5.0)
+        assertApproximatelyEqual(region.notes[2].startBeat, 6.0)
     }
     
     func testRegionQuantization() {
@@ -394,15 +394,15 @@ final class ProjectLifecycleTests: XCTestCase {
             for i in 0..<100 {
                 var track = AudioTrack(name: "Track \(i)", trackType: .midi)
                 
-                var region = MIDIRegion(name: "Region \(i)", duration: 32.0)
+                var region = MIDIRegion(name: "Region \(i)", durationBeats: 32.0)
                 
                 // Add 64 notes per region
                 for j in 0..<64 {
                     region.addNote(MIDINote(
                         pitch: UInt8(48 + (j % 24)),
                         velocity: UInt8(80 + (j % 40)),
-                        startTime: Double(j) * 0.5,
-                        duration: 0.4
+                        startBeat: Double(j) * 0.5,
+                        durationBeats: 0.4
                     ))
                 }
                 
@@ -429,13 +429,13 @@ final class ProjectLifecycleTests: XCTestCase {
         
         // MIDI track with content
         var midiTrack = AudioTrack(name: "Piano", trackType: .instrument, color: .purple)
-        var region = MIDIRegion(name: "Intro", startTime: 0, duration: 16.0)
+        var region = MIDIRegion(name: "Intro", startBeat: 0, durationBeats: 16.0)
         for i in 0..<8 {
             region.addNote(MIDINote(
                 pitch: UInt8(60 + i),
                 velocity: 80,
-                startTime: Double(i) * 2,
-                duration: 1.5
+                startBeat: Double(i) * 2,
+                durationBeats: 1.5
             ))
         }
         midiTrack.midiRegions.append(region)

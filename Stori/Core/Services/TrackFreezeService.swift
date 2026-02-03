@@ -186,8 +186,8 @@ class TrackFreezeService {
         
         // Check MIDI regions
         for region in track.midiRegions {
-            earliestBeat = min(earliestBeat, region.startTime)
-            latestBeat = max(latestBeat, region.startTime + region.duration)
+            earliestBeat = min(earliestBeat, region.startBeat)
+            latestBeat = max(latestBeat, region.startBeat + region.durationBeats)
         }
         
         // Handle empty tracks

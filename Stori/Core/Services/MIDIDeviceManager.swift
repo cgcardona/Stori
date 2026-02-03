@@ -553,7 +553,7 @@ class MIDIRecordingEngine {
         // Close any notes still being held
         let currentTime = currentTimeProvider?() ?? 0
         for (pitch, var note) in activeNotes {
-            note.duration = max(0.01, (currentTime - recordStartTime) - note.startTime)
+            note.durationBeats = max(0.01, (currentTime - recordStartTime) - note.startBeat)
             recordedNotes.append(note)
         }
         activeNotes = [:]
@@ -564,14 +564,14 @@ class MIDIRecordingEngine {
         }
         
         // Calculate region duration
-        let endTime = recordedNotes.map(\.endTime).max() ?? 0
+        let endBeat = recordedNotes.map(\.endBeat).max() ?? 0
         
         let region = MIDIRegion(
             id: UUID(),
             name: "MIDI Recording",
             notes: recordedNotes,
-            startTime: recordStartTime,
-            duration: endTime,
+            startBeat: recordStartTime,
+            durationBeats: endBeat,
             instrumentId: nil,
             color: .blue,
             isLooped: false,
@@ -620,8 +620,8 @@ class MIDIRecordingEngine {
             id: UUID(),
             pitch: pitch,
             velocity: velocity,
-            startTime: startTime,
-            duration: 0, // Will be set on note off
+            startBeat: startTime,
+            durationBeats: 0, // Will be set on note off
             channel: channel
         )
         
@@ -639,7 +639,7 @@ class MIDIRecordingEngine {
             endTime = quantization.quantize(endTime)
         }
         
-        note.duration = max(0.01, endTime - note.startTime) // Minimum duration
+        note.durationBeats = max(0.01, endTime - note.startBeat) // Minimum duration
         recordedNotes.append(note)
         activeNotes.removeValue(forKey: pitch)
         
@@ -652,7 +652,7 @@ class MIDIRecordingEngine {
             id: UUID(),
             controller: cc,
             value: value,
-            time: currentRecordTime,
+            beat: currentRecordTime,
             channel: channel
         )
         recordedCCEvents.append(event)
@@ -664,7 +664,7 @@ class MIDIRecordingEngine {
         let event = MIDIPitchBendEvent(
             id: UUID(),
             value: value,
-            time: currentRecordTime,
+            beat: currentRecordTime,
             channel: channel
         )
         recordedPitchBendEvents.append(event)

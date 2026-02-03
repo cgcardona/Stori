@@ -521,8 +521,8 @@ class AICommandDispatcher {
                     
                     // Check MIDI regions for overlap
                     for existingRegion in track.midiRegions {
-                        let existingStart = existingRegion.startTime
-                        let existingEnd = existingStart + existingRegion.duration
+                        let existingStart = existingRegion.startBeat
+                        let existingEnd = existingStart + existingRegion.durationBeats
                         
                         // Check if regions overlap
                         if startBeat < existingEnd && endBeat > existingStart {
@@ -563,8 +563,8 @@ class AICommandDispatcher {
                         id: regionId,
                         name: name,
                         notes: [],
-                        startTime: startBeat,
-                        duration: durationBeats,
+                        startBeat: startBeat,
+                        durationBeats: durationBeats,
                         instrumentId: nil,
                         color: .blue,
                         isLooped: false,
@@ -572,7 +572,7 @@ class AICommandDispatcher {
                         isMuted: false,
                         controllerEvents: [],
                         pitchBendEvents: [],
-                        contentLength: durationBeats
+                        contentLengthBeats: durationBeats
                     )
                     
                     project.tracks[trackIndex].midiRegions.append(region)
@@ -616,8 +616,8 @@ class AICommandDispatcher {
                 var found = false
                 for trackIndex in project.tracks.indices {
                     if let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) {
-                        let oldStart = project.tracks[trackIndex].midiRegions[regionIndex].startTime
-                        project.tracks[trackIndex].midiRegions[regionIndex].startTime = newStartBeat
+                        let oldStart = project.tracks[trackIndex].midiRegions[regionIndex].startBeat
+                        project.tracks[trackIndex].midiRegions[regionIndex].startBeat = newStartBeat
                         projectManager.currentProject = project
                         found = true
                         break
@@ -678,10 +678,10 @@ class AICommandDispatcher {
                         // Calculate new start position
                         let newStart: Double
                         if let off = offset {
-                            newStart = original.startTime + off
+                            newStart = original.startBeat + off
                         } else {
                             // Default: place immediately after the original
-                            newStart = original.startTime + original.duration
+                            newStart = original.startBeat + original.durationBeats
                         }
                         
                         // Create duplicate with new ID
@@ -693,13 +693,13 @@ class AICommandDispatcher {
                                     id: UUID(),
                                     pitch: note.pitch,
                                     velocity: note.velocity,
-                                    startTime: note.startTime,
-                                    duration: note.duration,
+                                    startBeat: note.startBeat,
+                                    durationBeats: note.durationBeats,
                                     channel: note.channel
                                 )
                             },
-                            startTime: newStart,
-                            duration: original.duration,
+                            startBeat: newStart,
+                            durationBeats: original.durationBeats,
                             instrumentId: original.instrumentId,
                             color: original.color,
                             isLooped: original.isLooped,
@@ -707,7 +707,7 @@ class AICommandDispatcher {
                             isMuted: original.isMuted,
                             controllerEvents: original.controllerEvents,
                             pitchBendEvents: original.pitchBendEvents,
-                            contentLength: original.contentLength
+                            contentLengthBeats: original.contentLengthBeats
                         )
                         
                         newRegionId = duplicate.id
@@ -831,8 +831,8 @@ class AICommandDispatcher {
                             id: UUID(),
                             pitch: UInt8(clamping: pitch),
                             velocity: UInt8(clamping: velocity),
-                            startTime: startBeat,
-                            duration: duration,
+                            startBeat: startBeat,
+                            durationBeats: duration,
                             channel: 0
                         )
                         midiNotes.append(note)
@@ -847,15 +847,15 @@ class AICommandDispatcher {
                         
                         // Only expand region if notes extend beyond current duration — never shrink
                         let allNotes = project.tracks[trackIndex].midiRegions[regionIndex].notes
-                        let currentDuration = project.tracks[trackIndex].midiRegions[regionIndex].duration
-                        if let lastNoteEnd = allNotes.map({ $0.startTime + $0.duration }).max() {
+                        let currentDuration = project.tracks[trackIndex].midiRegions[regionIndex].durationBeats
+                        if let lastNoteEnd = allNotes.map({ $0.startBeat + $0.durationBeats }).max() {
                             // Only expand if notes actually extend beyond the current region
                             if lastNoteEnd > currentDuration {
                                 // Add small padding and round up to nearest bar (4 beats)
                                 let paddedEnd = lastNoteEnd + 0.5
                                 let fittedDuration = ceil(paddedEnd / 4.0) * 4.0
-                                project.tracks[trackIndex].midiRegions[regionIndex].duration = fittedDuration
-                                project.tracks[trackIndex].midiRegions[regionIndex].contentLength = fittedDuration
+                                project.tracks[trackIndex].midiRegions[regionIndex].durationBeats = fittedDuration
+                                project.tracks[trackIndex].midiRegions[regionIndex].contentLengthBeats = fittedDuration
                             } else {
                             }
                         }
@@ -1088,7 +1088,7 @@ class AICommandDispatcher {
                     
                     pitchBendEvents.append(MIDIPitchBendEvent(
                         value: Int16(clamping: value),
-                        time: time,
+                        beat: time,
                         channel: UInt8(clamping: channel)
                     ))
                 }
@@ -1097,7 +1097,7 @@ class AICommandDispatcher {
                 for trackIndex in project.tracks.indices {
                     if let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) {
                         project.tracks[trackIndex].midiRegions[regionIndex].pitchBendEvents.append(contentsOf: pitchBendEvents)
-                        project.tracks[trackIndex].midiRegions[regionIndex].pitchBendEvents.sort { $0.time < $1.time }
+                        project.tracks[trackIndex].midiRegions[regionIndex].pitchBendEvents.sort { $0.beat < $1.beat }
                         projectManager.currentProject = project
                         break
                     }
@@ -1204,7 +1204,7 @@ class AICommandDispatcher {
                         id: UUID(),
                         controller: UInt8(clamping: controller),
                         value: UInt8(clamping: value),
-                        time: time,
+                        beat: time,
                         channel: UInt8(clamping: channel)
                     ))
                 }
@@ -1213,7 +1213,7 @@ class AICommandDispatcher {
                 for trackIndex in project.tracks.indices {
                     if let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) {
                         project.tracks[trackIndex].midiRegions[regionIndex].controllerEvents.append(contentsOf: ccEvents)
-                        project.tracks[trackIndex].midiRegions[regionIndex].controllerEvents.sort { $0.time < $1.time }
+                        project.tracks[trackIndex].midiRegions[regionIndex].controllerEvents.sort { $0.beat < $1.beat }
                         projectManager.currentProject = project
                         break
                     }
