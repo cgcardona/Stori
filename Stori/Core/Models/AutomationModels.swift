@@ -331,6 +331,9 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     let id: UUID
     var parameter: AutomationParameter
     var points: [AutomationPoint]
+    /// Value used for playback before the first automation point (deterministic WYSIWYG).
+    /// When nil, playback uses the first point's value for positions before it.
+    var initialValue: Float?
     var isVisible: Bool
     var isLocked: Bool
     var colorHex: String
@@ -346,6 +349,7 @@ struct AutomationLane: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         parameter: AutomationParameter = .volume,
         points: [AutomationPoint] = [],
+        initialValue: Float? = nil,
         isVisible: Bool = true,
         isLocked: Bool = false,
         color: Color = .orange,
@@ -355,6 +359,7 @@ struct AutomationLane: Identifiable, Codable, Equatable {
         self.parameter = parameter
         // Ensure points are sorted on initialization (for deserialization)
         self.points = points.sorted { $0.beat < $1.beat }
+        self.initialValue = initialValue
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.colorHex = color.toHex()
@@ -376,13 +381,14 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     
     /// Get interpolated value at a specific beat position
     func value(atBeat beat: Double) -> Float {
-        guard !points.isEmpty else { return parameter.defaultValue }
+        guard !points.isEmpty else { return initialValue ?? parameter.defaultValue }
         
         let sorted = sortedPoints
         
-        // Before first point
+        // Before first point: use initialValue (deterministic) or first point's value
         guard let first = sorted.first else { return parameter.defaultValue }
-        if beat <= first.beat { return first.value }
+        if beat < first.beat { return initialValue ?? first.value }
+        if beat == first.beat { return first.value }
         
         // After last point
         guard let last = sorted.last else { return parameter.defaultValue }
@@ -589,5 +595,23 @@ struct TrackAutomationData: Codable, Equatable {
     /// Remove lane for a parameter
     mutating func removeLane(for parameter: AutomationParameter) {
         lanes.removeAll { $0.parameter == parameter }
+    }
+}
+
+// MARK: - AudioTrack Mixer Value (Deterministic Automation)
+
+extension AudioTrack {
+    /// Returns the current mixer value (0–1) for an automation parameter.
+    /// Used when creating new automation lanes so playback before the first point uses this snapshot (deterministic WYSIWYG).
+    func mixerValue(for parameter: AutomationParameter) -> Float {
+        let m = mixerSettings
+        switch parameter {
+        case .volume: return m.volume
+        case .pan: return m.pan
+        case .eqLow: return max(0, min(1, (m.lowEQ / 24) + 0.5))
+        case .eqMid: return max(0, min(1, (m.midEQ / 24) + 0.5))
+        case .eqHigh: return max(0, min(1, (m.highEQ / 24) + 0.5))
+        default: return parameter.defaultValue
+        }
     }
 }

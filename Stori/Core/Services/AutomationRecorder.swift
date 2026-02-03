@@ -47,21 +47,21 @@ class AutomationRecorder {
         let trackId: UUID
         let parameter: AutomationParameter
         var capturedPoints: [AutomationPoint]
-        let startTime: TimeInterval
+        let startBeat: Double
         let previousValue: Float?  // For Touch mode - value to return to
         let curveType: CurveType
         
         init(
             trackId: UUID,
             parameter: AutomationParameter,
-            startTime: TimeInterval,
+            startBeat: Double,
             previousValue: Float?,
             curveType: CurveType = .linear
         ) {
             self.trackId = trackId
             self.parameter = parameter
             self.capturedPoints = []
-            self.startTime = startTime
+            self.startBeat = startBeat
             self.previousValue = previousValue
             self.curveType = curveType
         }
@@ -109,19 +109,20 @@ class AutomationRecorder {
         // Only record during playback
         guard engine.transportState.isPlaying else { return }
         
-        let currentTime = engine.currentPosition.timeInterval
+        let currentTimeSeconds = engine.currentPosition.timeInterval
+        let currentBeat = secondsToBeats(currentTimeSeconds)
         
         // Get existing value at this time (for Touch mode return)
         let existingValue = getExistingValue(
             trackId: trackId,
             parameter: parameter,
-            at: currentTime
+            at: currentTimeSeconds
         )
         
         let recording = ActiveRecording(
             trackId: trackId,
             parameter: parameter,
-            startTime: currentTime,
+            startBeat: currentBeat,
             previousValue: existingValue,
             curveType: curveType
         )
@@ -129,7 +130,7 @@ class AutomationRecorder {
         // Use a composite key for track+parameter
         let key = recordingKey(trackId: trackId, parameter: parameter)
         activeRecordings[key] = recording
-        lastCaptureTime[key] = currentTime
+        lastCaptureTime[key] = currentTimeSeconds
         isRecording = true
         
         // Capture the initial point
@@ -147,14 +148,14 @@ class AutomationRecorder {
         
         // Throttle captures to captureInterval
         guard let engine = audioEngine else { return }
-        let currentTime = engine.currentPosition.timeInterval
+        let currentTimeSeconds = engine.currentPosition.timeInterval
         
         if let lastTime = lastCaptureTime[key],
-           currentTime - lastTime < captureInterval {
+           currentTimeSeconds - lastTime < captureInterval {
             return
         }
         
-        lastCaptureTime[key] = currentTime
+        lastCaptureTime[key] = currentTimeSeconds
         capturePoint(value: value, for: key)
     }
     
@@ -332,8 +333,8 @@ extension AutomationRecorder {
     static func mergePoints(
         recorded: [AutomationPoint],
         into existing: inout [AutomationPoint],
-        startTime: TimeInterval,
-        endTime: TimeInterval,
+        startBeat: Double,
+        endBeat: Double,
         mode: AutomationMode
     ) {
         switch mode {
@@ -344,7 +345,7 @@ extension AutomationRecorder {
         case .touch, .latch:
             // Replace points in the recorded beat range, keep others
             existing.removeAll { point in
-                point.beat >= startTime && point.beat <= endTime
+                point.beat >= startBeat && point.beat <= endBeat
             }
             existing.append(contentsOf: recorded)
             existing.sort { $0.beat < $1.beat }
@@ -353,7 +354,7 @@ extension AutomationRecorder {
             // Replace ALL existing points with recorded
             // (In a full implementation, this would clear from playback start)
             existing.removeAll { point in
-                point.beat >= startTime
+                point.beat >= startBeat
             }
             existing.append(contentsOf: recorded)
             existing.sort { $0.beat < $1.beat }

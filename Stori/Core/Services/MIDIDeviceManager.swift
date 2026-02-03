@@ -481,8 +481,8 @@ class MIDIRecordingEngine {
     
     // MARK: - Private Properties
     
-    private var recordStartTime: TimeInterval = 0
-    private var currentTimeProvider: (() -> TimeInterval)?
+    private var recordStartBeat: Double = 0
+    private var currentBeatProvider: (() -> Double)?
     private weak var midiDeviceManager: MIDIDeviceManager?
     
     // MARK: - Initialization
@@ -494,9 +494,9 @@ class MIDIRecordingEngine {
     
     // MARK: - Setup
     
-    /// Set the current time provider (e.g., from AudioEngine)
-    func setTimeProvider(_ provider: @escaping () -> TimeInterval) {
-        currentTimeProvider = provider
+    /// Set the current position provider in beats (e.g., from AudioEngine currentPosition.beats)
+    func setBeatProvider(_ provider: @escaping () -> Double) {
+        currentBeatProvider = provider
     }
     
     /// Setup MIDI callbacks for recording
@@ -528,10 +528,10 @@ class MIDIRecordingEngine {
     
     // MARK: - Recording Control
     
-    /// Start recording at the given position
-    func startRecording(at position: TimeInterval) {
+    /// Start recording at the given position (in beats)
+    func startRecording(atBeat beat: Double) {
         isRecording = true
-        recordStartTime = position
+        recordStartBeat = beat
         
         if !isOverdubMode {
             // Replace mode: clear existing notes
@@ -550,10 +550,11 @@ class MIDIRecordingEngine {
         
         isRecording = false
         
-        // Close any notes still being held
-        let currentTime = currentTimeProvider?() ?? 0
+        // Close any notes still being held (positions in beats relative to region start)
+        let currentBeat = currentBeatProvider?() ?? 0
+        let relativeCurrentBeat = currentBeat - recordStartBeat
         for (pitch, var note) in activeNotes {
-            note.durationBeats = max(0.01, (currentTime - recordStartTime) - note.startBeat)
+            note.durationBeats = max(0.01, relativeCurrentBeat - note.startBeat)
             recordedNotes.append(note)
         }
         activeNotes = [:]
@@ -563,14 +564,14 @@ class MIDIRecordingEngine {
             return nil
         }
         
-        // Calculate region duration
+        // Calculate region duration (max end of notes; notes are relative to region start)
         let endBeat = recordedNotes.map(\.endBeat).max() ?? 0
         
         let region = MIDIRegion(
             id: UUID(),
             name: "MIDI Recording",
             notes: recordedNotes,
-            startBeat: recordStartTime,
+            startBeat: recordStartBeat,
             durationBeats: endBeat,
             instrumentId: nil,
             color: .blue,
@@ -601,26 +602,26 @@ class MIDIRecordingEngine {
     
     // MARK: - Event Handlers
     
-    private var currentRecordTime: TimeInterval {
-        guard let provider = currentTimeProvider else { return 0 }
-        return provider() - recordStartTime
+    private var currentRecordBeat: Double {
+        guard let provider = currentBeatProvider else { return 0 }
+        return provider() - recordStartBeat
     }
     
     private func handleNoteOn(pitch: UInt8, velocity: UInt8, channel: UInt8) {
         guard isRecording else { return }
         
-        var startTime = currentRecordTime
+        var startBeat = currentRecordBeat
         
         // Apply quantization
         if quantization != .off {
-            startTime = quantization.quantize(startTime)
+            startBeat = quantization.quantize(beat: startBeat)
         }
         
         let note = MIDINote(
             id: UUID(),
             pitch: pitch,
             velocity: velocity,
-            startBeat: startTime,
+            startBeat: startBeat,
             durationBeats: 0, // Will be set on note off
             channel: channel
         )
@@ -632,14 +633,14 @@ class MIDIRecordingEngine {
         guard isRecording else { return }
         guard var note = activeNotes[pitch] else { return }
         
-        var endTime = currentRecordTime
+        var endBeat = currentRecordBeat
         
         // Apply quantization to duration
         if quantization != .off {
-            endTime = quantization.quantize(endTime)
+            endBeat = quantization.quantize(beat: endBeat)
         }
         
-        note.durationBeats = max(0.01, endTime - note.startBeat) // Minimum duration
+        note.durationBeats = max(0.01, endBeat - note.startBeat) // Minimum duration
         recordedNotes.append(note)
         activeNotes.removeValue(forKey: pitch)
         
@@ -652,7 +653,7 @@ class MIDIRecordingEngine {
             id: UUID(),
             controller: cc,
             value: value,
-            beat: currentRecordTime,
+            beat: currentRecordBeat,
             channel: channel
         )
         recordedCCEvents.append(event)
@@ -664,7 +665,7 @@ class MIDIRecordingEngine {
         let event = MIDIPitchBendEvent(
             id: UUID(),
             value: value,
-            beat: currentRecordTime,
+            beat: currentRecordBeat,
             channel: channel
         )
         recordedPitchBendEvents.append(event)
