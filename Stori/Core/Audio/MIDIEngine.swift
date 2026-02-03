@@ -29,8 +29,8 @@ class MIDIEngine {
     /// Playback state
     var isPlaying = false
     
-    /// Current playback position in beats
-    var currentPosition: TimeInterval = 0
+    /// Current playback position in beats (timeline source of truth)
+    var currentPosition: Double = 0
     
     /// Project tempo (BPM)
     var tempo: Double = 120.0
@@ -44,8 +44,8 @@ class MIDIEngine {
     /// Playback timer
     private var playbackTimer: Timer?
     
-    /// Last processed position for each track
-    private var lastProcessedPosition: [UUID: TimeInterval] = [:]
+    /// Last processed position for each track (in beats)
+    private var lastProcessedPosition: [UUID: Double] = [:]
     
     // MARK: - Initialization
     
@@ -296,7 +296,8 @@ class MIDIEngine {
 private struct ScheduledNote {
     let trackId: UUID
     let pitch: UInt8
-    let noteOffTime: TimeInterval
+    /// Time in beats when note should be released
+    let noteOffTime: Double
 }
 
 // MARK: - Quantization Engine
@@ -317,13 +318,13 @@ enum QuantizationEngine {
             var quantized = note
             
             // Quantize start time
-            let quantizedStart = resolution.quantize(note.startBeat, strength: strength)
+            let quantizedStart = resolution.quantize(beat: note.startBeat, strength: strength)
             quantized.startBeat = max(0, quantizedStart)
             
             // Quantize duration if requested
             if quantizeDuration {
-                let quantizedDuration = resolution.quantize(note.durationBeats)
-                quantized.durationBeats = max(resolution.duration, quantizedDuration)
+                let quantizedDuration = resolution.quantize(beat: note.durationBeats)
+                quantized.durationBeats = max(resolution.stepDurationBeats, quantizedDuration)
             }
             
             return quantized
@@ -338,7 +339,7 @@ enum QuantizationEngine {
     ) -> [MIDINote] {
         guard amount > 0 else { return notes }
         
-        let gridDuration = gridResolution.duration
+        let gridDuration = gridResolution.stepDurationBeats
         
         return notes.map { note in
             var swung = note
@@ -360,7 +361,7 @@ enum QuantizationEngine {
     /// Humanize notes (add subtle timing and velocity variations)
     static func humanize(
         notes: [MIDINote],
-        timingVariation: TimeInterval = 0.02,  // beats
+        timingVariation: Double = 0.02, // in beats
         velocityVariation: UInt8 = 10
     ) -> [MIDINote] {
         return notes.map { note in

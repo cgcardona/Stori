@@ -115,12 +115,12 @@ class StepInputEngine {
     
     /// Move to the next step position
     func advanceStep() {
-        stepPositionBeats += stepDuration.duration
+        stepPositionBeats += stepDuration.stepDurationBeats
     }
     
     /// Move to the previous step position
     func goBack() {
-        stepPositionBeats = max(0, stepPositionBeats - stepDuration.duration)
+        stepPositionBeats = max(0, stepPositionBeats - stepDuration.stepDurationBeats)
     }
     
     /// Jump to a specific beat position
@@ -146,7 +146,7 @@ class StepInputEngine {
             pitch: pitch,
             velocity: noteVelocity,
             startBeat: stepPositionBeats,
-            durationBeats: stepDuration.duration,
+            durationBeats: stepDuration.stepDurationBeats,
             channel: 0
         )
         
@@ -175,7 +175,7 @@ class StepInputEngine {
                 pitch: pitch,
                 velocity: vel,
                 startBeat: stepPositionBeats,
-                durationBeats: stepDuration.duration,
+                durationBeats: stepDuration.stepDurationBeats,
                 channel: 0
             )
             region.addNote(note)
@@ -200,7 +200,7 @@ class StepInputEngine {
         guard var region = targetRegion else { return }
         
         // Find notes at the previous step beat position
-        let prevPositionBeats = max(0, stepPositionBeats - stepDuration.duration)
+        let prevPositionBeats = max(0, stepPositionBeats - stepDuration.stepDurationBeats)
         let notesAtPosition = region.notes.filter { 
             abs($0.startBeat - prevPositionBeats) < 0.001 
         }

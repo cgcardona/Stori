@@ -23,8 +23,8 @@ struct MIDIRegionView: View {
     var onBounceToAudio: (() -> Void)? = nil
     var onDuplicate: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
-    var onLoop: ((UUID, TimeInterval) -> Void)? = nil  // Loop resize callback
-    var onResize: ((UUID, TimeInterval) -> Void)? = nil  // Trim resize callback
+    var onLoop: ((UUID, Double) -> Void)? = nil  // Loop resize callback (duration in beats)
+    var onResize: ((UUID, Double) -> Void)? = nil  // Trim resize callback (duration in beats)
     var trackName: String  // Track name passed from parent (computed from track)
     var trackIcon: String = "pianokeys"  // Track icon for consistency
     var isDrumTrack: Bool = false  // TRUE if track has drumKitId set (use drum grid visualization)
@@ -79,30 +79,28 @@ struct MIDIRegionView: View {
     }
     
     // [PHASE-7] Display duration for visualization (in beats)
-    private var displayDuration: TimeInterval {
+    private var displayDurationBeats: Double {
         displayWidth / pixelsPerBeat
     }
     
-    /// Effective content length - the duration of one loop unit (notes + any empty space from resize)
-    private var effectiveContentLength: TimeInterval {
+    /// Effective content length in beats - the duration of one loop unit (notes + any empty space from resize)
+    private var effectiveContentLengthBeats: Double {
         region.contentLengthBeats > 0 ? region.contentLengthBeats : region.durationBeats
     }
     
     /// Preview loop count during resize - only counts if resizing in loop mode
     private var displayLoopCount: Int {
-        guard effectiveContentLength > 0 else { return 1 }
+        guard effectiveContentLengthBeats > 0 else { return 1 }
         let duration = liveResizeWidth != nil ? (liveResizeWidth! / pixelsPerBeat) : region.durationBeats
         // Only show loop count if actually looping (resizeType == .loop) or region is already looped
         if resizeType == .loop || region.isLooped {
-            return max(1, Int(ceil(duration / effectiveContentLength)))
+            return max(1, Int(ceil(duration / effectiveContentLengthBeats)))
         }
         return 1
     }
     
-    /// Original notes duration (before any resize with empty space)
-    private var originalNotesDuration: TimeInterval {
-        // If contentLength was set (from resize), the original notes fill a portion of it
-        // For now, use the span of actual notes, or default to 4 beats (1 bar)
+    /// Original notes duration in beats (before any resize with empty space)
+    private var originalNotesDurationBeats: Double {
         guard !region.notes.isEmpty else { return min(region.contentLengthBeats, 4.0) }
         let maxNoteEnd = region.notes.map { $0.startBeat + $0.durationBeats }.max() ?? 4.0
         return min(maxNoteEnd, region.contentLengthBeats)
@@ -359,15 +357,15 @@ struct MIDIRegionView: View {
                 // Calculate display content length for live preview during resize
                 let displayContentLen = resizeType == .trim && liveResizeWidth != nil 
                     ? (liveResizeWidth! / pixelsPerBeat) 
-                    : effectiveContentLength
+                    : effectiveContentLengthBeats
                 let displayIsLooped = (resizeType == .loop && isResizing) || region.isLooped
                 // 16 columns are built from region.durationBeats (stepDuration = region.durationBeats/16),
-                // so pattern width must equal region width — use displayDuration, not originalNotesDuration
-                let stepSeqPatternDuration = displayDuration
+                // so pattern width must equal region width — use displayDurationBeats, not originalNotesDurationBeats
+                let stepSeqPatternDuration = displayDurationBeats
                 
                 StepSequencerRegionVisualization(
                     pattern: stepSequencerPattern,
-                    regionDuration: displayDuration,
+                    regionDuration: displayDurationBeats,
                     tempo: tempo,
                     width: displayWidth,
                     height: trackHeight - headerHeight,
@@ -385,9 +383,9 @@ struct MIDIRegionView: View {
                     let noteHeight = max(2, (size.height - 2) / pitchRange)
                     
                     // Content width = the full loop unit (notes + empty space)
-                    let contentWidth = CGFloat(effectiveContentLength) * pixelsPerBeat
+                    let contentWidth = CGFloat(effectiveContentLengthBeats) * pixelsPerBeat
                     // Notes only occupy the original portion
-                    let notesWidth = CGFloat(originalNotesDuration) * pixelsPerBeat
+                    let notesWidth = CGFloat(originalNotesDurationBeats) * pixelsPerBeat
                     
                     // Determine if we should show looped content
                     let showLooped = (resizeType == .loop && isResizing) || region.isLooped

@@ -39,8 +39,9 @@ final class TransportControllerTests: XCTestCase {
     func testPlaybackPositionTimeInterval() {
         let position = PlaybackPosition(beats: 4.0, tempo: 120.0)
         
+        // Time is always computed from beats + tempo (no cached timeInterval)
         // 4 beats at 120 BPM = 2 seconds
-        assertApproximatelyEqual(position.timeInterval, 2.0)
+        assertApproximatelyEqual(position.timeInterval(atTempo: 120.0), 2.0)
     }
     
     func testPlaybackPositionFromSeconds() {
@@ -58,6 +59,15 @@ final class TransportControllerTests: XCTestCase {
         
         // At 180 BPM, 4 beats = 1.33 seconds
         assertApproximatelyEqual(position.timeInterval(atTempo: 180.0), 4.0 / 3.0)
+    }
+
+    /// Time is always computed from beats and the provided tempo (no cached value)
+    func testPlaybackPositionTimeIntervalUsesProvidedTempoNotCached() {
+        let position = PlaybackPosition(beats: 6.0, timeSignature: .fourFour, tempo: 120.0)
+        // Same position, different tempos must yield different seconds
+        assertApproximatelyEqual(position.timeInterval(atTempo: 120.0), 3.0)   // 6 beats at 120 = 3 s
+        assertApproximatelyEqual(position.timeInterval(atTempo: 60.0), 6.0)     // 6 beats at 60 = 6 s
+        assertApproximatelyEqual(position.timeInterval(atTempo: 240.0), 1.5)   // 6 beats at 240 = 1.5 s
     }
     
     func testPlaybackPositionDisplayString() {

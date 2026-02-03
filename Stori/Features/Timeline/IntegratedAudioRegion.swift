@@ -348,7 +348,7 @@ struct IntegratedAudioRegion: View {
     // Beat grid overlay (shows beat markers after tempo analysis)
     private var beatGridOverlay: some View {
         GeometryReader { geometry in
-            if let beats = region.detectedBeats, !beats.isEmpty {
+            if let beats = region.detectedBeatTimesInSeconds, !beats.isEmpty {
                 let downbeats = Set(region.downbeatIndices ?? [])
                 
                 Canvas { ctx, size in
@@ -1345,8 +1345,8 @@ struct IntegratedAudioRegion: View {
             }
             
             Button("Split at Playhead") {
-                let playheadTime = audioEngine.currentPosition.timeInterval
-                splitRegionAtPlayhead(playheadTime)
+                let playheadBeat = audioEngine.currentPosition.beats
+                splitRegionAtPlayhead(playheadBeat)
             }
             .disabled(!canSplitAtPlayhead)
             
@@ -1441,13 +1441,13 @@ struct IntegratedAudioRegion: View {
     private var canSplitAtPlayhead: Bool {
         // Convert playhead from seconds to beats for comparison
         let tempo = projectManager.currentProject?.tempo ?? 120.0
-        let playheadBeat = audioEngine.currentPosition.timeInterval * (tempo / 60.0)
+        let playheadBeat = audioEngine.currentPosition.beats  // Use beats directly, not time
         let regionEndBeat = region.endBeat
         return playheadBeat > region.startBeat && playheadBeat < regionEndBeat
     }
     
-    private func splitRegionAtPlayhead(_ playheadTime: TimeInterval) {
-        projectManager.splitRegionAtPosition(region.id, trackId: trackId, splitTime: playheadTime)
+    private func splitRegionAtPlayhead(_ playheadBeat: Double) {
+        projectManager.splitRegionAtPosition(region.id, trackId: trackId, splitBeat: playheadBeat)
     }
     
     private func duplicateRegion() {

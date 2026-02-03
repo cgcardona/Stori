@@ -155,7 +155,7 @@ struct PositionedMIDIRegion: View {
     
     // MARK: - Resize Handlers
     
-    private func handleMIDIRegionLoop(regionId: UUID, newDuration: TimeInterval) {
+    private func handleMIDIRegionLoop(regionId: UUID, newDurationBeats: Double) {
         guard var project = projectManager.currentProject else { return }
         guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
               let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) else {
@@ -166,7 +166,7 @@ struct PositionedMIDIRegion: View {
         let loopUnit = region.contentLengthBeats > 0 ? region.contentLengthBeats : region.durationBeats
         let originalNotes = region.notes
         
-        let loopCount = Int(ceil(newDuration / loopUnit))
+        let loopCount = Int(ceil(newDurationBeats / loopUnit))
         
         var loopedNotes: [MIDINote] = []
         for loopIndex in 0..<loopCount {
@@ -184,29 +184,29 @@ struct PositionedMIDIRegion: View {
                     channel: note.channel
                 )
                 
-                if newNote.startBeat < newDuration {
+                if newNote.startBeat < newDurationBeats {
                     loopedNotes.append(newNote)
                 }
             }
         }
         
         project.tracks[trackIndex].midiRegions[regionIndex].notes = loopedNotes
-        project.tracks[trackIndex].midiRegions[regionIndex].durationBeats = newDuration
-        project.tracks[trackIndex].midiRegions[regionIndex].isLooped = newDuration > loopUnit
+        project.tracks[trackIndex].midiRegions[regionIndex].durationBeats = newDurationBeats
+        project.tracks[trackIndex].midiRegions[regionIndex].isLooped = newDurationBeats > loopUnit
         
         project.modifiedAt = Date()
         projectManager.currentProject = project
         projectManager.hasUnsavedChanges = true  // Mark as unsaved, don't auto-save
     }
     
-    private func handleMIDIRegionResize(regionId: UUID, newDuration: TimeInterval) {
+    private func handleMIDIRegionResize(regionId: UUID, newDurationBeats: Double) {
         guard var project = projectManager.currentProject else { return }
         guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
               let regionIndex = project.tracks[trackIndex].midiRegions.firstIndex(where: { $0.id == regionId }) else {
             return
         }
         
-        let safeDuration = max(0.1, newDuration)
+        let safeDuration = max(0.1, newDurationBeats)
         project.tracks[trackIndex].midiRegions[regionIndex].durationBeats = safeDuration
         project.tracks[trackIndex].midiRegions[regionIndex].contentLengthBeats = safeDuration
         project.tracks[trackIndex].midiRegions[regionIndex].isLooped = false

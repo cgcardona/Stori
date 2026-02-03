@@ -13,13 +13,8 @@ import SwiftUI
 struct IntegratedGridBackground: View {
     let contentSize: CGSize
     let trackHeight: CGFloat
-    let pixelsPerBeat: CGFloat  // Beat-based timeline (proper DAW architecture)
+    let pixelsPerBeat: CGFloat  // Beat-based timeline
     let trackCount: Int
-    let tempo: Double  // For beat→seconds conversion when needed
-    
-    // Derived for time-mode display
-    private var secondsPerBeat: Double { 60.0 / tempo }
-    private var pixelsPerSecond: CGFloat { pixelsPerBeat / CGFloat(secondsPerBeat) }
     
     // Unique ID for forcing Canvas redraw when zoom changes
     private var zoomId: String {
@@ -35,11 +30,12 @@ struct IntegratedGridBackground: View {
     }
     
     private func drawGrid(context: GraphicsContext, size: CGSize) {
-        let totalSeconds = Int(contentSize.width / pixelsPerSecond)
+        let pixelsPerBar = pixelsPerBeat * 4  // 4/4
+        let totalBeats = Int(ceil(contentSize.width / pixelsPerBeat))
         
-        // Vertical grid lines (every 5 seconds)
-        for second in stride(from: 0, through: totalSeconds, by: 5) {
-            let x = CGFloat(second) * pixelsPerSecond
+        // Vertical grid lines (every bar = 4 beats)
+        for beat in stride(from: 0, through: totalBeats, by: 4) {
+            let x = CGFloat(beat) * pixelsPerBeat
             let path = Path { path in
                 path.move(to: CGPoint(x: x, y: 0))
                 path.addLine(to: CGPoint(x: x, y: size.height))

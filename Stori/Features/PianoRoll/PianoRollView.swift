@@ -69,10 +69,10 @@ struct PianoRollView: View {
     
     // [PHASE-4] Cycle region (synced with main timeline)
     var cycleEnabled: Bool = false
-    var cycleStartTime: TimeInterval = 0  // In beats
-    var cycleEndTime: TimeInterval = 4    // In beats
+    var cycleStartBeats: Double = 0
+    var cycleEndBeats: Double = 4
     var snapToGrid: Bool = true  // Snap toggle state from parent
-    var onCycleRegionChanged: ((TimeInterval, TimeInterval) -> Void)?  // Callback for changes (in beats)
+    var onCycleRegionChanged: ((Double, Double) -> Void)?  // Callback (startBeat, endBeat)
     
     // Undo manager for cmd+z / cmd+shift+z (unified undo system)
     private var undoManager: UndoManager? {
@@ -953,8 +953,8 @@ struct PianoRollView: View {
     private var cycleOverlay: some View {
         GeometryReader { geometry in
             if cycleEnabled {
-                let startX = cycleStartTime * scaledPixelsPerBeat
-                let endX = cycleEndTime * scaledPixelsPerBeat
+                let startX = cycleStartBeats * scaledPixelsPerBeat
+                let endX = cycleEndBeats * scaledPixelsPerBeat
                 let width = max(8, endX - startX)  // Min width for handles
                 let handleWidth: CGFloat = 8
                 
@@ -965,9 +965,9 @@ struct PianoRollView: View {
                         .frame(width: width, height: 20)
                     
                     // Measure badge with proper formatting (1.1 - 2.1 format)
-                    let startMeasure = formatMeasure(cycleStartTime)
-                    let endMeasure = formatMeasure(cycleEndTime)
-                    let durationBeats = cycleEndTime - cycleStartTime
+                    let startMeasure = formatMeasure(cycleStartBeats)
+                    let endMeasure = formatMeasure(cycleEndBeats)
+                    let durationBeats = cycleEndBeats - cycleStartBeats
                     let bars = Int(durationBeats / 4)
                     let barsText = bars == 1 ? "1 bar" : "\(bars) bars"
                     
@@ -1000,7 +1000,7 @@ struct PianoRollView: View {
     }
     
     /// Format beats to measure.beat format (e.g., 1.1, 2.3)
-    private func formatMeasure(_ beats: TimeInterval) -> String {
+    private func formatMeasure(_ beats: Double) -> String {
         let beatsPerBar: Double = 4  // Assuming 4/4 time
         let measure = Int(beats / beatsPerBar) + 1
         let beat = Int(beats.truncatingRemainder(dividingBy: beatsPerBar)) + 1
@@ -1009,8 +1009,8 @@ struct PianoRollView: View {
     
     // [PHASE-4] Drag gesture state for cycle region
     @State private var cycleDragMode: CycleDragMode = .none
-    @State private var cycleDragStartBeats: TimeInterval = 0
-    @State private var cycleDragEndBeats: TimeInterval = 0
+    @State private var cycleDragStartBeats: Double = 0
+    @State private var cycleDragEndBeats: Double = 0
     
     private enum CycleDragMode { case none, left, right, body }
     
@@ -1018,8 +1018,8 @@ struct PianoRollView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let handleWidth: CGFloat = 8
-                let startX = cycleStartTime * scaledPixelsPerBeat
-                let endX = cycleEndTime * scaledPixelsPerBeat
+                let startX = cycleStartBeats * scaledPixelsPerBeat
+                let endX = cycleEndBeats * scaledPixelsPerBeat
                 
                 // Determine drag mode on first touch
                 if cycleDragMode == .none {
@@ -1037,13 +1037,13 @@ struct PianoRollView: View {
                         cycleDragMode = .body
                         NSCursor.closedHand.set()
                     }
-                    cycleDragStartBeats = cycleStartTime
-                    cycleDragEndBeats = cycleEndTime
+                    cycleDragStartBeats = cycleStartBeats
+                    cycleDragEndBeats = cycleEndBeats
                 }
                 
                 let deltaBeats = value.translation.width / scaledPixelsPerBeat
-                let minLen: TimeInterval = 1  // Minimum 1 beat
-                let beatsPerBar: TimeInterval = 4  // 4/4 time
+                let minLen: Double = 1  // Minimum 1 beat
+                let beatsPerBar: Double = 4  // 4/4
                 
                 // [PHASE-4] Detect modifier keys for snap behavior
                 let flags = NSEvent.modifierFlags
@@ -1054,7 +1054,7 @@ struct PianoRollView: View {
                 // Command = free (no snap)
                 // Shift = snap to beats
                 // Default = snap to bars (when snapToGrid is on)
-                func applySnap(_ value: TimeInterval) -> TimeInterval {
+                func applySnap(_ value: Double) -> Double {
                     if isCommandPressed {
                         // Command: Free mode - no snapping
                         return value
@@ -1072,14 +1072,14 @@ struct PianoRollView: View {
                 case .left:
                     var newStart = max(0, cycleDragStartBeats + deltaBeats)
                     newStart = applySnap(newStart)
-                    if (cycleEndTime - newStart) >= minLen {
-                        onCycleRegionChanged?(newStart, cycleEndTime)
+                    if (cycleEndBeats - newStart) >= minLen {
+                        onCycleRegionChanged?(newStart, cycleEndBeats)
                     }
                 case .right:
                     var newEnd = max(minLen, cycleDragEndBeats + deltaBeats)
                     newEnd = applySnap(newEnd)
-                    if (newEnd - cycleStartTime) >= minLen {
-                        onCycleRegionChanged?(cycleStartTime, newEnd)
+                    if (newEnd - cycleStartBeats) >= minLen {
+                        onCycleRegionChanged?(cycleStartBeats, newEnd)
                     }
                 case .body:
                     let duration = cycleDragEndBeats - cycleDragStartBeats
@@ -1201,38 +1201,38 @@ struct PianoRollView: View {
                 drawStartPosition = value.startLocation
                 
                 let pitch = pitchAt(y: value.startLocation.y)
-                let rawBeat = timeAt(x: value.startLocation.x)
+                let rawBeat = beatAt(x: value.startLocation.x)
                 var startBeat = rawBeat
                 
                 if snapResolution != .off {
-                    startBeat = snapResolution.quantize(rawBeat)
+                    startBeat = snapResolution.quantize(beat:rawBeat)
                 }
                 
                 drawingNote = MIDINote(
                     pitch: pitch,
                     velocity: 100,  // ~78% velocity - standard DAW default
                     startBeat: startBeat,
-                    durationBeats: snapResolution.duration > 0 ? snapResolution.duration : 0.25
+                    durationBeats: snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.25
                 )
                 
                 onPreviewNote?(pitch)
             } else if var note = drawingNote {
                 // Update note duration while dragging
-                var endBeat = timeAt(x: value.location.x)
+                var endBeat = beatAt(x: value.location.x)
                 if snapResolution != .off {
-                    endBeat = snapResolution.quantize(endBeat)
+                    endBeat = snapResolution.quantize(beat:endBeat)
                 }
-                note.durationBeats = max(snapResolution.duration > 0 ? snapResolution.duration : 0.1, endBeat - note.startBeat)
+                note.durationBeats = max(snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.1, endBeat - note.startBeat)
                 drawingNote = note
             }
             
         case .erase:
             // Find and delete notes under cursor
             let pitch = pitchAt(y: value.location.y)
-            let time = timeAt(x: value.location.x)
+            let beat = beatAt(x: value.location.x)
             
             if let noteToDelete = region.notes.first(where: { note in
-                note.pitch == pitch && note.startBeat <= time && note.endBeat > time
+                note.pitch == pitch && note.startBeat <= beat && note.endBeat > beat
             }) {
                 deleteNote(noteToDelete)
             }
@@ -1276,15 +1276,15 @@ struct PianoRollView: View {
             }
             
             let pitch = pitchAt(y: value.location.y)
-            var startBeat = timeAt(x: value.location.x)
+            var startBeat = beatAt(x: value.location.x)
             
             // Snap to grid
             if snapResolution != .off {
-                startBeat = snapResolution.quantize(startBeat)
+                startBeat = snapResolution.quantize(beat:startBeat)
             }
             
             // Check if a note already exists at this grid position
-            let duration = snapResolution.duration > 0 ? snapResolution.duration : 0.25
+            let duration = snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.25
             let noteExists = region.notes.contains { note in
                 note.pitch == pitch && 
                 abs(note.startBeat - startBeat) < 0.01  // Same grid position
@@ -1367,7 +1367,8 @@ struct PianoRollView: View {
         return UInt8(clamping: max(minPitch, min(maxPitch, pitch)))
     }
     
-    private func timeAt(x: CGFloat) -> TimeInterval {
+    /// X position to beat (timeline is beat-based).
+    private func beatAt(x: CGFloat) -> Double {
         x / scaledPixelsPerBeat
     }
     
@@ -1417,10 +1418,10 @@ struct PianoRollView: View {
     // MARK: - Scissor Tool (Slice)
     
     /// Split a note at the specified position (relative to note start, in beats)
-    private func sliceNote(_ note: MIDINote, at relativePosition: TimeInterval) {
+    private func sliceNote(_ note: MIDINote, at relativePositionBeats: Double) {
         // Calculate the two new note durations
-        let firstDuration = relativePosition
-        let secondDuration = note.durationBeats - relativePosition
+        let firstDuration = relativePositionBeats
+        let secondDuration = note.durationBeats - relativePositionBeats
         
         // Ensure both parts have meaningful duration
         guard firstDuration >= 0.05 && secondDuration >= 0.05 else { return }
@@ -1443,7 +1444,7 @@ struct PianoRollView: View {
             id: UUID(),
             pitch: note.pitch,
             velocity: note.velocity,
-            startBeat: note.startBeat + relativePosition,
+            startBeat: note.startBeat + relativePositionBeats,
             durationBeats: secondDuration,
             channel: note.channel
         )
@@ -1544,13 +1545,13 @@ struct PianoRollView: View {
     }
     
     /// Helper to update note duration with undo support
-    private func updateNoteDuration(_ note: MIDINote, to newDuration: TimeInterval) {
+    private func updateNoteDuration(_ note: MIDINote, to newDurationBeats: Double) {
         // Capture state for undo
         let oldNotes = region.notes
         
         // Find and update the note
         if let index = region.notes.firstIndex(where: { $0.id == note.id }) {
-            region.notes[index].durationBeats = newDuration
+            region.notes[index].durationBeats = newDurationBeats
         }
         
         // Register undo
@@ -1673,7 +1674,7 @@ struct PianoRollView: View {
                 // Calculate absolute position from start
                 var newStartBeat = startPos.beat + rawTimeOffset
                 if snapResolution != .off {
-                    newStartBeat = snapResolution.quantize(newStartBeat)
+                    newStartBeat = snapResolution.quantize(beat:newStartBeat)
                 }
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(startPos.pitch) + pitchOffset)
@@ -1681,7 +1682,7 @@ struct PianoRollView: View {
                 // Normal drag: calculate offset from current position
                 var actualBeatOffset = rawTimeOffset
                 if snapResolution != .off {
-                    let newStartBeat = snapResolution.quantize(note.startBeat + rawTimeOffset)
+                    let newStartBeat = snapResolution.quantize(beat:note.startBeat + rawTimeOffset)
                     actualBeatOffset = newStartBeat - note.startBeat
                 }
                 movedNote.startBeat = max(0, movedNote.startBeat + actualBeatOffset)
@@ -1737,7 +1738,7 @@ struct PianoRollView: View {
         var newDuration = note.durationBeats + durationDelta
         
         if snapResolution != .off {
-            newDuration = max(snapResolution.duration, snapResolution.quantize(newDuration))
+            newDuration = max(snapResolution.stepDurationBeats, snapResolution.quantize(beat:newDuration))
         } else {
             newDuration = max(0.01, newDuration)
         }
@@ -1780,10 +1781,10 @@ struct PianoRollView: View {
         
         for id in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == id }) {
-                region.notes[index].startBeat = snapResolution.quantize(region.notes[index].startBeat)
+                region.notes[index].startBeat = snapResolution.quantize(beat:region.notes[index].startBeat)
                 region.notes[index].durationBeats = max(
-                    snapResolution.duration,
-                    snapResolution.quantize(region.notes[index].durationBeats)
+                    snapResolution.stepDurationBeats,
+                    snapResolution.quantize(beat:region.notes[index].durationBeats)
                 )
             }
         }
@@ -1866,7 +1867,7 @@ struct NoteView: View {
     let onResize: (CGFloat) -> Void
     let onDelete: () -> Void
     let onDragEnd: () -> Void
-    let onSlice: (TimeInterval) -> Void  // Split note at position (relative to note start)
+    let onSlice: (Double) -> Void  // Split note at position in beats (relative to note start)
     let onGlue: () -> Void               // Merge with next adjacent note
     let onLegato: () -> Void             // Extend to next note
     
@@ -2037,7 +2038,7 @@ private struct PianoRollPlayhead: View {
 struct MIDICCAutomationLane: View {
     @Binding var lane: AutomationLane
     @Binding var region: MIDIRegion
-    let durationBeats: TimeInterval
+    let durationBeats: Double
     let pixelsPerBeat: CGFloat
     let height: CGFloat
     

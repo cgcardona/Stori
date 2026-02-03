@@ -483,6 +483,17 @@ final class TrackAudioNode: @unchecked Sendable {
         // playerNode.scheduleFile(audioFileRef, at: nil)
     }
     
+    /// Schedule audio regions from a beat position.
+    /// ARCHITECTURE: Beats-First - this is the preferred API.
+    /// Conversion to seconds happens internally at the AVAudioEngine boundary.
+    func scheduleFromBeat(_ startBeat: Double, audioRegions: [AudioRegion], tempo: Double, skipReset: Bool = false) throws {
+        // Convert beats to seconds at AVAudioEngine boundary
+        let startTimeSeconds = startBeat * (60.0 / tempo)
+        try scheduleFromPosition(startTimeSeconds, audioRegions: audioRegions, tempo: tempo, skipReset: skipReset)
+    }
+    
+    /// Schedule audio regions from a seconds position.
+    /// NOTE: Prefer scheduleFromBeat() - this method exists for AVAudioEngine boundary operations.
     func scheduleFromPosition(_ startTime: TimeInterval, audioRegions: [AudioRegion], tempo: Double, skipReset: Bool = false) throws {
         
         // Clean slate - skip if caller already did this (e.g., cycle loops)
@@ -558,9 +569,15 @@ final class TrackAudioNode: @unchecked Sendable {
                     let totalDelaySeconds = delaySeconds + compensationSeconds
                     let delaySamples = AVAudioFramePosition(totalDelaySeconds * playerSampleRate)
                     
-                    // If starting mid-loop, calculate offset into the file
+                    // If starting mid-loop, calculate offset into the file (clamp to [0, fileDuration]; skip if past audio)
                     let offsetIntoLoop = max(0.0, startTime - currentLoopStart)
-                    let startFrameInFile = AVAudioFramePosition(min(offsetIntoLoop, fileDuration) * sr)
+                    if offsetIntoLoop >= fileDuration {
+                        // This iteration is in the silence portion of the content unit (contentLen > fileDuration)
+                        currentLoopStart += contentLen
+                        continue
+                    }
+                    let clampedOffset = min(offsetIntoLoop, fileDuration)
+                    let startFrameInFile = AVAudioFramePosition(clampedOffset * sr)
                     
                     // Frames to play from this loop iteration (only audio, not empty space)
                     let loopDuration = loopEnd - max(currentLoopStart, startTime)
@@ -699,6 +716,174 @@ final class TrackAudioNode: @unchecked Sendable {
     
     func stop() {
         playerNode.stop()
+    }
+    
+    // MARK: - Seamless Cycle Loop Scheduling
+    
+    /// Pre-schedules multiple cycle iterations for seamless looping.
+    /// This is the key to gap-free cycle loops - audio for subsequent iterations
+    /// is already queued before the current iteration ends.
+    ///
+    /// ARCHITECTURE: Beats-First
+    /// All parameters are in beats (musical time). Conversion to seconds happens
+    /// internally at the AVAudioEngine boundary.
+    ///
+    /// - Parameters:
+    ///   - startBeat: Current playback position in beats
+    ///   - audioRegions: Regions to schedule
+    ///   - tempo: Project tempo for beat-to-seconds conversion
+    ///   - cycleStartBeat: Cycle region start in beats
+    ///   - cycleEndBeat: Cycle region end in beats
+    ///   - iterationsAhead: Number of cycle iterations to pre-schedule (default: 2)
+    func scheduleCycleAware(
+        fromBeat startBeat: Double,
+        audioRegions: [AudioRegion],
+        tempo: Double,
+        cycleStartBeat: Double,
+        cycleEndBeat: Double,
+        iterationsAhead: Int = 2
+    ) throws {
+        playerNode.stop()
+        playerNode.reset()
+        
+        let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
+        guard playerSampleRate > 0 else { return }
+        
+        // Convert beats to seconds at AVAudioEngine boundary
+        let beatsToSeconds = 60.0 / tempo
+        let startTimeSeconds = startBeat * beatsToSeconds
+        let cycleStartSeconds = cycleStartBeat * beatsToSeconds
+        let cycleEndSeconds = cycleEndBeat * beatsToSeconds
+        
+        let cycleDurationSeconds = cycleEndSeconds - cycleStartSeconds
+        guard cycleDurationSeconds > 0 else {
+            // Invalid cycle - fall back to normal scheduling
+            try scheduleFromPosition(startTimeSeconds, audioRegions: audioRegions, tempo: tempo)
+            return
+        }
+        
+        var scheduledSomething = false
+        
+        // Schedule current iteration + N iterations ahead
+        for iterationIndex in 0...iterationsAhead {
+            // Calculate the timeline offset for this iteration
+            // Iteration 0: starts immediately (or mid-cycle if startTime > cycleStart)
+            // Iteration 1: starts at (cycleEnd - startTime) seconds from now
+            // Iteration 2: starts at (cycleEnd - startTime) + cycleDuration seconds from now
+            
+            let iterationStartSeconds: TimeInterval
+            let playbackOffsetSeconds: TimeInterval
+            
+            if iterationIndex == 0 {
+                // First iteration: start from current position
+                iterationStartSeconds = startTimeSeconds
+                playbackOffsetSeconds = 0
+            } else {
+                // Subsequent iterations: start from cycle start
+                iterationStartSeconds = cycleStartSeconds
+                // Time until this iteration plays (from player-time 0)
+                playbackOffsetSeconds = (cycleEndSeconds - startTimeSeconds) + (Double(iterationIndex - 1) * cycleDurationSeconds)
+            }
+            
+            // Schedule all regions that intersect with this cycle iteration
+            for region in audioRegions {
+                do {
+                    let didSchedule = try scheduleRegionForCycleIteration(
+                        region: region,
+                        tempo: tempo,
+                        iterationStartSeconds: iterationStartSeconds,
+                        cycleStartSeconds: cycleStartSeconds,
+                        cycleEndSeconds: cycleEndSeconds,
+                        playbackOffsetSeconds: playbackOffsetSeconds,
+                        playerSampleRate: playerSampleRate
+                    )
+                    if didSchedule {
+                        scheduledSomething = true
+                    }
+                } catch {
+                    // Skip problematic regions, continue with others
+                }
+            }
+        }
+        
+        if scheduledSomething {
+            playerNode.play()
+        }
+    }
+    
+    /// Schedules a single region's audio for one cycle iteration.
+    /// Returns true if audio was scheduled.
+    private func scheduleRegionForCycleIteration(
+        region: AudioRegion,
+        tempo: Double,
+        iterationStartSeconds: TimeInterval,
+        cycleStartSeconds: TimeInterval,
+        cycleEndSeconds: TimeInterval,
+        playbackOffsetSeconds: TimeInterval,
+        playerSampleRate: Double
+    ) throws -> Bool {
+        // Load audio file
+        let audioFile: AVAudioFile
+        if let cachedFile = cachedAudioFiles[region.audioFile.url] {
+            audioFile = cachedFile
+        } else {
+            guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else { return false }
+            let newFile = try AVAudioFile(forReading: region.audioFile.url)
+            cachedAudioFiles[region.audioFile.url] = newFile
+            audioFile = newFile
+        }
+        
+        let fileSampleRate = audioFile.processingFormat.sampleRate
+        let fileDuration = Double(audioFile.length) / fileSampleRate
+        guard fileDuration > 0 else { return false }
+        
+        // Region timing in seconds
+        let regionStart = region.startTimeSeconds(tempo: tempo)
+        let regionEnd = regionStart + region.durationSeconds(tempo: tempo)
+        
+        // Clamp region to cycle boundaries
+        let effectiveStart = max(regionStart, cycleStartSeconds)
+        let effectiveEnd = min(regionEnd, cycleEndSeconds)
+        
+        // Skip if region doesn't intersect this cycle
+        guard effectiveEnd > effectiveStart else { return false }
+        guard effectiveEnd > iterationStartSeconds else { return false }
+        
+        // Calculate what portion of the region to play
+        let actualStart = max(effectiveStart, iterationStartSeconds)
+        let offsetIntoRegion = actualStart - regionStart + region.offset
+        
+        // Clamp offset to file duration
+        guard offsetIntoRegion < fileDuration else { return false }
+        
+        let startFrameInFile = AVAudioFramePosition(offsetIntoRegion * fileSampleRate)
+        
+        // Duration to play (clamped to file and cycle)
+        let durationToPlay = min(effectiveEnd - actualStart, fileDuration - offsetIntoRegion)
+        guard durationToPlay > 0 else { return false }
+        
+        let frameCount = AVAudioFrameCount(durationToPlay * fileSampleRate)
+        guard frameCount > 0 else { return false }
+        
+        // Calculate delay from player-time 0
+        let delayFromIterationStart = actualStart - iterationStartSeconds
+        let totalDelaySeconds = playbackOffsetSeconds + delayFromIterationStart
+        
+        // Add PDC compensation
+        let compensationSeconds = Double(compensationDelaySamples) / playerSampleRate
+        let finalDelaySeconds = totalDelaySeconds + compensationSeconds
+        
+        let delaySamples = AVAudioFramePosition(finalDelaySeconds * playerSampleRate)
+        let when = AVAudioTime(sampleTime: delaySamples, atRate: playerSampleRate)
+        
+        playerNode.scheduleSegment(
+            audioFile,
+            startingFrame: startFrameInFile,
+            frameCount: frameCount,
+            at: when
+        )
+        
+        return true
     }
     
     // MARK: - Recording Properties

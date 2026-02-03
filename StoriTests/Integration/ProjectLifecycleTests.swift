@@ -104,7 +104,7 @@ final class ProjectLifecycleTests: XCTestCase {
             region.addNote(MIDINote(
                 pitch: UInt8(pitch),
                 velocity: UInt8(velocity),
-                startBeat: TimeInterval(i),
+                startBeat: Double(i),
                 durationBeats: 0.8
             ))
         }
@@ -236,7 +236,7 @@ final class ProjectLifecycleTests: XCTestCase {
         let expectedQuantized = [0.0, 0.5, 0.5, 1.0, 1.0]
         
         for (i, time) in unquantizedTimes.enumerated() {
-            let quantized = resolution.quantize(time)
+            let quantized = resolution.quantize(beat: time)
             assertApproximatelyEqual(quantized, expectedQuantized[i])
         }
     }
@@ -246,7 +246,7 @@ final class ProjectLifecycleTests: XCTestCase {
         
         // 50% quantize strength
         let original = 0.7
-        let quantized = resolution.quantize(original, strength: 0.5)
+        let quantized = resolution.quantize(beat: original, strength: 0.5)
         
         // Should be halfway between 0.7 and 1.0
         assertApproximatelyEqual(quantized, 0.85)

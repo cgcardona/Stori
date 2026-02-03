@@ -215,20 +215,9 @@ struct RegionDragHandler {
     
     // MARK: - Snap Calculation
     
-    /// Calculate snapped position based on time display mode (returns beats)
+    /// Calculate snapped position (returns beats). Timeline is beat-based only.
     private func calculateSnapInterval(for beats: Double, mode: TimeDisplayMode, tempo: Double) -> Double {
-        switch mode {
-        case .beats:
-            // Snap to whole beats (quarter notes)
-            return round(beats)
-            
-        case .time:
-            // Snap to 0.1 second intervals, then convert back to beats
-            let secondsPerBeat = 60.0 / tempo
-            let seconds = beats * secondsPerBeat
-            let snappedSeconds = round(seconds * 10) / 10
-            return snappedSeconds / secondsPerBeat
-        }
+        return round(beats)
     }
 }
 

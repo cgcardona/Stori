@@ -290,10 +290,10 @@ final class AudioGraphManager {
             let mutationDuration = CACurrentMediaTime() - mutationStartTime
             let driftBeats = (tempo / 60.0) * mutationDuration
             let correctedBeat = savedBeatPosition + driftBeats
-            let currentTimeSeconds = correctedBeat * (60.0 / tempo)
             
             do {
-                try trackNode.scheduleFromPosition(currentTimeSeconds, audioRegions: track.regions, tempo: tempo)
+                // BEATS-FIRST: Use scheduleFromBeat, conversion to seconds at TrackAudioNode boundary
+                try trackNode.scheduleFromBeat(correctedBeat, audioRegions: track.regions, tempo: tempo)
                 if !track.regions.isEmpty {
                     trackNode.play()
                 }

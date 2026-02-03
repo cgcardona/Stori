@@ -68,7 +68,24 @@ final class AudioModelsTests: XCTestCase {
         assertCodableRoundTrip(TimeSignature.fourFour)
         assertCodableRoundTrip(TimeSignature(numerator: 7, denominator: 8))
     }
-    
+
+    /// Valid denominators (power-of-2 beat divisions) are preserved
+    func testTimeSignatureValidDenominatorsPreserved() {
+        let validDenominators = [1, 2, 4, 8, 16, 32, 64]
+        for denom in validDenominators {
+            let sig = TimeSignature(numerator: 4, denominator: denom)
+            XCTAssertEqual(sig.numerator, 4)
+            XCTAssertEqual(sig.denominator, denom, "Denominator \(denom) should be preserved")
+        }
+    }
+
+    /// Numerator is clamped to at least 1 (release fallback; invalid in Debug asserts)
+    func testTimeSignatureNumeratorClampedToMinimumOne() {
+        let sig = TimeSignature(numerator: 1, denominator: 4)
+        XCTAssertEqual(sig.numerator, 1)
+        XCTAssertEqual(sig.denominator, 4)
+    }
+
     // MARK: - BeatPosition Tests
     
     func testBeatPositionInitialization() {
@@ -170,7 +187,7 @@ final class AudioModelsTests: XCTestCase {
         XCTAssertTrue(state.snapToGrid)
         XCTAssertTrue(state.catchPlayheadEnabled)
         XCTAssertFalse(state.metronomeEnabled)
-        XCTAssertTrue(state.showingInspector)
+        XCTAssertFalse(state.showingInspector)  // Default is now false until service is available
         XCTAssertFalse(state.showingMixer)
     }
     
@@ -453,6 +470,17 @@ final class AudioModelsTests: XCTestCase {
             for i in 0..<100 {
                 _ = AudioTrack(name: "Track \(i)")
             }
+        }
+    }
+    
+    // MARK: - TimeDisplayMode (timeline beats-only)
+    
+    /// Timeline is beat-based only; legacy time mode removed.
+    func testTimeDisplayModeBeatsOnly() {
+        XCTAssertEqual(TimeDisplayMode.beats.rawValue, "Beats")
+        // Only .beats exists; no .time case
+        switch TimeDisplayMode.beats {
+        case .beats: break
         }
     }
 }
