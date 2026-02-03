@@ -170,7 +170,7 @@ final class AudioModelsTests: XCTestCase {
         XCTAssertTrue(state.snapToGrid)
         XCTAssertTrue(state.catchPlayheadEnabled)
         XCTAssertFalse(state.metronomeEnabled)
-        XCTAssertTrue(state.showingInspector)
+        XCTAssertFalse(state.showingInspector)  // Default is now false until service is available
         XCTAssertFalse(state.showingMixer)
     }
     

@@ -23,11 +23,11 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Debug Logging
     /// Enable extensive debug logging for audio flow troubleshooting
     /// Uses centralized debug config (see AudioDebugConfig)
-    private var debugAudioFlow: Bool { AudioDebugConfig.logAudioFlow }
+    var debugAudioFlow: Bool { AudioDebugConfig.logAudioFlow }
     
     /// Debug logging with autoclosure to prevent string allocation when disabled
     /// PERFORMANCE: When debugAudioFlow is false, the message closure is never evaluated
-    private func logDebug(_ message: @autoclosure () -> String, category: String = "AUDIO") {
+    func logDebug(_ message: @autoclosure () -> String, category: String = "AUDIO") {
         guard debugAudioFlow else { return }
         AppLogger.shared.debug("[\(category)] \(message())", category: .audio)
     }
@@ -79,7 +79,7 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - MIDI Playback
     @ObservationIgnored
-    private let midiPlaybackEngine = MIDIPlaybackEngine()
+    let midiPlaybackEngine = MIDIPlaybackEngine()
     
     // MARK: - Step Sequencer (MIDI-based, persistent instance)
     @ObservationIgnored
@@ -91,11 +91,11 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Automation
     @ObservationIgnored
-    private let automationProcessor = AutomationProcessor()
+    let automationProcessor = AutomationProcessor()
     
     /// High-priority automation engine (runs on dedicated queue)
     @ObservationIgnored
-    private let automationEngine = AutomationEngine()
+    let automationEngine = AutomationEngine()
     
     /// Automation recorder for capturing parameter changes during playback
     @ObservationIgnored
@@ -103,9 +103,9 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Private Properties (all ignored for observation)
     @ObservationIgnored
-    private let engine = AVAudioEngine()
+    let engine = AVAudioEngine()
     @ObservationIgnored
-    private let mixer = AVAudioMixerNode()
+    let mixer = AVAudioMixerNode()
     @ObservationIgnored
     private let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo
     @ObservationIgnored
@@ -123,7 +123,7 @@ class AudioEngine: AudioEngineContext {
     private var pendingGraphMutations: [() -> Void] = []
     
     /// Graph generation counter - delegated to AudioGraphManager
-    private var graphGeneration: Int {
+    var graphGeneration: Int {
         graphManager?.graphGeneration ?? 0
     }
     
@@ -148,7 +148,7 @@ class AudioEngine: AudioEngineContext {
     
     /// Check graph generation consistency after an await point
     /// DELEGATED to AudioGraphManager
-    private func isGraphGenerationValid(_ capturedGeneration: Int, context: String = "") -> Bool {
+    func isGraphGenerationValid(_ capturedGeneration: Int, context: String = "") -> Bool {
         let valid = graphManager.isGraphGenerationValid(capturedGeneration)
         if !valid {
             logDebug("Stale operation detected after await: \(context) (captured: \(capturedGeneration), current: \(graphGeneration))", category: "ASYNC")
@@ -235,14 +235,19 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Graph Audio Format
     @ObservationIgnored
-    private var graphFormat: AVAudioFormat!
+    var graphFormat: AVAudioFormat!
     
     // MARK: - Rebuild Coalescing (prevents rebuild storms)
     @ObservationIgnored
-    private var pendingRebuildTrackIds: Set<UUID> = []
+    var pendingRebuildTrackIds: Set<UUID> = []
     
     @ObservationIgnored
-    private var rebuildTask: Task<Void, Never>?
+    var rebuildTask: Task<Void, Never>?
+    
+    /// PERFORMANCE: Cache of last graph state per track.
+    /// Used to skip redundant rebuilds when state hasn't actually changed.
+    @ObservationIgnored
+    var lastGraphState: [UUID: GraphStateSnapshot] = [:]
     
     /// Install a metronome into the audio graph (idempotent, safe to call multiple times)
     /// Handles the case where engine might already be running
@@ -270,8 +275,15 @@ class AudioEngine: AudioEngineContext {
             }
         }
     }
+    // MARK: - Track Node Manager (Extracted)
+    /// Manages track audio node lifecycle: creation, destruction, and access
     @ObservationIgnored
-    private var trackNodes: [UUID: TrackAudioNode] = [:]
+    private var trackNodeManager: TrackNodeManager!
+    
+    /// Computed accessor for track nodes (delegates to TrackNodeManager)
+    internal var trackNodes: [UUID: TrackAudioNode] {
+        trackNodeManager?.getAllTrackNodes() ?? [:]
+    }
     
     // MARK: - Bus Manager (Extracted)
     /// Handles all bus nodes, bus effects, and track sends
@@ -291,7 +303,7 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Playback Scheduling Coordinator (Extracted)
     /// Coordinates audio track scheduling and cycle loop handling
     @ObservationIgnored
-    private var playbackScheduler: PlaybackSchedulingCoordinator!
+    var playbackScheduler: PlaybackSchedulingCoordinator!
     
     // MARK: - Audio Graph Manager (Extracted)
     /// Manages audio graph mutations with tiered performance characteristics
@@ -318,7 +330,7 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Transport Controller (Extracted)
     /// Handles transport state, position tracking, and cycle behavior
     @ObservationIgnored
-    private var transportController: TransportController!
+    var transportController: TransportController!
     
     /// Nonisolated reference for cross-thread atomic state access
     /// SAFETY: Only used to access TransportController's thread-safe atomic properties
@@ -427,6 +439,17 @@ class AudioEngine: AudioEngineContext {
         // Store nonisolated reference for cross-thread atomic state access
         _transportControllerRef = transportController
         
+        // Initialize track node manager
+        trackNodeManager = TrackNodeManager()
+        trackNodeManager.engine = engine
+        trackNodeManager.getGraphFormat = { [weak self] in self?.graphFormat }
+        trackNodeManager.onEnsureEngineRunning = { [weak self] in self?.startAudioEngine() }
+        trackNodeManager.onRebuildTrackGraph = { [weak self] trackId in self?.rebuildTrackGraph(trackId: trackId) }
+        trackNodeManager.onSafeDisconnectTrackNode = { [weak self] trackNode in self?.safeDisconnectTrackNode(trackNode) }
+        trackNodeManager.onLoadAudioRegion = { [weak self] region, trackNode in self?.loadAudioRegion(region, trackNode: trackNode) }
+        trackNodeManager.mixer = mixer
+        // Note: installedMetronome and mixerController are set after they're initialized
+        
         // Initialize bus manager after audio engine is set up
         busManager = BusManager(
             engine: engine,
@@ -475,6 +498,9 @@ class AudioEngine: AudioEngineContext {
                 self?.safeDisconnectTrackNode(trackNode)
             }
         )
+        
+        // Wire up mixerController dependency for trackNodeManager
+        trackNodeManager.mixerController = mixerController
         
         // Initialize track plugin manager
         // NOTE: getTrackInstruments removed - instruments are now accessed via InstrumentManager.shared
@@ -563,39 +589,9 @@ class AudioEngine: AudioEngineContext {
         setupTempoChangeObserver()
     }
     
-    /// Configure the high-priority automation engine
+    /// Configure the high-priority automation engine - delegates to extension
     private func configureAutomationEngine() {
-        automationEngine.processor = automationProcessor
-        
-        // Thread-safe beat position provider (uses atomic accessor)
-        automationEngine.beatPositionProvider = { [weak self] in
-            self?.transportController?.atomicBeatPosition ?? 0
-        }
-        
-        // Unified scheduling context provider (preferred for multi-value access)
-        automationEngine.schedulingContextProvider = { [weak self] in
-            self?.schedulingContext ?? .default
-        }
-        
-        // Track IDs provider
-        automationEngine.trackIdsProvider = { [weak self] in
-            guard let self = self else { return [] }
-            return Array(self.trackNodes.keys)
-        }
-        
-        // Thread-safe automation value applier
-        automationEngine.applyValuesHandler = { [weak self] trackId, volume, pan, eqLow, eqMid, eqHigh in
-            guard let trackNode = self?.trackNodes[trackId] else { return }
-            
-            // Apply automation values (TrackAudioNode methods are thread-safe)
-            trackNode.applyAutomationValues(
-                volume: volume,
-                pan: pan,
-                eqLow: eqLow,
-                eqMid: eqMid,
-                eqHigh: eqHigh
-            )
-        }
+        configureAutomationEngineInternal()
     }
     
     /// Setup observer for tempo changes during playback
@@ -664,50 +660,14 @@ class AudioEngine: AudioEngineContext {
     /// This is critical because reset() deallocates render resources; samplers won't produce
     /// audio until they're explicitly reinitialized.
     /// 
-    /// Also reconnects samplers with the new graphFormat - essential when going from higher
-    /// to lower sample rate (e.g., 48kHz Mac → 44.1kHz Bluetooth).
+    /// Also reconnects samplers with the new graphFormat - delegates to extension
     private func reprimeAllInstrumentsAfterReset() {
-        for (trackId, trackNode) in trackNodes {
-            guard let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-                  let samplerEngine = instrument.samplerEngine else { continue }
-            
-            let sampler = samplerEngine.sampler
-            let pluginChain = trackNode.pluginChain
-            
-            samplerEngine.fullRenderReset()
-            
-            if pluginChain.hasActivePlugins {
-                pluginChain.updateFormat(graphFormat)
-                pluginChain.rebuildChainConnections(engine: engine)
-            }
-            
-            engine.disconnectNodeOutput(sampler)
-            
-            if pluginChain.hasActivePlugins {
-                engine.connect(sampler, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: graphFormat)
-            } else {
-                engine.connect(sampler, to: trackNode.eqNode, format: graphFormat)
-            }
-            
-            try? sampler.auAudioUnit.allocateRenderResources()
-        }
+        reprimeAllInstrumentsAfterResetInternal()
     }
     
-    /// Reset DSP state for all active samplers after device change
-    /// This ensures samplers work correctly when switching output devices (e.g., to Bluetooth speakers)
+    /// Reset DSP state for all active samplers after device change - delegates to extension
     private func resetAllSamplerDSPState() {
-        logDebug("Resetting all sampler DSP states after device change", category: "DEVICE")
-        
-        // Reset all track instruments that use samplers
-        // Use fullRenderReset() to deallocate render resources and cached sample rate converters
-        // This is critical when switching between devices with different sample rates
-        for (trackId, _) in trackNodes {
-            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-               let samplerEngine = instrument.samplerEngine {
-                samplerEngine.fullRenderReset()
-                logDebug("Full render reset for sampler on track \(trackId)", category: "DEVICE")
-            }
-        }
+        resetAllSamplerDSPStateInternal()
     }
     
     // MARK: - Sample Rate Diagnostics
@@ -1074,122 +1034,36 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     private var lastPublishedPositionTime: TimeInterval = -1
     
-    // MARK: - Automation Application
+    // MARK: - Automation Application (Delegated to AudioEngine+Automation.swift)
     
-    /// Apply automation values to track parameters at the current playback position
+    /// Apply automation values to track parameters - delegates to extension
     private func applyAutomation(at timeInSeconds: TimeInterval) {
-        guard let project = currentProject else { return }
-        
-        // Convert seconds to beats for automation lookup (automation is stored in beats)
-        let beatsPerSecond = project.tempo / 60.0
-        let timeInBeats = timeInSeconds * beatsPerSecond
-        
-        for track in project.tracks {
-            guard let node = trackNodes[track.id] else { continue }
-            
-            // Skip if automation is off for this track
-            guard track.automationMode.canRead else { continue }
-            
-            // Get all automation values for this track at current beat position
-            if let values = automationProcessor.getAllValues(for: track.id, atBeat: timeInBeats) {
-                // Apply volume automation with smoothing to prevent zippering
-                // Fall back to mixer settings if nil (before first breakpoint)
-                let volume = values.volume ?? track.mixerSettings.volume
-                node.setVolumeSmoothed(volume)
-                
-                // Apply pan automation with smoothing
-                // Pan: mixer stores 0-1, automation stores 0-1, convert to -1..+1 for node
-                let pan = values.pan ?? track.mixerSettings.pan
-                node.setPanSmoothed(pan * 2 - 1)
-                
-                // Apply EQ automation (convert 0-1 to -12..+12 dB)
-                // EQ parameters can change without smoothing (band gains are less sensitive to zippering)
-                let eqLow = ((values.eqLow ?? 0.5) - 0.5) * 24
-                let eqMid = ((values.eqMid ?? 0.5) - 0.5) * 24
-                let eqHigh = ((values.eqHigh ?? 0.5) - 0.5) * 24
-                
-                node.setEQ(
-                    highGain: eqHigh,
-                    midGain: eqMid,
-                    lowGain: eqLow
-                )
-            } else {
-                // No automation data at all for this track - apply mixer settings (no smoothing needed)
-                node.setVolume(track.mixerSettings.volume)
-                node.setPan(track.mixerSettings.pan * 2 - 1)
-                node.setEQ(highGain: 0, midGain: 0, lowGain: 0)
-            }
-        }
+        applyAutomationInternal(at: timeInSeconds)
     }
     
-    /// Update automation processor with track's automation data
+    /// Update automation processor with track's automation data - delegates to extension
     func updateTrackAutomation(_ track: AudioTrack) {
-        automationProcessor.updateAutomation(
-            for: track.id,
-            lanes: track.automationLanes,
-            mode: track.automationMode
-        )
+        updateTrackAutomationInternal(track)
     }
     
-    /// Commit recorded automation points to a track
-    /// Called by AutomationRecorder when recording stops
-    /// - Parameters:
-    ///   - points: The recorded automation points
-    ///   - parameter: The parameter that was automated
-    ///   - trackId: The track to add automation to
-    ///   - projectUpdateHandler: Callback to update the project state
+    /// Commit recorded automation points to a track - delegates to extension
     func commitRecordedAutomation(
         points: [AutomationPoint],
         parameter: AutomationParameter,
         trackId: UUID,
         projectUpdateHandler: @escaping (inout AudioProject) -> Void
     ) {
-        guard var project = currentProject,
-              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
-            return
-        }
-        
-        var track = project.tracks[trackIndex]
-        
-        // Find or create the automation lane for this parameter
-        if let laneIndex = track.automationLanes.firstIndex(where: { $0.parameter == parameter }) {
-            // Merge points into existing lane
-            let startBeat = points.first?.beat ?? 0
-            let endBeat = points.last?.beat ?? 0
-            
-            AutomationRecorder.mergePoints(
-                recorded: points,
-                into: &track.automationLanes[laneIndex].points,
-                startTime: startBeat,
-                endTime: endBeat,
-                mode: track.automationMode
-            )
-        } else {
-            // Create new lane with the recorded points
-            var newLane = AutomationLane(
-                parameter: parameter,
-                color: parameter.color
-            )
-            newLane.points = points
-            track.automationLanes.append(newLane)
-        }
-        
-        project.tracks[trackIndex] = track
-        currentProject = project
-        
-        // Update the automation processor with new data
-        updateTrackAutomation(track)
-        
-        // Call the project update handler to persist changes
-        projectUpdateHandler(&project)
+        commitRecordedAutomationInternal(
+            points: points,
+            parameter: parameter,
+            trackId: trackId,
+            projectUpdateHandler: projectUpdateHandler
+        )
     }
     
-    /// Update automation for all tracks in current project
+    /// Update automation for all tracks - delegates to extension
     private func updateAllTrackAutomation() {
-        guard let project = currentProject else { return }
-        for track in project.tracks {
-            updateTrackAutomation(track)
-        }
+        updateAllTrackAutomationInternal()
     }
     
     // MARK: - Project Management
@@ -1214,48 +1088,10 @@ class AudioEngine: AudioEngineContext {
     
     // NOTE: loadProjectAsync is now handled by ProjectLifecycleManager
     
-    /// Create instruments for MIDI tracks and connect them to plugin chains
-    /// Called after plugin restoration to ensure samplers are routed through effects
+    /// Create instruments for MIDI tracks and connect them to plugin chains - delegates to extension
     @MainActor
     private func createAndConnectMIDIInstruments(for project: AudioProject) async {
-        
-        // Ensure InstrumentManager has our engine reference
-        InstrumentManager.shared.audioEngine = self
-        
-        // Also ensure projectManager is set (needed for getOrCreateInstrument)
-        if InstrumentManager.shared.projectManager == nil {
-            // Try to get projectManager from the environment
-            // For now, we'll create instruments directly from track data
-        }
-        
-        for track in project.tracks where track.isMIDITrack {
-            
-            // Get or create instrument for this MIDI track
-            // Use track-based overload to avoid projectManager dependency
-            if let instrument = InstrumentManager.shared.getOrCreateInstrument(for: track) {
-                
-                // Ensure sampler exists and is attached to engine
-                if instrument.samplerEngine?.sampler == nil {
-                    if instrument.pendingSamplerSetup {
-                        instrument.completeSamplerSetup(with: engine)
-                    } else {
-                        instrument.ensureSamplerExists(with: engine)
-                    }
-                }
-                
-                // Attach sampler to engine if needed
-                if let sampler = instrument.samplerEngine?.sampler {
-                    if sampler.engine == nil {
-                        engine.attach(sampler)
-                    }
-                    // Use centralized rebuild for all connections
-                    rebuildTrackGraph(trackId: track.id)
-                } else {
-                }
-            } else {
-            }
-        }
-        
+        await createAndConnectMIDIInstrumentsInternal(for: project)
     }
     
     /// Incrementally update the audio graph when project changes.
@@ -1290,7 +1126,7 @@ class AudioEngine: AudioEngineContext {
             for trackId in addedTrackIds {
                 if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
                     let trackNode = createTrackNode(for: newTrack)
-                    trackNodes[trackId] = trackNode
+                    trackNodeManager.storeTrackNode(trackNode, for: trackId)
                     
                     // Use centralized rebuild for all connections
                     rebuildTrackGraph(trackId: trackId)
@@ -1338,11 +1174,10 @@ class AudioEngine: AudioEngineContext {
                             // Currently playing: Re-schedule immediately
                             trackNode.playerNode.stop()
                             
-                            // Re-schedule from current position (convert beats to seconds for AVAudioEngine)
+                            // BEATS-FIRST: Use scheduleFromBeat, conversion happens at TrackAudioNode boundary
                             let tempo = currentProject?.tempo ?? 120.0
-                            let currentTimeSeconds = currentPosition.beats * (60.0 / tempo)
                             do {
-                                try trackNode.scheduleFromPosition(currentTimeSeconds, audioRegions: track.regions, tempo: tempo)
+                                try trackNode.scheduleFromBeat(currentPosition.beats, audioRegions: track.regions, tempo: tempo)
                                 if !trackNode.playerNode.isPlaying {
                                     trackNode.playerNode.play()
                                 }
@@ -1359,11 +1194,8 @@ class AudioEngine: AudioEngineContext {
             // Clean up removed tracks
             let removedTrackIds = oldTrackIds.subtracting(newTrackIds)
             for trackId in removedTrackIds {
-                if let trackNode = trackNodes[trackId] {
-                    // [BUGFIX] Safe node disconnection with existence checks
-                    safeDisconnectTrackNode(trackNode)
-                    trackNodes.removeValue(forKey: trackId)
-                }
+                // [BUGFIX] Safe node disconnection with existence checks
+                trackNodeManager.removeTrackNode(for: trackId)
             }
             
             // Update solo state in case new tracks affect it
@@ -1375,138 +1207,34 @@ class AudioEngine: AudioEngineContext {
         
     }
     
+    // MARK: - Track Management (Delegated to TrackNodeManager)
+    
     private func setupTracksForProject(_ project: AudioProject) {
-        logDebug("setupTracksForProject: \(project.tracks.count) tracks", category: "PROJECT")
-        
-        // Clear existing track nodes
-        clearAllTracks()
-        
-        // Create track nodes for each track
-        for track in project.tracks {
-            logDebug("Creating node for track '\(track.name)' (type: \(track.trackType), regions: \(track.regions.count), midiRegions: \(track.midiRegions.count))", category: "PROJECT")
-            let trackNode = createTrackNode(for: track)
-            trackNodes[track.id] = trackNode
-        }
-        
-        logDebug("Created \(trackNodes.count) track nodes", category: "PROJECT")
-        
-        // Use centralized rebuild for all track connections
-        // This handles both tracks with and without sends
-        for track in project.tracks {
-            rebuildTrackGraph(trackId: track.id)
-        }
-        
-        // CRITICAL FIX: Reconnect metronome after track connections
-        // AVAudioEngine can disconnect other mixer inputs when connecting to specific buses
-        installedMetronome?.reconnectNodes(dawMixer: mixer)
-        
-        // ATOMIC OPERATION: Restore all track mixer states (mute/solo) from project data
-        // This is atomic to prevent any window where mixer state is inconsistent
-        mixerController.atomicResetTrackStates(from: project.tracks)
+        // Ensure installedMetronome is set on trackNodeManager before setup
+        trackNodeManager.installedMetronome = installedMetronome
+        trackNodeManager.setupTracksForProject(project)
     }
     
     // [V2-ANALYSIS] Public access to track nodes for pitch/tempo adjustments
     func getTrackNode(for trackId: UUID) -> TrackAudioNode? {
-        return trackNodes[trackId]
+        return trackNodeManager.getTrackNode(for: trackId)
     }
     
     /// Ensures a track node exists for the given track, creating it if needed
     /// This is useful when loading instruments immediately after track creation
     func ensureTrackNodeExists(for track: AudioTrack) {
-        guard trackNodes[track.id] == nil else {
-            return
-        }
-        
-        
-        // Create and attach nodes
-        let trackNode = createTrackNode(for: track)
-        trackNodes[track.id] = trackNode
-        
-        // Use centralized rebuild for all connections
-        rebuildTrackGraph(trackId: track.id)
-        
+        trackNodeManager.ensureTrackNodeExists(for: track)
     }
     
     /// Creates a track node and attaches all nodes to the engine.
     /// NOTE: This only attaches nodes - caller must call rebuildTrackGraph() after storing in trackNodes
+    /// DELEGATED to TrackNodeManager
     private func createTrackNode(for track: AudioTrack) -> TrackAudioNode {
-        logDebug("Creating track node for '\(track.name)' (id: \(track.id), type: \(track.trackType))", category: "TRACK")
-        
-        let playerNode = AVAudioPlayerNode()
-        let timePitch = AVAudioUnitTimePitch()  // [V2-PITCH/TEMPO]
-        let eqNode = AVAudioUnitEQ(numberOfBands: 3)
-        let volumeNode = AVAudioMixerNode()
-        let panNode = AVAudioMixerNode()
-        
-        // Create plugin chain for insert effects (8 slots)
-        let pluginChain = PluginChain(id: UUID(), maxSlots: 8)
-        
-        // Ensure engine is running before attaching nodes
-        // NOTE: engine.start() is synchronous - no sleep needed after it returns
-        if !engine.isRunning {
-            startAudioEngine()
-            engine.prepare()  // Ensure audio graph is ready for node attachment
-        }
-        
-        // Attach nodes to engine (NO CONNECTIONS - rebuildTrackGraph handles that)
-        engine.attach(playerNode)
-        engine.attach(timePitch)
-        engine.attach(eqNode)
-        engine.attach(volumeNode)
-        engine.attach(panNode)
-        
-        // Install plugin chain into engine (attaches inputMixer/outputMixer, initial internal connection)
-        pluginChain.install(in: engine, format: graphFormat)
-        
-        // Also connect playerNode → timePitch (this is track-internal, always needed for audio tracks)
-        engine.connect(playerNode, to: timePitch, format: graphFormat)
-        logDebug("Attached all track nodes to engine (connections pending)", category: "TRACK")
-        
-        let trackNode = TrackAudioNode(
-            id: track.id,
-            playerNode: playerNode,
-            volumeNode: volumeNode,
-            panNode: panNode,
-            eqNode: eqNode,
-            pluginChain: pluginChain,
-            timePitchUnit: timePitch,
-            volume: track.mixerSettings.volume,
-            pan: track.mixerSettings.pan,
-            isMuted: track.mixerSettings.isMuted,
-            isSolo: track.mixerSettings.isSolo
-        )
-        
-        // 🔍 LOGGING: Confirm unit passed to TrackAudioNode
-        
-        // Apply initial settings
-        trackNode.setVolume(track.mixerSettings.volume)
-        // Convert pan from 0-1 range (mixer) to -1 to +1 range (audio node)
-        trackNode.setPan(track.mixerSettings.pan * 2 - 1)
-        trackNode.setMuted(track.mixerSettings.isMuted)
-        trackNode.setSolo(track.mixerSettings.isSolo)
-        
-        // [V2-PITCH/TEMPO] Initialize timePitch unit with defaults
-        trackNode.timePitchUnit.rate = 1.0
-        trackNode.timePitchUnit.overlap = 8.0
-        
-        // Load audio regions for this track
-        for region in track.regions {
-            loadAudioRegion(region, trackNode: trackNode)
-        }
-        
-        return trackNode
+        return trackNodeManager.createTrackNode(for: track)
     }
     
     private func clearAllTracks() {
-        // First, explicitly clean up each track node to remove taps safely
-        for (_, trackNode) in trackNodes {
-            // [BUGFIX] Use safe disconnection method
-            safeDisconnectTrackNode(trackNode)
-        }
-        
-        // Clear the collections
-        trackNodes.removeAll()
-        mixerController.clearSoloTracks()
+        trackNodeManager.clearAllTracks()
     }
     
     // MARK: - Bus Management (Delegated to BusManager)
@@ -1583,13 +1311,13 @@ class AudioEngine: AudioEngineContext {
     
     /// Performs a structural graph mutation
     /// DELEGATED to AudioGraphManager
-    private func modifyGraphSafely(_ work: () throws -> Void) rethrows {
+    func modifyGraphSafely(_ work: () throws -> Void) rethrows {
         try graphManager.modifyGraphSafely(work)
     }
     
     /// Performs a connection-only graph mutation
     /// DELEGATED to AudioGraphManager
-    private func modifyGraphConnections(_ work: () throws -> Void) rethrows {
+    func modifyGraphConnections(_ work: () throws -> Void) rethrows {
         try graphManager.modifyGraphConnections(work)
     }
     
@@ -1614,294 +1342,46 @@ class AudioEngine: AudioEngineContext {
     ///
     /// PERFORMANCE: Uses hot-swap mutation to only affect the target track.
     /// Other tracks continue playing without interruption.
+    // MARK: - Graph Building (Delegated to AudioEngine+GraphBuilding.swift)
+    
+    /// Rebuilds the full track graph - delegates to extension
     private func rebuildTrackGraph(trackId: UUID) {
-        guard let trackNode = trackNodes[trackId] else {
-            return
-        }
-        
-        let format = graphFormat!
-        let pluginChain = trackNode.pluginChain
-        let hasPlugins = pluginChain.hasActivePlugins
-        let chainIsRealized = pluginChain.isRealized
-        
-        // Use hot-swap mutation for minimal disruption to other tracks
-        modifyGraphForTrack(trackId) {
-            // Reset AU units FIRST before disconnection to clear DSP state
-            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-               let sampler = instrument.samplerEngine?.sampler {
-                sampler.auAudioUnit.reset()
-            }
-            for plugin in pluginChain.activePlugins {
-                plugin.auAudioUnit?.reset()
-            }
-            
-            // 1. DISCONNECT downstream-first
-            self.engine.disconnectNodeOutput(trackNode.panNode)
-            self.engine.disconnectNodeOutput(trackNode.volumeNode)
-            self.engine.disconnectNodeOutput(trackNode.eqNode)
-            
-            if chainIsRealized {
-                self.engine.disconnectNodeOutput(pluginChain.outputMixer)
-                self.engine.disconnectNodeOutput(pluginChain.inputMixer)
-                self.engine.disconnectNodeInput(pluginChain.inputMixer)
-            }
-            
-            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-               let sampler = instrument.samplerEngine?.sampler {
-                self.engine.disconnectNodeOutput(sampler)
-                self.engine.disconnectNodeInput(sampler)
-            } else {
-                self.engine.disconnectNodeOutput(trackNode.timePitchUnit)
-            }
-            
-            // Note: fullRenderReset for ALL samplers now happens in modifyGraphSafely
-            // after engine.reset() to prevent cross-track corruption
-            
-            // MIDI Track Mixer State Management
-            if chainIsRealized && InstrumentManager.shared.getInstrument(for: trackId) != nil {
-                let inputBusCount = pluginChain.inputMixer.numberOfInputs
-                pluginChain.resetMixerState()
-                if inputBusCount > 1 {
-                    pluginChain.recreateMixers()
-                }
-            }
-            
-            // 2. CONNECT based on whether plugins exist
-            let sourceNode = self.getSourceNode(for: trackId, trackNode: trackNode)
-            
-            if hasPlugins {
-                // WITH PLUGINS: source → inputMixer → [plugins] → outputMixer → eq
-                pluginChain.realize()
-                
-                // CRITICAL: Connect outputMixer → trackEQ FIRST to prime output format to 48kHz
-                // This prevents AVAudioEngine from inserting a 48kHz→44.1kHz converter
-                self.engine.connect(pluginChain.outputMixer, to: trackNode.eqNode, format: format)
-                
-                // Rebuild internal chain connections
-                pluginChain.updateFormat(format)
-                pluginChain.rebuildChainConnections(engine: self.engine)
-                
-                // Source → chain input
-                if let source = sourceNode {
-                    self.engine.connect(source, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: format)
-                } else {
-                    self.engine.connect(trackNode.playerNode, to: trackNode.timePitchUnit, fromBus: 0, toBus: 0, format: format)
-                    self.engine.connect(trackNode.timePitchUnit, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: format)
-                }
-                
-            } else {
-                // NO PLUGINS: source → eq (bypass chain entirely)
-                if chainIsRealized {
-                    pluginChain.unrealize()
-                }
-                
-                if let source = sourceNode {
-                    self.engine.connect(source, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: format)
-                } else {
-                    self.engine.connect(trackNode.playerNode, to: trackNode.timePitchUnit, fromBus: 0, toBus: 0, format: format)
-                    self.engine.connect(trackNode.timePitchUnit, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: format)
-                }
-            }
-            
-            // EQ → Volume → Pan → main mixer
-            self.engine.connect(trackNode.eqNode, to: trackNode.volumeNode, format: format)
-            self.engine.connect(trackNode.volumeNode, to: trackNode.panNode, format: format)
-            self.connectPanToDestinations(trackId: trackId, trackNode: trackNode, format: format)
-            
-            trackNode.timePitchUnit.reset()
-        }
-        
-        // Validate connections after rebuild
-        validateTrackConnections(trackId: trackId)
+        rebuildTrackGraphInternal(trackId: trackId)
     }
     
-    // MARK: - Graph Validation
-    
-    /// Validates that a track's audio graph connections are properly established
-    /// Logs warnings if broken connections are detected
+    /// Validates track connections - delegates to extension
     private func validateTrackConnections(trackId: UUID) {
-        guard let trackNode = trackNodes[trackId] else {
-            AppLogger.shared.warning("Graph validation: Track \(trackId) not found in trackNodes")
-            return
-        }
-        
-        var isValid = true
-        
-        // Check panNode has output connections (should connect to mixer and/or sends)
-        let panConnections = engine.outputConnectionPoints(for: trackNode.panNode, outputBus: 0)
-        if panConnections.isEmpty {
-            AppLogger.shared.warning("Graph validation: Track \(trackId) panNode has no output connections")
-            isValid = false
-        }
-        
-        // Check volumeNode → panNode connection
-        let volumeConnections = engine.outputConnectionPoints(for: trackNode.volumeNode, outputBus: 0)
-        if volumeConnections.isEmpty {
-            AppLogger.shared.warning("Graph validation: Track \(trackId) volumeNode has no output connections")
-            isValid = false
-        }
-        
-        // Check eqNode → volumeNode connection
-        let eqConnections = engine.outputConnectionPoints(for: trackNode.eqNode, outputBus: 0)
-        if eqConnections.isEmpty {
-            AppLogger.shared.warning("Graph validation: Track \(trackId) eqNode has no output connections")
-            isValid = false
-        }
-        
-        // Check plugin chain connections (only if chain is realized)
-        if trackNode.pluginChain.isRealized {
-            let chainOutputConnections = engine.outputConnectionPoints(for: trackNode.pluginChain.outputMixer, outputBus: 0)
-            if chainOutputConnections.isEmpty {
-                AppLogger.shared.warning("Graph validation: Track \(trackId) pluginChain.outputMixer has no output connections")
-                isValid = false
-            }
-            
-            let chainInputConnections = engine.inputConnectionPoint(for: trackNode.pluginChain.inputMixer, inputBus: 0)
-            if chainInputConnections == nil {
-                AppLogger.shared.warning("Graph validation: Track \(trackId) pluginChain.inputMixer has no input connection")
-                isValid = false
-            }
-        }
-        // If chain is not realized, audio flows directly source→eq which is valid
-        
-        if isValid && debugAudioFlow {
-            logDebug("Graph validation: Track \(trackId) connections valid", category: "GRAPH")
-        }
+        validateTrackConnectionsInternal(trackId: trackId)
     }
     
-    /// Validates all track connections in the current project
-    /// Call after major graph operations like project load
+    /// Validates all track connections - delegates to extension
     private func validateAllTrackConnections() {
-        for trackId in trackNodes.keys {
-            validateTrackConnections(trackId: trackId)
-        }
+        validateAllTrackConnectionsInternal()
     }
     
-    /// Logs all node formats in the track signal path for debugging format mismatches
+    /// Audits track formats for debugging - delegates to extension
     private func auditTrackFormats(trackId: UUID, trackNode: TrackAudioNode) {
-        
-        // Source format
-        if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-           let sampler = instrument.samplerEngine?.sampler {
-            _ = sampler.outputFormat(forBus: 0)
-        } else {
-            _ = trackNode.timePitchUnit.outputFormat(forBus: 0)
-        }
-        
-        // Plugin chain (only if realized)
-        if trackNode.pluginChain.isRealized {
-            _ = trackNode.pluginChain.inputMixer.inputFormat(forBus: 0)
-            _ = trackNode.pluginChain.inputMixer.outputFormat(forBus: 0)
-            
-            for plugin in trackNode.pluginChain.activePlugins {
-                if let node = plugin.avAudioUnit {
-                    _ = node.inputFormat(forBus: 0)
-                    _ = node.outputFormat(forBus: 0)
-                }
-            }
-            
-            _ = trackNode.pluginChain.outputMixer.inputFormat(forBus: 0)
-            _ = trackNode.pluginChain.outputMixer.outputFormat(forBus: 0)
-        }
-        
-        // EQ, Volume, Pan
-        _ = trackNode.eqNode.outputFormat(forBus: 0)
-        _ = trackNode.volumeNode.outputFormat(forBus: 0)
-        _ = trackNode.panNode.outputFormat(forBus: 0)
-        
-        // Main mixer input
-        if let project = currentProject,
-           let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
-            _ = mixer.inputFormat(forBus: AVAudioNodeBus(trackIndex))
-        }
-        
+        auditTrackFormatsInternal(trackId: trackId, trackNode: trackNode)
     }
     
-    /// Rebuilds only the plugin chain interior (minimal blast radius).
-    /// Called when: toggling bypass, reconnecting existing plugins.
-    /// Uses connection-only mutation (pause/resume, no reset) for minimal disruption.
+    /// Rebuilds plugin chain interior - delegates to extension
     private func rebuildPluginChain(trackId: UUID) {
-        guard let trackNode = trackNodes[trackId] else {
-            return
-        }
-        
-        let format = graphFormat!
-        
-        // Use lighter-weight connection mutation - no engine reset needed
-        // since we're only reconnecting existing nodes
-        modifyGraphConnections {
-            trackNode.pluginChain.updateFormat(format)
-            trackNode.pluginChain.rebuildChainConnections(engine: self.engine)
-        }
+        rebuildPluginChainInternal(trackId: trackId)
     }
     
-    /// Schedules a track graph rebuild with coalescing (debounced).
-    /// Multiple calls within 50ms will be batched into a single rebuild operation.
-    /// Use this when you expect rapid-fire state changes that each want a rebuild.
+    /// Schedules a debounced track graph rebuild - delegates to extension
     func scheduleRebuild(trackId: UUID) {
-        logDebug("📅 scheduleRebuild: track=\(trackId)")
-        logDebug("   Stack trace: \(Thread.callStackSymbols.joined(separator: "\n"))")
-        
-        pendingRebuildTrackIds.insert(trackId)
-        
-        rebuildTask?.cancel()
-        rebuildTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms debounce
-            guard !Task.isCancelled else {
-                logDebug("   ⚠️ Rebuild task cancelled")
-                return
-            }
-            
-            let tracksToRebuild = pendingRebuildTrackIds
-            pendingRebuildTrackIds.removeAll()
-            
-            logDebug("   ✅ Executing scheduled rebuild for \(tracksToRebuild.count) tracks")
-            for trackId in tracksToRebuild {
-                rebuildTrackGraph(trackId: trackId)
-            }
-        }
+        scheduleRebuildInternal(trackId: trackId)
     }
     
-    /// Gets the source node for a track (sampler for MIDI, timePitch for audio)
+    /// Gets the source node for a track - delegates to extension
     private func getSourceNode(for trackId: UUID, trackNode: TrackAudioNode) -> AVAudioNode? {
-        // Use InstrumentManager as single source of truth for instruments
-        if let instrument = InstrumentManager.shared.getInstrument(for: trackId) {
-            // Check for sampler-based instrument
-            if let samplerEngine = instrument.samplerEngine,
-               samplerEngine.sampler.engine === engine {
-                return samplerEngine.sampler
-            }
-            
-            // Check for drum kit instrument
-            if let drumKitEngine = instrument.drumKitEngine {
-                return drumKitEngine.getOutputNode()
-            }
-            
-            // Check for AU-based instrument
-            if let auNode = instrument.audioUnitNode,
-               auNode.engine === engine {
-                return auNode
-            }
-        }
-        
-        // Return nil to indicate audio track (use timePitch)
-        return nil
+        return getSourceNodeInternal(for: trackId, trackNode: trackNode)
     }
     
-    /// Connects panNode to main mixer
-    /// Note: Track sends are handled separately by BusManager during project/bus setup
+    /// Connects panNode to main mixer - delegates to extension
     private func connectPanToDestinations(trackId: UUID, trackNode: TrackAudioNode, format: AVAudioFormat) {
-        guard let project = currentProject,
-              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
-            // Fallback: just connect to main mixer on bus 0
-            engine.connect(trackNode.panNode, to: mixer, format: format)
-            return
-        }
-        
-        let trackBusNumber = AVAudioNodeBus(trackIndex)
-        
-        // Connect to main mixer - sends are configured separately by BusManager
-        engine.connect(trackNode.panNode, to: mixer, fromBus: 0, toBus: trackBusNumber, format: format)
+        connectPanToDestinationsInternal(trackId: trackId, trackNode: trackNode, format: format)
     }
     
     func setupTrackSend(_ trackId: UUID, to busId: UUID, level: Double) {
@@ -2000,156 +1480,21 @@ class AudioEngine: AudioEngineContext {
         recordingController.stopRecording()
     }
     
-    // MARK: - Playback Implementation
+    // MARK: - Playback Implementation (Delegated to AudioEngine+Playback.swift)
+    
     private func startPlayback() {
-        guard let project = currentProject else {
-            logDebug("⚠️ startPlayback: No current project", category: "PLAYBACK")
-            return
-        }
-
-        let startBeat = currentPosition.beats
-        let tempo = project.tempo
-        // Convert beats to seconds for audio scheduling (AVAudioEngine boundary)
-        let startTimeSeconds = startBeat * (60.0 / tempo)
-        
-        logDebug("startPlayback: \(project.tracks.count) tracks, startBeat: \(startBeat), tempo: \(tempo)", category: "PLAYBACK")
-
-        for track in project.tracks {
-            guard let trackNode = trackNodes[track.id] else {
-                logDebug("⚠️ No trackNode for track '\(track.name)' (id: \(track.id))", category: "PLAYBACK")
-                continue
-            }
-            
-            logDebug("Scheduling track '\(track.name)': \(track.regions.count) audio regions, \(track.midiRegions.count) MIDI regions", category: "PLAYBACK")
-
-            do {
-                // scheduleFromPosition takes seconds for AVAudioEngine scheduling
-                try trackNode.scheduleFromPosition(startTimeSeconds, audioRegions: track.regions, tempo: tempo)
-                if !track.regions.isEmpty {
-                    trackNode.play()
-                    logDebug("Track '\(track.name)' started playing", category: "PLAYBACK")
-                }
-            } catch {
-                logDebug("⚠️ Error scheduling track \(track.name): \(error)", category: "PLAYBACK")
-            }
-        }
-
-        // Start MIDI playback with tempo for beats→seconds conversion
-        // FIX: Call directly (both are @MainActor) - Task wrapper caused async delay
-        // which missed notes at beat 0 on initial playback
-        // Note: MIDI engine always runs - it only plays if MIDI regions exist
-        logDebug("Configuring MIDI playback engine", category: "PLAYBACK")
-        midiPlaybackEngine.configure(with: InstrumentManager.shared, audioEngine: self)
-        midiPlaybackEngine.loadRegions(from: project.tracks, tempo: project.tempo)
-        midiPlaybackEngine.play(fromBeat: startBeat)
-        logDebug("MIDI playback started", category: "PLAYBACK")
+        startPlaybackInternal()
     }
     
     private func stopPlayback() {
-        // Stop MIDI playback - call directly (both are @MainActor)
-        midiPlaybackEngine.stop()
-        
-        // Stop all player nodes immediately
-        // Plugin tails (reverb/delay) will naturally ring out through the graph
-        // No volume manipulation needed - let the audio decay naturally
-        for (_, trackNode) in trackNodes {
-            trackNode.playerNode.stop()
-        }
+        stopPlaybackInternal()
     }
     
-    private func playTrack(_ track: AudioTrack, from startTime: TimeInterval) {
-        // Get the track's dedicated player node
-        guard let trackNode = trackNodes[track.id] else {
-            return
-        }
-        
-        // Schedule ALL regions - let TrackAudioNode handle timing internally
-        // Don't filter by "active" status based on current position
-        let allRegions = track.regions
-        
-        // Schedule audio for each region on this track's player node
-        for region in allRegions {
-            scheduleRegion(region, on: trackNode, at: startTime)
-        }
-    }
-    
-    private func scheduleRegion(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) {
-        let playerNode = trackNode.playerNode
-        let tempo = currentProject?.tempo ?? 120.0
-        
-        // SECURITY (H-1): Validate header before passing to AVAudioFile
-        guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else { return }
-        
-        do {
-            let audioFile = try AVAudioFile(forReading: region.audioFile.url)
-            let regionStartSeconds = region.startTimeSeconds(tempo: tempo)
-            let regionEndSeconds = regionStartSeconds + region.durationSeconds(tempo: tempo)
-            let offsetInFile = currentTime - regionStartSeconds + region.offset
-            let remainingDuration = regionEndSeconds - currentTime
-            let framesToPlay = AVAudioFrameCount(remainingDuration * audioFile.processingFormat.sampleRate)
-            
-            if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
-                let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
-                
-                // Stop any existing playback on this node first
-                if playerNode.isPlaying {
-                    playerNode.stop()
-                }
-                
-                // Schedule the audio segment
-                playerNode.scheduleSegment(
-                    audioFile,
-                    startingFrame: startFrame,
-                    frameCount: framesToPlay,
-                    at: nil
-                )
-                
-                // Start playback on this specific track's player node
-                safePlay(playerNode)
-                
-            }
-        } catch {
-        }
-    }
-    
-    private func scheduleRegionForSynchronizedPlayback(_ region: AudioRegion, on trackNode: TrackAudioNode, at currentTime: TimeInterval) -> Bool {
-        let playerNode = trackNode.playerNode
-        let tempo = currentProject?.tempo ?? 120.0
-        
-        // SECURITY (H-1): Validate header before passing to AVAudioFile
-        guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else { return false }
-        
-        do {
-            let audioFile = try AVAudioFile(forReading: region.audioFile.url)
-            let regionStartSeconds = region.startTimeSeconds(tempo: tempo)
-            let regionEndSeconds = regionStartSeconds + region.durationSeconds(tempo: tempo)
-            let offsetInFile = currentTime - regionStartSeconds + region.offset
-            let remainingDuration = regionEndSeconds - currentTime
-            let framesToPlay = AVAudioFrameCount(remainingDuration * audioFile.processingFormat.sampleRate)
-            
-            if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
-                let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
-                
-                // Stop any existing playback on this node first
-                if playerNode.isPlaying {
-                    playerNode.stop()
-                }
-                
-                // Schedule the audio segment (but don't start playing yet)
-                playerNode.scheduleSegment(
-                    audioFile,
-                    startingFrame: startFrame,
-                    frameCount: framesToPlay,
-                    at: nil
-                )
-                
-                return true
-            }
-        } catch {
-        }
-        
-        return false
-    }
+    // DEADCODE REMOVAL (Phase 3 beats-first cleanup):
+    // Removed: playTrack, scheduleRegion, scheduleRegionForSynchronizedPlayback
+    // These were never called and used seconds-based APIs.
+    // All scheduling now goes through TrackAudioNode.scheduleFromBeat() which
+    // handles beat→seconds conversion at the AVAudioEngine boundary.
     
     // Recording implementation is now in RecordingController
     
@@ -2189,59 +1534,18 @@ class AudioEngine: AudioEngineContext {
         mixerController.updateAllTrackStates()
     }
     
-    // MARK: - Audio File Import
+    // MARK: - Audio File Import (Delegated to AudioEngine+Playback.swift)
 
     /// Maximum audio file size for import (500 MB) to prevent memory exhaustion.
     static let maxAudioImportFileSize: Int64 = 500_000_000
 
     func importAudioFile(from url: URL) async throws -> AudioFile {
-        let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        let fileSize = fileAttributes[.size] as? Int64 ?? 0
-        guard fileSize <= Self.maxAudioImportFileSize else {
-            throw NSError(domain: "AudioEngine", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: "Audio file too large (\(fileSize / 1_000_000) MB). Maximum is \(Self.maxAudioImportFileSize / 1_000_000) MB."
-            ])
-        }
-        // SECURITY (H-1): Validate header before passing to AVAudioFile
-        guard AudioFileHeaderValidator.validateHeader(at: url) else {
-            throw NSError(domain: "AudioEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid or unsupported audio file format"])
-        }
-
-        let audioFile = try AVAudioFile(forReading: url)
-        let format = audioFile.processingFormat
-        
-        let audioFileFormat: AudioFileFormat
-        switch url.pathExtension.lowercased() {
-        case "wav": audioFileFormat = .wav
-        case "aiff", "aif": audioFileFormat = .aiff
-        case "mp3", "m4a": audioFileFormat = .m4a  // MP3 not supported, treat as M4A
-        case "flac": audioFileFormat = .flac
-        default: audioFileFormat = .wav
-        }
-        
-        return AudioFile(
-            name: url.deletingPathExtension().lastPathComponent,
-            url: url,
-            duration: Double(audioFile.length) / format.sampleRate,
-            sampleRate: format.sampleRate,
-            channels: Int(format.channelCount),
-            bitDepth: 16, // Simplified
-            fileSize: fileSize,
-            format: audioFileFormat
-        )
+        return try await importAudioFileInternal(from: url)
     }
     
-    // MARK: - Audio Region Loading
+    // MARK: - Audio Region Loading (Delegated to AudioEngine+Playback.swift)
     private func loadAudioRegion(_ region: AudioRegion, trackNode: TrackAudioNode) {
-        let audioFile = region.audioFile
-        logDebug("Loading audio region '\(region.id)' with file '\(audioFile.name)' at beat \(region.startBeat)", category: "REGION")
-        
-        do {
-            try trackNode.loadAudioFile(audioFile)
-            logDebug("Audio file loaded successfully: \(audioFile.url.lastPathComponent)", category: "REGION")
-        } catch {
-            logDebug("⚠️ Failed to load audio file: \(error)", category: "REGION")
-        }
+        loadAudioRegionInternal(region, trackNode: trackNode)
     }
     
     // MARK: - Mixer Controls (Delegated to MixerController)
@@ -2298,367 +1602,73 @@ class AudioEngine: AudioEngineContext {
     // AudioEngine no longer maintains its own trackInstruments dictionary.
     // This eliminates dual-ownership confusion and ensures single source of truth.
     
-    /// Get the instrument for a track (delegates to InstrumentManager)
+    /// Get the instrument for a track - delegates to extension
     func getTrackInstrument(for trackId: UUID) -> TrackInstrument? {
-        return InstrumentManager.shared.getInstrument(for: trackId)
+        return getTrackInstrumentInternal(for: trackId)
     }
     
-    /// Load an AU instrument for a MIDI/Instrument track
-    /// Uses serialized graph queue to prevent concurrent access crashes
+    /// Load an AU instrument for a MIDI/Instrument track - delegates to extension
     func loadTrackInstrument(trackId: UUID, descriptor: PluginDescriptor) async throws {
-        // Check both category and auType since they should both indicate an instrument
-        guard descriptor.category == .instrument || descriptor.auType == .aumu else {
-            return
-        }
-        
-        // Capture current graph generation to detect stale operations
-        let capturedGeneration = graphGeneration
-        
-        // Step 1: Create or get existing TrackInstrument and load the AU
-        // Use InstrumentManager as single source of truth for instruments
-        let instrument: TrackInstrument
-        if let existing = InstrumentManager.shared.getInstrument(for: trackId) {
-            instrument = existing
-        } else {
-            instrument = TrackInstrument(type: .audioUnit, name: descriptor.name)
-            // Register with InstrumentManager immediately
-            InstrumentManager.shared.registerInstrument(instrument, for: trackId)
-        }
-        
-        // Load the AU - this does the async instantiation internally
-        // IMPORTANT: forStandalonePlayback: false - we attach to the main DAW engine, not a separate one
-        try await instrument.loadAudioUnit(descriptor, forStandalonePlayback: false)
-        
-        // STATE CONSISTENCY CHECK: Verify graph wasn't rebuilt during await
-        guard isGraphGenerationValid(capturedGeneration, context: "loadTrackInstrument(\(trackId))") else {
-            throw AsyncOperationError.staleGraphGeneration
-        }
-        
-        // Step 2: All graph mutations happen serialized
-        modifyGraphSafely {
-            // Double-check inside mutation (defensive)
-            guard self.isGraphGenerationValid(capturedGeneration, context: "loadTrackInstrument-mutation") else {
-                return
-            }
-            
-            // Re-fetch trackNode to ensure we have current reference
-            guard let trackNode = self.trackNodes[trackId] else {
-                return
-            }
-            
-            // Get the AU node from the instrument (now loaded)
-            guard let auNode = instrument.audioUnitNode else {
-                return
-            }
-            
-            // Verify the track's pluginChain is realized (has mixers attached)
-            // If not realized, we need to realize it for the AU instrument
-            if !trackNode.pluginChain.isRealized {
-                trackNode.pluginChain.realize()
-            }
-            
-            // Attach AU node to engine if not already attached
-            if auNode.engine == nil {
-                self.engine.attach(auNode)
-            }
-            
-            // Connect: AU Instrument → Track's plugin chain input
-            // CRITICAL: Always use explicit bus 0→0 to prevent bus accumulation
-            self.engine.connect(auNode, to: trackNode.pluginChain.inputMixer, fromBus: 0, toBus: 0, format: self.graphFormat)
-            
-        }
+        try await loadTrackInstrumentInternal(trackId: trackId, descriptor: descriptor)
     }
     
-    /// Remove/unload the instrument from a track
+    /// Remove/unload the instrument from a track - delegates to extension
     func unloadTrackInstrument(trackId: UUID) {
-        // Get instrument from InstrumentManager (single source of truth)
-        guard let instrument = InstrumentManager.shared.getInstrument(for: trackId) else { return }
-        
-        // Disconnect and remove AU node
-        if let auNode = instrument.audioUnitNode {
-            engine.disconnectNodeInput(auNode)
-            engine.disconnectNodeOutput(auNode)
-            engine.detach(auNode)
-        }
-        
-        // Also handle sampler nodes
-        if let samplerNode = instrument.samplerEngine?.sampler {
-            if samplerNode.engine != nil {
-                engine.disconnectNodeInput(samplerNode)
-                engine.disconnectNodeOutput(samplerNode)
-                engine.detach(samplerNode)
-            }
-        }
-        
-        instrument.stop()
-        
-        // Unregister from InstrumentManager (removes from their dictionary)
-        InstrumentManager.shared.unregisterInstrument(for: trackId)
-        
+        unloadTrackInstrumentInternal(trackId: trackId)
     }
     
-    /// Send MIDI note to a track's instrument
+    /// Send MIDI note to a track's instrument - delegates to extension
     func sendMIDINoteToTrack(trackId: UUID, noteOn: Bool, pitch: UInt8, velocity: UInt8) {
-        // Use InstrumentManager for MIDI routing (single source of truth)
-        if noteOn {
-            InstrumentManager.shared.noteOn(pitch: pitch, velocity: velocity, forTrack: trackId)
-        } else {
-            InstrumentManager.shared.noteOff(pitch: pitch, forTrack: trackId)
-        }
+        sendMIDINoteToTrackInternal(trackId: trackId, noteOn: noteOn, pitch: pitch, velocity: velocity)
     }
     
-    // MARK: - Step Sequencer MIDI Routing
+    // MARK: - Step Sequencer MIDI Routing (Delegated to AudioEngine+Instruments.swift)
     
-    /// Configure MIDI event callbacks for the step sequencer
+    /// Configure MIDI event callbacks for the step sequencer - delegates to extension
     private func configureSequencerMIDICallbacks(_ sequencer: SequencerEngine) {
-        // Handle individual MIDI events
-        sequencer.onMIDIEvent = { [weak self] event in
-            self?.handleSequencerMIDIEvent(event)
-        }
-        
-        // Handle batch events (more efficient for routing multiple notes)
-        sequencer.onMIDIEvents = { [weak self] events in
-            self?.handleSequencerMIDIEvents(events)
-        }
+        configureSequencerMIDICallbacksInternal(sequencer)
     }
     
-    /// Handle a single MIDI event from the step sequencer
+    /// Handle a single MIDI event from the step sequencer - delegates to extension
     private func handleSequencerMIDIEvent(_ event: SequencerMIDIEvent) {
-        let routing = sequencerEngine.routing
-        
-        switch routing.mode {
-        case .preview:
-            // Preview mode - internal sampler handles playback
-            // MIDI events are still generated but not routed
-            break
-            
-        case .singleTrack:
-            // Route to single target track
-            if let trackId = routing.targetTrackId {
-                sendSequencerEventToTrack(event, trackId: trackId)
-            }
-            
-        case .multiTrack:
-            // Route based on per-lane configuration
-            if let trackId = routing.perLaneRouting[event.laneId] ?? routing.targetTrackId {
-                sendSequencerEventToTrack(event, trackId: trackId)
-            }
-            
-        case .external:
-            // TODO: External MIDI device output
-            break
-        }
+        handleSequencerMIDIEventInternal(event)
     }
     
-    /// Handle batch MIDI events from the step sequencer
+    /// Handle batch MIDI events from the step sequencer - delegates to extension
     private func handleSequencerMIDIEvents(_ events: [SequencerMIDIEvent]) {
-        for event in events {
-            handleSequencerMIDIEvent(event)
-        }
+        handleSequencerMIDIEventsInternal(events)
     }
     
-    /// Send a sequencer MIDI event to a track's instrument
+    /// Send a sequencer MIDI event to a track's instrument - delegates to extension
     private func sendSequencerEventToTrack(_ event: SequencerMIDIEvent, trackId: UUID) {
-        // Use InstrumentManager for MIDI routing (single source of truth)
-        guard InstrumentManager.shared.getInstrument(for: trackId) != nil else {
-            return
-        }
-        
-        // Trigger note on (note off will be handled by duration)
-        InstrumentManager.shared.noteOn(pitch: event.note, velocity: event.velocity, forTrack: trackId)
-        
-        // Schedule note off after duration
-        // Duration is in beats, need to convert to seconds based on tempo
-        let tempo = currentProject?.tempo ?? 120.0
-        let beatsPerSecond = tempo / 60.0
-        let durationSeconds = event.duration / beatsPerSecond
-        
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(durationSeconds))
-            InstrumentManager.shared.noteOff(pitch: event.note, forTrack: trackId)
-        }
+        sendSequencerEventToTrackInternal(event, trackId: trackId)
     }
     
-    /// Get list of MIDI tracks available for sequencer routing
+    /// Get list of MIDI tracks available for sequencer routing - delegates to extension
     func getMIDITracksForSequencerRouting() -> [(id: UUID, name: String)] {
-        guard let project = currentProject else { return [] }
-        
-        var result: [(id: UUID, name: String)] = []
-        for track in project.tracks {
-            if track.trackType == .midi || track.trackType == .instrument {
-                result.append((id: track.id, name: track.name))
-            }
-        }
-        return result
+        return getMIDITracksForSequencerRoutingInternal()
     }
     
-    /// Check if a track has an instrument loaded (for routing validation)
+    /// Check if a track has an instrument loaded - delegates to extension
     func trackHasInstrument(_ trackId: UUID) -> Bool {
-        return InstrumentManager.shared.getInstrument(for: trackId) != nil
+        return trackHasInstrumentInternal(trackId)
     }
     
-    /// Load a GM SoundFont instrument for a MIDI/Instrument track
+    /// Load a GM SoundFont instrument for a MIDI/Instrument track - delegates to extension
     func loadTrackGMInstrument(trackId: UUID, instrument gmInstrument: GMInstrument) async throws {
-        // Use InstrumentManager as single source of truth for instruments
-        let trackInstrument: TrackInstrument
-        if let existing = InstrumentManager.shared.getInstrument(for: trackId) {
-            // Clean up any existing AU node if switching from AU to sampler
-            if let oldAuNode = existing.audioUnitNode {
-                modifyGraphSafely {
-                    engine.disconnectNodeInput(oldAuNode)
-                    engine.disconnectNodeOutput(oldAuNode)
-                    engine.detach(oldAuNode)
-                }
-            }
-            // If it was a different type, we need to reconfigure
-            if existing.type != .sampler {
-                existing.changeType(to: .sampler, audioEngine: engine)
-            }
-            // Ensure sampler exists even if type didn't change
-            existing.ensureSamplerExists(with: engine)
-            trackInstrument = existing
-        } else {
-            // CRITICAL: Pass audioEngine so sampler is created attached to main DAW engine
-            trackInstrument = TrackInstrument(
-                type: .sampler,
-                name: gmInstrument.name,
-                gmInstrument: gmInstrument,
-                audioEngine: engine
-            )
-            // Register with InstrumentManager immediately
-            InstrumentManager.shared.registerInstrument(trackInstrument, for: trackId)
-        }
-        
-        // Load the GM instrument into the sampler
-        trackInstrument.loadGMInstrument(gmInstrument)
-        
-        // Attach sampler to engine if needed
-        if let samplerEngine = trackInstrument.samplerEngine {
-            let samplerNode = samplerEngine.sampler
-            if samplerNode.engine == nil {
-                engine.attach(samplerNode)
-            }
-        }
-        
-        // Use centralized rebuild for all connections
-        // This handles sampler → pluginChain → downstream correctly
-        rebuildTrackGraph(trackId: trackId)
-        
-        
-        // Mark the instrument as running since it's now connected to the DAW engine
-        trackInstrument.markAsRunning()
+        try await loadTrackGMInstrumentInternal(trackId: trackId, instrument: gmInstrument)
     }
     
-    /// Reconnects a MIDI track's instrument (sampler/synth) to its proper destination.
-    /// If the track has plugins, connects to pluginChain.inputMixer.
-    /// If no plugins, connects directly to eqNode (lazy chain optimization).
-    /// This is needed after project reload or when inserting plugins on existing MIDI tracks.
+    /// Reconnects a MIDI track's instrument to its proper destination - delegates to extension
     private func reconnectMIDIInstrumentToPluginChain(trackId: UUID) {
-        guard let trackNode = trackNodes[trackId] else {
-            return
-        }
-        
-        let pluginChain = trackNode.pluginChain
-        let hasPlugins = pluginChain.hasActivePlugins
-        
-        // Determine the destination node based on whether plugins exist
-        let destinationNode: AVAudioNode
-        if hasPlugins {
-            // Ensure chain is realized before connecting
-            if !pluginChain.isRealized {
-                pluginChain.realize()
-            }
-            destinationNode = pluginChain.inputMixer
-        } else {
-            // No plugins - connect directly to EQ
-            destinationNode = trackNode.eqNode
-        }
-        
-        // Try InstrumentManager first (for GM instruments created via UI)
-        // Note: We're already on MainActor, so no need for MainActor.run
-        if let trackInstrument = InstrumentManager.shared.getInstrument(for: trackId),
-           let samplerEngine = trackInstrument.samplerEngine {
-            let samplerNode = samplerEngine.sampler
-            
-            // Check if sampler is already connected to the correct destination
-            let connections = self.engine.outputConnectionPoints(for: samplerNode, outputBus: 0)
-            let alreadyConnected = connections.contains { $0.node === destinationNode }
-            
-            if alreadyConnected {
-                return
-            }
-            
-            modifyGraphSafely {
-                if samplerNode.engine == nil {
-                    self.engine.attach(samplerNode)
-                }
-                self.engine.disconnectNodeOutput(samplerNode)
-                self.engine.connect(samplerNode, to: destinationNode, fromBus: 0, toBus: 0, format: self.graphFormat)
-            }
-            return
-        }
-        
-        // Check for AU instruments via InstrumentManager
-        if let trackInstrument = InstrumentManager.shared.getInstrument(for: trackId),
-           let auNode = trackInstrument.audioUnitNode {
-            
-            let connections = self.engine.outputConnectionPoints(for: auNode, outputBus: 0)
-            let alreadyConnected = connections.contains { $0.node === destinationNode }
-            
-            if alreadyConnected {
-                return
-            }
-            
-            modifyGraphSafely {
-                if auNode.engine == nil {
-                    self.engine.attach(auNode)
-                }
-                self.engine.disconnectNodeOutput(auNode)
-                self.engine.connect(auNode, to: destinationNode, fromBus: 0, toBus: 0, format: self.graphFormat)
-            }
-            return
-        }
-        
+        reconnectMIDIInstrumentToPluginChainInternal(trackId: trackId)
     }
     
-    // MARK: - Instrument Creation (Single Engine Ownership)
+    // MARK: - Instrument Creation (Delegated to AudioEngine+Instruments.swift)
     
-    /// Create a sampler instrument attached to the DAW's audio engine
-    /// This ensures the sampler is part of the main audio graph and can be routed through plugin chains
-    /// - Parameters:
-    ///   - trackId: The track this sampler belongs to
-    ///   - connectToPluginChain: If true, connects sampler output to the track's plugin chain input
-    /// - Returns: A SamplerEngine attached to the main audio engine
+    /// Create a sampler instrument attached to the DAW's audio engine - delegates to extension
     func createSamplerForTrack(_ trackId: UUID, connectToPluginChain: Bool = true) -> SamplerEngine {
-        // Create sampler attached to our engine (NOT connected to mainMixerNode)
-        let samplerEngine = SamplerEngine(attachTo: engine, connectToMixer: false)
-        
-        // Wrap graph modifications in modifyGraphSafely for thread safety
-        modifyGraphSafely {
-            // If requested, wire the sampler to the track's signal path
-            if connectToPluginChain, let trackNode = self.trackNodes[trackId] {
-                let pluginChain = trackNode.pluginChain
-                
-                // Use lazy chain: connect to inputMixer only if plugins exist, otherwise to EQ directly
-                if pluginChain.hasActivePlugins {
-                    if !pluginChain.isRealized {
-                        pluginChain.realize()
-                    }
-                    self.engine.connect(samplerEngine.sampler, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: self.graphFormat)
-                } else {
-                    // No plugins - connect directly to EQ
-                    self.engine.connect(samplerEngine.sampler, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: self.graphFormat)
-                }
-            } else if !connectToPluginChain {
-                // Connect directly to main mixer (standalone mode)
-                self.engine.connect(samplerEngine.sampler, to: self.engine.mainMixerNode, format: nil)
-            } else {
-                // Track node doesn't exist yet - connect to main mixer as fallback
-                self.engine.connect(samplerEngine.sampler, to: self.engine.mainMixerNode, format: nil)
-            }
-        }
-        
-        return samplerEngine
+        return createSamplerForTrackInternal(trackId, connectToPluginChain: connectToPluginChain)
     }
     
     /// Expose the audio engine for InstrumentManager to create properly-attached samplers
@@ -2801,12 +1811,8 @@ class AudioEngine: AudioEngineContext {
         project.tracks.removeAll { $0.id == trackId }
         currentProject = project
         
-        // Remove track node
-        if let trackNode = trackNodes[trackId] {
-            // [BUGFIX] Use safe disconnection method
-            safeDisconnectTrackNode(trackNode)
-            trackNodes.removeValue(forKey: trackId)
-        }
+        // Remove track node (handles disconnection internally)
+        trackNodeManager.removeTrackNode(for: trackId)
         
         // Update mixer controller's solo tracking
         mixerController.removeTrackFromMixer(trackId: trackId)
@@ -2854,15 +1860,15 @@ class AudioEngine: AudioEngineContext {
         // Update PDC compensation before scheduling (keeps tracks phase-aligned)
         updateDelayCompensation()
         
-        // Convert beats to seconds for AVAudioEngine scheduling
+        // BEATS-FIRST: Convert pre-roll to beats for internal calculation
         let tempo = project.tempo
-        let startTimeSeconds = startBeat * (60.0 / tempo)
+        let prerollBeats = prerollSeconds * (tempo / 60.0)
         
-        // Calculate pre-roll start time (but don't go negative)
+        // Calculate pre-roll start beat (but don't go negative)
         // Pre-roll allows plugins with internal state (reverbs, delays, compressors)
         // to stabilize before we reach the actual playhead position
-        let prerollStartSeconds = max(0, startTimeSeconds - prerollSeconds)
-        let hasPreroll = startTimeSeconds > prerollSeconds
+        let prerollStartBeat = max(0, startBeat - prerollBeats)
+        let hasPreroll = startBeat > prerollBeats
         
         // Schedule and start all tracks from the specified position
         var tracksToStart: [(TrackAudioNode, AudioTrack)] = []
@@ -2877,9 +1883,9 @@ class AudioEngine: AudioEngineContext {
             
             if !relevantRegions.isEmpty {
                 do {
-                    // Schedule from pre-roll position if we have room, otherwise from start
-                    let scheduleTime = hasPreroll ? prerollStartSeconds : startTimeSeconds
-                    try trackNode.scheduleFromPosition(scheduleTime, audioRegions: track.regions, tempo: tempo)
+                    // BEATS-FIRST: Schedule using beats, conversion to seconds at TrackAudioNode boundary
+                    let scheduleBeat = hasPreroll ? prerollStartBeat : startBeat
+                    try trackNode.scheduleFromBeat(scheduleBeat, audioRegions: track.regions, tempo: tempo)
                     tracksToStart.append((trackNode, track))
                 } catch {
                 }
@@ -3106,5 +2112,14 @@ extension AudioEngine {
     /// Note: Consider moving to PlaybackSchedulingCoordinator in future refactor
     private func safePlay(_ player: AVAudioPlayerNode) {
         playbackScheduler.safePlay(player)
+    }
+    
+    // MARK: - Memory Pressure (Phase 5: Error Recovery)
+    
+    /// Called under memory pressure to release non-essential caches. Safe to call from main thread.
+    /// On macOS there is no system memory-warning notification; wire to DISPATCH_SOURCE_TYPE_MEMORYPRESSURE if desired.
+    func handleMemoryWarning() {
+        mixerController.invalidateTrackIndexCache()
+        // Future: clear cachedAudioFiles, cachedWaveforms when those caches exist
     }
 }

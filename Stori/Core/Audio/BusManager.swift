@@ -145,16 +145,11 @@ class BusManager {
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(busNode.getOutputNode(), to: mixer, format: deviceFormat)
         
-        // Apply bus settings with defensive defaults for audibility
+        // Apply bus settings from project (WYSIWYG: respect saved mute/levels)
         busNode.inputGain = Float(bus.inputLevel)
         busNode.outputGain = Float(bus.outputLevel)
         busNode.isMuted = bus.isMuted
         busNode.isSolo = bus.isSolo
-        
-        // Force sane audible defaults while debugging
-        busNode.isMuted = false
-        busNode.outputGain = 1.0
-        busNode.inputGain = 1.0
         
         // Enable level monitoring
         busNode.startLevelMonitoring()
@@ -175,11 +170,6 @@ class BusManager {
         
         // Note: Bus plugins are now managed via TrackPluginManager/PluginChain
         
-        // Force sane audible defaults
-        busNode.isMuted = false
-        busNode.outputGain = 1.0
-        busNode.inputGain = 1.0
-        
         // Enable level monitoring
         busNode.startLevelMonitoring()
         
@@ -187,12 +177,16 @@ class BusManager {
         rebuildBusChain(busNode)
     }
     
-    /// Re-attach and reconnect all bus nodes after the engine was reset (e.g. output device change).
-    /// Call from AudioEngine.handleAudioConfigurationChange after tracks are reconnected.
+    /// Reconnect all bus nodes after the engine was reset (e.g. output device change).
+    /// After reset(), nodes remain attached; only reattach if detached, then reconnect.
     func reconnectAllBusesAfterEngineReset(deviceFormat: AVAudioFormat) {
         for (_, busNode) in busNodes {
-            engine.attach(busNode.getInputNode())
-            engine.attach(busNode.getOutputNode())
+            if busNode.getInputNode().engine == nil {
+                engine.attach(busNode.getInputNode())
+            }
+            if busNode.getOutputNode().engine == nil {
+                engine.attach(busNode.getOutputNode())
+            }
             busNode.pluginChain.install(in: engine, format: deviceFormat)
             engine.connect(busNode.getOutputNode(), to: mixer, format: deviceFormat)
             rebuildBusChainInternal(busNode, format: deviceFormat)
