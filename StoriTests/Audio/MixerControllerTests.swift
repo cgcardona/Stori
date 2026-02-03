@@ -7,6 +7,21 @@
 
 import XCTest
 @testable import Stori
+import AVFoundation
+
+/// Reference-type project holder for tests so getProject/setProject share the same storage.
+private final class ProjectRef {
+    var project: AudioProject
+    init(_ project: AudioProject) { self.project = project }
+}
+
+/// No-op instrument manager for testing MixerController without InstrumentManager.shared side effects.
+@MainActor
+private final class NoopInstrumentManager: MixerInstrumentManaging {
+    func setVolume(_ volume: Float, forTrack trackId: UUID) {}
+    func setPan(_ pan: Float, forTrack trackId: UUID) {}
+    func setMuted(_ muted: Bool, forTrack trackId: UUID) {}
+}
 
 final class MixerControllerTests: XCTestCase {
     
@@ -413,6 +428,42 @@ final class MixerControllerTests: XCTestCase {
         // Bypassed should also be silent (true bypass would pass through, but our mock zeros)
         let outputPeak = TestAudioBuffers.peakLevel(output[0])
         XCTAssertEqual(outputPeak, 0.0)
+    }
+    
+    // MARK: - Track Index Cache
+    
+    @MainActor
+    func testInvalidateTrackIndexCacheAllowsSubsequentUpdates() async {
+        let engine = AVAudioEngine()
+        let mixer = AVAudioMixerNode()
+        let eq = AVAudioUnitEQ()
+        engine.attach(mixer)
+        engine.attach(eq)
+        
+        var project = AudioProject(name: "Test", tempo: 120)
+        project.addTrack(AudioTrack(name: "T1", trackType: .audio, color: .blue))
+        let trackId = project.tracks[0].id
+        
+        let holder = ProjectRef(project)
+        
+        // Use no-op instrument manager to avoid InstrumentManager.shared singleton side effects
+        let controller = MixerController(
+            getProject: { holder.project },
+            setProject: { holder.project = $0 },
+            getTrackNodes: { [:] },
+            getMainMixer: { mixer },
+            getMasterEQ: { eq },
+            onReloadMIDIRegions: {},
+            onSafeDisconnectTrackNode: { _ in },
+            instrumentManager: NoopInstrumentManager()
+        )
+        
+        controller.updateTrackVolume(trackId: trackId, volume: 0.5)
+        XCTAssertEqual(holder.project.tracks.first?.mixerSettings.volume, 0.5, "First update should persist")
+        
+        controller.invalidateTrackIndexCache()
+        controller.updateTrackVolume(trackId: trackId, volume: 0.7)
+        XCTAssertEqual(holder.project.tracks.first?.mixerSettings.volume, 0.7, "Update after cache invalidation should persist")
     }
     
     // MARK: - Performance Tests

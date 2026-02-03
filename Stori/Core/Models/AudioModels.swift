@@ -421,8 +421,8 @@ struct AudioTrack: Identifiable, Codable, Equatable {
         self.createdAt = Date()
         self.imageAssetPath = nil
         self.imageGenerations = []
-        // Create default Volume automation lane for every track
-        self.automationLanes = [AutomationLane(parameter: .volume)]
+        // Create default Volume automation lane with initialValue from mixer (deterministic playback)
+        self.automationLanes = [AutomationLane(parameter: .volume, points: [], initialValue: mixerSettings.volume, color: AutomationParameter.volume.color)]
         self.automationMode = .read
         self.automationExpanded = false
         self.inputMonitorEnabled = false

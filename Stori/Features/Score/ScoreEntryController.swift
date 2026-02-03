@@ -100,14 +100,14 @@ class ScoreEntryController {
     func handleMIDINoteOn(pitch: UInt8, velocity: UInt8) {
         guard isStepEntryActive, var region = midiRegion else { return }
         
-        let startTime = cursorPosition * (60.0 / tempo)
-        let duration = effectiveDuration * (60.0 / tempo)
+        let startBeat = cursorPosition
+        let durationBeats = effectiveDuration
         
         let newNote = MIDINote(
             pitch: pitch,
             velocity: velocity,
-            startBeat: startTime,
-            durationBeats: duration
+            startBeat: startBeat,
+            durationBeats: durationBeats
         )
         
         region.notes.append(newNote)
@@ -204,23 +204,23 @@ class ScoreEntryController {
         let selectedIndices = region.notes.indices.filter { notes.contains(region.notes[$0].id) }
         guard selectedIndices.count > 1 else { return }
         
-        let startTimes = selectedIndices.map { region.notes[$0].startBeat }
-        let reversedStartTimes = startTimes.reversed()
+        let startBeats = selectedIndices.map { region.notes[$0].startBeat }
+        let reversedStartBeats = startBeats.reversed()
         
-        for (index, startTime) in zip(selectedIndices, reversedStartTimes) {
-            region.notes[index].startBeat = startTime
+        for (index, startBeat) in zip(selectedIndices, reversedStartBeats) {
+            region.notes[index].startBeat = startBeat
         }
         
         onRegionUpdate?(region)
     }
     
-    /// Quantize selected notes to a grid
+    /// Quantize selected notes to a grid (resolution.rawValue is in beats)
     func quantize(notes: [UUID], to resolution: NoteDuration, in region: inout MIDIRegion) {
-        let gridSize = resolution.rawValue * (60.0 / tempo)
+        let gridSizeBeats = resolution.rawValue
         
         for i in 0..<region.notes.count {
             if notes.contains(region.notes[i].id) {
-                let quantizedStart = round(region.notes[i].startBeat / gridSize) * gridSize
+                let quantizedStart = round(region.notes[i].startBeat / gridSizeBeats) * gridSizeBeats
                 region.notes[i].startBeat = quantizedStart
             }
         }

@@ -237,13 +237,13 @@ final class RecordingController: @unchecked Sendable {
             }
         }
         
-        // Start playback
-        onStartPlayback()
-        
-        // Install input tap using pre-created file (skip file creation!)
+        // FIX: Install input tap BEFORE starting playback to capture first beat
         if let recordTrack = countInRecordTrack, !recordTrack.isMIDITrack {
             installInputTapForCountIn()
         }
+        
+        // Start playback (tap is now ready to capture from beat 0)
+        onStartPlayback()
         
         // Clear prepared state
         countInRecordingPrepared = false
@@ -253,11 +253,11 @@ final class RecordingController: @unchecked Sendable {
     func record() {
         guard let project = getProject() else { return }
         
+        // Capture recording start beat immediately so we have it even if first buffer is delayed
+        recordingStartBeat = getCurrentPosition().beats
+        
         // Check for record-enabled tracks
         let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
-        
-        // NOTE: recordingStartBeat will be captured when first buffer arrives at the tap
-        // This ensures sample-accurate alignment with the timeline
         
         // Set recording state
         onStartRecordingMode()
@@ -272,9 +272,7 @@ final class RecordingController: @unchecked Sendable {
             }
         }
         
-        // Start playback
-        onStartPlayback()
-        
+        // Install tap (and start playback) inside startRecording/setupRecording so we don't miss first buffers
         startRecording()
     }
     
@@ -334,8 +332,11 @@ final class RecordingController: @unchecked Sendable {
             let recordTrack = findOrCreateRecordTrack(in: project)
             recordingTrackId = recordTrack.id
             
-            // Skip audio recording for MIDI tracks
-            if recordTrack.isMIDITrack { return }
+            // Skip audio recording for MIDI tracks (start transport so MIDI has timeline)
+            if recordTrack.isMIDITrack {
+                onStartPlayback()
+                return
+            }
             
             // Create recording file URL
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -424,8 +425,10 @@ final class RecordingController: @unchecked Sendable {
             
             if !engine.isRunning {
                 try engine.start()
-            } else {
             }
+            
+            // Start playback only after tap is installed so we don't miss the first 10–30 ms of audio
+            onStartPlayback()
             
         } catch {
             stopRecording()
