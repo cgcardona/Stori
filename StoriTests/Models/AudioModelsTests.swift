@@ -455,6 +455,74 @@ final class AudioModelsTests: XCTestCase {
         XCTAssertEqual(TrackOutputDestination.output(channel: 3).displayName, "Output 3")
     }
     
+    // MARK: - AudioRegion Gain (dB ↔ Amplitude)
+    
+    func testAmplitudeToDbRoundTrip() {
+        assertApproximatelyEqual(AudioRegion.amplitudeToDb(1.0), 0.0)
+        assertApproximatelyEqual(AudioRegion.amplitudeToDb(2.0), 6.02, tolerance: 0.01)
+        assertApproximatelyEqual(AudioRegion.amplitudeToDb(0.5), -6.02, tolerance: 0.01)
+    }
+    
+    func testAmplitudeToDbEdges() {
+        XCTAssertEqual(AudioRegion.amplitudeToDb(0), -Float.infinity)
+        XCTAssertEqual(AudioRegion.amplitudeToDb(-0.1), -Float.infinity)
+    }
+    
+    func testDbToAmplitudeRoundTrip() {
+        assertApproximatelyEqual(AudioRegion.dbToAmplitude(0), 1.0)
+        assertApproximatelyEqual(AudioRegion.dbToAmplitude(6.0), 2.0, tolerance: 0.01)
+        assertApproximatelyEqual(AudioRegion.dbToAmplitude(-6.0), 0.5, tolerance: 0.01)
+    }
+    
+    func testDbToAmplitudeEdges() {
+        XCTAssertEqual(AudioRegion.dbToAmplitude(-Float.infinity), 0.0)
+        XCTAssertEqual(AudioRegion.dbToAmplitude(Float.nan), 0.0)
+    }
+    
+    func testGainDbGet() {
+        let audioFile = AudioFile(
+            name: "Test",
+            url: URL(fileURLWithPath: "/tmp/test.wav"),
+            duration: 1.0,
+            sampleRate: 48000,
+            channels: 2,
+            fileSize: 1024,
+            format: .wav
+        )
+        let region = AudioRegion(audioFile: audioFile, gain: 1.0)
+        assertApproximatelyEqual(region.gainDb, 0.0)
+    }
+    
+    func testGainDbSet() {
+        let audioFile = AudioFile(
+            name: "Test",
+            url: URL(fileURLWithPath: "/tmp/test.wav"),
+            duration: 1.0,
+            sampleRate: 48000,
+            channels: 2,
+            fileSize: 1024,
+            format: .wav
+        )
+        var region = AudioRegion(audioFile: audioFile, gain: 1.0)
+        region.gainDb = 6.0
+        assertApproximatelyEqual(region.gain, 2.0, tolerance: 0.01)
+    }
+    
+    func testGainDbSetClamped() {
+        let audioFile = AudioFile(
+            name: "Test",
+            url: URL(fileURLWithPath: "/tmp/test.wav"),
+            duration: 1.0,
+            sampleRate: 48000,
+            channels: 2,
+            fileSize: 1024,
+            format: .wav
+        )
+        var region = AudioRegion(audioFile: audioFile, gain: 1.0)
+        region.gainDb = 12.0  // Would be 4.0 linear; setter clamps to 2.0
+        assertApproximatelyEqual(region.gain, 2.0, tolerance: 0.01)
+    }
+    
     // MARK: - Performance Tests
     
     func testProjectCreationPerformance() {

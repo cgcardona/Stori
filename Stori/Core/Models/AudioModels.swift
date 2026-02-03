@@ -544,7 +544,7 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     var durationBeats: Double         // Region length in BEATS (musical time) - WYSIWYG!
     var fadeIn: TimeInterval          // Fade in time (seconds)
     var fadeOut: TimeInterval         // Fade out time (seconds)
-    var gain: Float
+    var gain: Float                   // Linear amplitude (0.0 to 2.0, where 1.0 = unity gain / 0 dB)
     var isLooped: Bool
     var offset: TimeInterval          // Offset within the audio file (seconds)
     
@@ -651,6 +651,38 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     /// End position in seconds at given tempo (for AVAudioEngine)
     func endTimeSeconds(tempo: Double) -> TimeInterval {
         startTimeSeconds(tempo: tempo) + durationSeconds(tempo: tempo)
+    }
+    
+    // MARK: - Gain (dB ↔ Amplitude Conversion)
+    
+    /// Gain in decibels (dB)
+    /// - 0 dB = unity gain (amplitude 1.0)
+    /// - -∞ dB = silence (amplitude 0.0)
+    /// - +6 dB = double amplitude (amplitude 2.0)
+    var gainDb: Float {
+        get {
+            AudioRegion.amplitudeToDb(gain)
+        }
+        set {
+            let amplitude = AudioRegion.dbToAmplitude(newValue)
+            gain = max(0.0, min(2.0, amplitude))
+        }
+    }
+    
+    /// Convert linear amplitude to decibels (dB)
+    /// - Parameter amplitude: Linear amplitude (0.0 = silence, 1.0 = unity gain)
+    /// - Returns: Gain in dB (-∞ to +∞, where 0 dB = unity gain)
+    static func amplitudeToDb(_ amplitude: Float) -> Float {
+        guard amplitude > 0 else { return -Float.infinity }
+        return 20.0 * log10(amplitude)
+    }
+    
+    /// Convert decibels (dB) to linear amplitude
+    /// - Parameter db: Gain in dB (0 dB = unity gain, +6 dB ≈ double amplitude)
+    /// - Returns: Linear amplitude (0.0 to positive values). Non-finite db (e.g. -∞, NaN) returns 0.0.
+    static func dbToAmplitude(_ db: Float) -> Float {
+        guard db.isFinite else { return 0.0 }  // -∞ dB = silence; NaN = invalid → 0
+        return pow(10.0, db / 20.0)
     }
     
     var displayName: String {
