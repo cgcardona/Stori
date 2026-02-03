@@ -136,7 +136,8 @@ class ProjectManager {
             }
             
             // Set up timeout (5 seconds) to prevent hanging forever
-            Task {
+            // Run on MainActor so hasResumed/observer/continuation are accessed on same queue as notification handler (no data race)
+            Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 
                 // Guard against double-resume
