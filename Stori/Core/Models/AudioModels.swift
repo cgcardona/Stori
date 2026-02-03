@@ -664,7 +664,8 @@ struct AudioRegion: Identifiable, Codable, Equatable {
             AudioRegion.amplitudeToDb(gain)
         }
         set {
-            gain = AudioRegion.dbToAmplitude(newValue)
+            let amplitude = AudioRegion.dbToAmplitude(newValue)
+            gain = max(0.0, min(2.0, amplitude))
         }
     }
     
@@ -678,9 +679,9 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     
     /// Convert decibels (dB) to linear amplitude
     /// - Parameter db: Gain in dB (0 dB = unity gain, +6 dB ≈ double amplitude)
-    /// - Returns: Linear amplitude (0.0 to positive values)
+    /// - Returns: Linear amplitude (0.0 to positive values). Non-finite db (e.g. -∞, NaN) returns 0.0.
     static func dbToAmplitude(_ db: Float) -> Float {
-        guard db.isFinite else { return 0.0 }  // -∞ dB = silence
+        guard db.isFinite else { return 0.0 }  // -∞ dB = silence; NaN = invalid → 0
         return pow(10.0, db / 20.0)
     }
     
