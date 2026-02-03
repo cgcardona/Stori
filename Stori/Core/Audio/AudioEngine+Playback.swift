@@ -29,30 +29,17 @@ extension AudioEngine {
 
         let startBeat = currentPosition.beats
         let tempo = project.tempo
-        // Convert beats to seconds for audio scheduling (AVAudioEngine boundary)
-        let startTimeSeconds = startBeat * (60.0 / tempo)
         
         logDebug("startPlayback: \(project.tracks.count) tracks, startBeat: \(startBeat), tempo: \(tempo)", category: "PLAYBACK")
-
-        for track in project.tracks {
-            guard let trackNode = trackNodes[track.id] else {
-                logDebug("⚠️ No trackNode for track '\(track.name)' (id: \(track.id))", category: "PLAYBACK")
-                continue
-            }
-            
-            logDebug("Scheduling track '\(track.name)': \(track.regions.count) audio regions, \(track.midiRegions.count) MIDI regions", category: "PLAYBACK")
-
-            do {
-                // scheduleFromPosition takes seconds for AVAudioEngine scheduling
-                try trackNode.scheduleFromPosition(startTimeSeconds, audioRegions: track.regions, tempo: tempo)
-                if !track.regions.isEmpty {
-                    trackNode.play()
-                    logDebug("Track '\(track.name)' started playing", category: "PLAYBACK")
-                }
-            } catch {
-                logDebug("⚠️ Error scheduling track \(track.name): \(error)", category: "PLAYBACK")
-            }
-        }
+        
+        // SEAMLESS CYCLE LOOPS: Update PlaybackSchedulingCoordinator with cycle state
+        // This enables pre-scheduling of multiple cycle iterations for gap-free looping
+        playbackScheduler.isCycleEnabled = isCycleEnabled
+        playbackScheduler.cycleStartBeat = cycleStartBeat
+        playbackScheduler.cycleEndBeat = cycleEndBeat
+        
+        // Schedule all tracks using the coordinator (handles cycle-aware scheduling if enabled)
+        playbackScheduler.scheduleAllTracks(fromBeat: startBeat)
 
         // Start MIDI playback with tempo for beats→seconds conversion
         // FIX: Call directly (both are @MainActor) - Task wrapper caused async delay
@@ -69,12 +56,8 @@ extension AudioEngine {
         // Stop MIDI playback - call directly (both are @MainActor)
         midiPlaybackEngine.stop()
         
-        // Stop all player nodes immediately
-        // Plugin tails (reverb/delay) will naturally ring out through the graph
-        // No volume manipulation needed - let the audio decay naturally
-        for (_, trackNode) in trackNodes {
-            trackNode.playerNode.stop()
-        }
+        // Stop all player nodes via the scheduler (resets cycle state too)
+        playbackScheduler.stopAllTracks()
     }
     
     func playTrackInternal(_ track: AudioTrack, from startTime: TimeInterval) {
