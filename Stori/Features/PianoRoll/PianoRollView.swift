@@ -260,12 +260,11 @@ struct PianoRollView: View {
                                         .gesture(gridGesture)
                                     }
                                     .coordinateSpace(name: "gridScroll")
-                                    .onAppear {
-                                        // Scroll to show notes on initial appear
-                                        // Use a small delay to ensure layout is complete
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                            scrollProxy.scrollTo("scrollAnchor", anchor: .center)
-                                        }
+                                    .task {
+                                        // Wait for SwiftUI layout pass to complete
+                                        // Task.yield() cooperatively waits for the next layout cycle
+                                        await Task.yield()
+                                        scrollProxy.scrollTo("scrollAnchor", anchor: .center)
                                     }
                                 }
                             }
@@ -303,8 +302,8 @@ struct PianoRollView: View {
             initializeLanesFromExistingData()
         }
         .task {
-            // Slight delay to ensure region data is fully loaded
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            // Wait for SwiftUI layout to complete before initializing automation lanes
+            await Task.yield()
             if automationLanes.isEmpty {
                 initializeLanesFromExistingData()
             }
