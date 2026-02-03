@@ -1253,32 +1253,25 @@ struct PlaybackPosition: Codable {
     /// Beat within the current bar (1-indexed)
     var beatInBar: Int
     
-    /// Cached time interval in seconds (computed at creation time from tempo)
-    /// For UI display and AVAudioEngine boundary - uses tempo from when position was created
-    var timeInterval: TimeInterval
-    
     /// The time signature used for bar/beat calculation
     private var timeSignatureNumerator: Int = 4
     
-    /// The tempo used for timeInterval calculation (stored for reference)
-    private var cachedTempo: Double = 120.0
-    
     // MARK: - Beats-First Initialization (Primary)
     
-    /// Initialize from beats with tempo for timeInterval caching
+    /// Initialize from beats (beats are the source of truth, time is always computed)
     init(beats: Double = 0, timeSignature: TimeSignature = .fourFour, tempo: Double = 120.0) {
         self.beats = beats
         self.timeSignatureNumerator = timeSignature.numerator
         self.bars = Int(beats / Double(timeSignature.numerator))
         self.beatInBar = Int(beats.truncatingRemainder(dividingBy: Double(timeSignature.numerator))) + 1
-        self.cachedTempo = tempo
-        // Cache the time interval for backwards compatibility with UI code
-        self.timeInterval = beats * (60.0 / tempo)
+        // NOTE: tempo parameter is kept for API compatibility but not cached
+        // Use timeInterval(atTempo:) to convert beats to seconds
     }
     
     // MARK: - Seconds Conversion (for AVAudioEngine boundary)
     
-    /// Get time interval in seconds at a specific tempo (use when tempo differs from cached)
+    /// Get time interval in seconds at a specific tempo
+    /// IMPORTANT: Always provide the current project tempo to get accurate time values
     func timeInterval(atTempo tempo: Double) -> TimeInterval {
         beats * (60.0 / tempo)
     }

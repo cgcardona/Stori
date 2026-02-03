@@ -1345,7 +1345,8 @@ struct IntegratedAudioRegion: View {
             }
             
             Button("Split at Playhead") {
-                let playheadTime = audioEngine.currentPosition.timeInterval
+                guard let project = projectManager.currentProject else { return }
+                let playheadTime = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
                 splitRegionAtPlayhead(playheadTime)
             }
             .disabled(!canSplitAtPlayhead)
@@ -1441,7 +1442,7 @@ struct IntegratedAudioRegion: View {
     private var canSplitAtPlayhead: Bool {
         // Convert playhead from seconds to beats for comparison
         let tempo = projectManager.currentProject?.tempo ?? 120.0
-        let playheadBeat = audioEngine.currentPosition.timeInterval * (tempo / 60.0)
+        let playheadBeat = audioEngine.currentPosition.beats  // Use beats directly, not time
         let regionEndBeat = region.endBeat
         return playheadBeat > region.startBeat && playheadBeat < regionEndBeat
     }

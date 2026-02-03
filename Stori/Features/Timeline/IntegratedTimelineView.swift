@@ -1480,7 +1480,7 @@ struct IntegratedTimelineView: View {
     private func trimSelectedRegionsStart() {
         guard var project = projectManager.currentProject else { return }
         
-        let playheadSeconds = audioEngine.currentPosition.timeInterval
+        let playheadSeconds = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
         let tempo = project.tempo
         let playheadBeat = playheadSeconds * (tempo / 60.0)
         
@@ -1526,7 +1526,7 @@ struct IntegratedTimelineView: View {
     private func trimSelectedRegionsEnd() {
         guard var project = projectManager.currentProject else { return }
         
-        let playheadSeconds = audioEngine.currentPosition.timeInterval
+        let playheadSeconds = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
         let tempo = project.tempo
         let playheadBeat = playheadSeconds * (tempo / 60.0)
         
@@ -1845,7 +1845,7 @@ struct IntegratedTimelineView: View {
     private func splitSelectedRegionsAtPlayhead() {
         guard let project = projectManager.currentProject else { return }
         
-        let playheadSeconds = audioEngine.currentPosition.timeInterval
+        let playheadSeconds = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
         let tempo = project.tempo
         let playheadBeat = playheadSeconds * (tempo / 60.0)
         
