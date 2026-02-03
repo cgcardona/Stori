@@ -110,7 +110,7 @@ class ProjectManager {
     @MainActor
     func performSaveWithPluginSync() async {
         // Use continuation with timeout to wait for AudioEngine
-        let updatedProject: AudioProject? = await withCheckedContinuation { continuation in
+        let updatedProject: AudioProject? = await withCheckedContinuation { (continuation: CheckedContinuation<AudioProject?, Never>) in
             // Track if we've already resumed (prevent double-resume)
             var hasResumed = false
             
