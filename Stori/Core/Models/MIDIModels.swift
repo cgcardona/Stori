@@ -450,8 +450,8 @@ enum SnapResolution: String, CaseIterable, Codable {
     case tripletSixteenth = "1/16T"
     case off = "Off"
     
-    /// Duration in beats (assuming 4/4 time)
-    var duration: TimeInterval {
+    /// Step duration in beats (assuming 4/4 time). Use for musical grid, not seconds.
+    var stepDurationBeats: Double {
         switch self {
         case .bar: return 4.0
         case .half: return 2.0
@@ -478,18 +478,18 @@ enum SnapResolution: String, CaseIterable, Codable {
         }
     }
     
-    /// Quantize a time value to this resolution
-    func quantize(_ time: TimeInterval) -> TimeInterval {
-        guard duration > 0 else { return time }
-        return round(time / duration) * duration
+    /// Quantize a beat value to this resolution (beats in, beats out).
+    func quantize(beat: Double) -> Double {
+        guard stepDurationBeats > 0 else { return beat }
+        return round(beat / stepDurationBeats) * stepDurationBeats
     }
     
-    /// Quantize with strength (0 = no change, 1 = full quantize)
-    func quantize(_ time: TimeInterval, strength: Float) -> TimeInterval {
-        guard duration > 0, strength > 0 else { return time }
-        let quantized = quantize(time)
-        let offset = quantized - time
-        return time + (offset * Double(strength))
+    /// Quantize with strength (0 = no change, 1 = full quantize).
+    func quantize(beat: Double, strength: Float) -> Double {
+        guard stepDurationBeats > 0, strength > 0 else { return beat }
+        let quantized = quantize(beat: beat)
+        let offset = quantized - beat
+        return beat + (offset * Double(strength))
     }
 }
 

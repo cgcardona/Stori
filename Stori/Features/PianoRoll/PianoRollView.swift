@@ -1205,14 +1205,14 @@ struct PianoRollView: View {
                 var startBeat = rawBeat
                 
                 if snapResolution != .off {
-                    startBeat = snapResolution.quantize(rawBeat)
+                    startBeat = snapResolution.quantize(beat:rawBeat)
                 }
                 
                 drawingNote = MIDINote(
                     pitch: pitch,
                     velocity: 100,  // ~78% velocity - standard DAW default
                     startBeat: startBeat,
-                    durationBeats: snapResolution.duration > 0 ? snapResolution.duration : 0.25
+                    durationBeats: snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.25
                 )
                 
                 onPreviewNote?(pitch)
@@ -1220,9 +1220,9 @@ struct PianoRollView: View {
                 // Update note duration while dragging
                 var endBeat = timeAt(x: value.location.x)
                 if snapResolution != .off {
-                    endBeat = snapResolution.quantize(endBeat)
+                    endBeat = snapResolution.quantize(beat:endBeat)
                 }
-                note.durationBeats = max(snapResolution.duration > 0 ? snapResolution.duration : 0.1, endBeat - note.startBeat)
+                note.durationBeats = max(snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.1, endBeat - note.startBeat)
                 drawingNote = note
             }
             
@@ -1280,11 +1280,11 @@ struct PianoRollView: View {
             
             // Snap to grid
             if snapResolution != .off {
-                startBeat = snapResolution.quantize(startBeat)
+                startBeat = snapResolution.quantize(beat:startBeat)
             }
             
             // Check if a note already exists at this grid position
-            let duration = snapResolution.duration > 0 ? snapResolution.duration : 0.25
+            let duration = snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.25
             let noteExists = region.notes.contains { note in
                 note.pitch == pitch && 
                 abs(note.startBeat - startBeat) < 0.01  // Same grid position
@@ -1673,7 +1673,7 @@ struct PianoRollView: View {
                 // Calculate absolute position from start
                 var newStartBeat = startPos.beat + rawTimeOffset
                 if snapResolution != .off {
-                    newStartBeat = snapResolution.quantize(newStartBeat)
+                    newStartBeat = snapResolution.quantize(beat:newStartBeat)
                 }
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(startPos.pitch) + pitchOffset)
@@ -1681,7 +1681,7 @@ struct PianoRollView: View {
                 // Normal drag: calculate offset from current position
                 var actualBeatOffset = rawTimeOffset
                 if snapResolution != .off {
-                    let newStartBeat = snapResolution.quantize(note.startBeat + rawTimeOffset)
+                    let newStartBeat = snapResolution.quantize(beat:note.startBeat + rawTimeOffset)
                     actualBeatOffset = newStartBeat - note.startBeat
                 }
                 movedNote.startBeat = max(0, movedNote.startBeat + actualBeatOffset)
@@ -1737,7 +1737,7 @@ struct PianoRollView: View {
         var newDuration = note.durationBeats + durationDelta
         
         if snapResolution != .off {
-            newDuration = max(snapResolution.duration, snapResolution.quantize(newDuration))
+            newDuration = max(snapResolution.stepDurationBeats, snapResolution.quantize(beat:newDuration))
         } else {
             newDuration = max(0.01, newDuration)
         }
@@ -1780,10 +1780,10 @@ struct PianoRollView: View {
         
         for id in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == id }) {
-                region.notes[index].startBeat = snapResolution.quantize(region.notes[index].startBeat)
+                region.notes[index].startBeat = snapResolution.quantize(beat:region.notes[index].startBeat)
                 region.notes[index].durationBeats = max(
-                    snapResolution.duration,
-                    snapResolution.quantize(region.notes[index].durationBeats)
+                    snapResolution.stepDurationBeats,
+                    snapResolution.quantize(beat:region.notes[index].durationBeats)
                 )
             }
         }

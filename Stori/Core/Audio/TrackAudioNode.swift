@@ -565,7 +565,8 @@ final class TrackAudioNode: @unchecked Sendable {
                         currentLoopStart += contentLen
                         continue
                     }
-                    let startFrameInFile = AVAudioFramePosition(offsetIntoLoop * sr)
+                    let clampedOffset = min(offsetIntoLoop, fileDuration)
+                    let startFrameInFile = AVAudioFramePosition(clampedOffset * sr)
                     
                     // Frames to play from this loop iteration (only audio, not empty space)
                     let loopDuration = loopEnd - max(currentLoopStart, startTime)

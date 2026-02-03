@@ -145,8 +145,8 @@ extension AudioEngine {
             AutomationRecorder.mergePoints(
                 recorded: points,
                 into: &track.automationLanes[laneIndex].points,
-                startTime: startBeat,
-                endTime: endBeat,
+                startBeat: startBeat,
+                endBeat: endBeat,
                 mode: track.automationMode
             )
         } else {

@@ -196,15 +196,24 @@ final class DeviceConfigurationManager {
         do {
             try engine.start()
             setGraphReady?(true)
-            
+            NotificationCenter.default.post(
+                name: .audioDeviceChangeSucceeded,
+                object: nil,
+                userInfo: ["message": "Audio device changed successfully."]
+            )
             // 11) Resume playback if it was playing
             if wasPlaying {
                 onSeekToBeat?(savedPosition.beats)
                 onPlay?()
             }
         } catch {
-            AppLogger.shared.error("Failed to restart engine after device change: \(error)", category: .audio)
+            AppLogger.shared.error("[DeviceConfig] Failed to restart engine after device change: \(error)", category: .audio)
             setGraphReady?(true)
+            NotificationCenter.default.post(
+                name: .audioDeviceChangeFailed,
+                object: nil,
+                userInfo: ["message": "Could not start audio. Check your audio device in System Settings."]
+            )
         }
         transportController?.setupPositionTimer()
     }

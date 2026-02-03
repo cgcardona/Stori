@@ -2115,4 +2115,13 @@ extension AudioEngine {
     private func safePlay(_ player: AVAudioPlayerNode) {
         playbackScheduler.safePlay(player)
     }
+    
+    // MARK: - Memory Pressure (Phase 5: Error Recovery)
+    
+    /// Called under memory pressure to release non-essential caches. Safe to call from main thread.
+    /// On macOS there is no system memory-warning notification; wire to DISPATCH_SOURCE_TYPE_MEMORYPRESSURE if desired.
+    func handleMemoryWarning() {
+        mixerController.invalidateTrackIndexCache()
+        // Future: clear cachedAudioFiles, cachedWaveforms when those caches exist
+    }
 }

@@ -33,11 +33,16 @@ extension AudioEngine {
     /// PERFORMANCE: Uses hot-swap mutation to only affect the target track.
     /// Other tracks continue playing without interruption.
     func rebuildTrackGraphInternal(trackId: UUID) {
+        #if DEBUG
+        precondition(graphFormat != nil, "Graph format not initialized")
+        precondition(trackNodes[trackId] != nil, "Track node doesn't exist for trackId \(trackId)")
+        #endif
         guard let trackNode = trackNodes[trackId] else {
             return
         }
-        
-        let format = graphFormat!
+        guard let format = graphFormat else {
+            return
+        }
         let pluginChain = trackNode.pluginChain
         let hasPlugins = pluginChain.hasActivePlugins
         let chainIsRealized = pluginChain.isRealized
@@ -243,8 +248,9 @@ extension AudioEngine {
         guard let trackNode = trackNodes[trackId] else {
             return
         }
-        
-        let format = graphFormat!
+        guard let format = graphFormat else {
+            return
+        }
         
         // Use lighter-weight connection mutation - no engine reset needed
         // since we're only reconnecting existing nodes

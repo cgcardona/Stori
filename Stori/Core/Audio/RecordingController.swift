@@ -253,11 +253,11 @@ final class RecordingController: @unchecked Sendable {
     func record() {
         guard let project = getProject() else { return }
         
+        // Capture recording start beat immediately so we have it even if first buffer is delayed
+        recordingStartBeat = getCurrentPosition().beats
+        
         // Check for record-enabled tracks
         let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
-        
-        // NOTE: recordingStartBeat will be captured when first buffer arrives at the tap
-        // This ensures sample-accurate alignment with the timeline
         
         // Set recording state
         onStartRecordingMode()

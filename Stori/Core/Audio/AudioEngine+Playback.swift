@@ -119,9 +119,11 @@ extension AudioEngine {
                     playerNode.stop()
                 }
                 
-                // Sample-accurate timing: use AVAudioTime so cycle jumps and sync stay aligned
+                // Sample-accurate timing: schedule at (regionStart - currentTime) so no drift over loops
                 let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
-                let when = AVAudioTime(sampleTime: 0, atRate: playerSampleRate)
+                let delaySeconds = max(0.0, regionStartSeconds - currentTime)
+                let delaySamples = AVAudioFramePosition(delaySeconds * playerSampleRate)
+                let when = AVAudioTime(sampleTime: delaySamples, atRate: playerSampleRate)
                 playerNode.scheduleSegment(
                     audioFile,
                     startingFrame: startFrame,
@@ -163,8 +165,11 @@ extension AudioEngine {
                     playerNode.stop()
                 }
                 
+                // Sample-accurate timing: schedule at (regionStart - currentTime)
                 let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
-                let when = AVAudioTime(sampleTime: 0, atRate: playerSampleRate)
+                let delaySeconds = max(0.0, regionStartSeconds - currentTime)
+                let delaySamples = AVAudioFramePosition(delaySeconds * playerSampleRate)
+                let when = AVAudioTime(sampleTime: delaySamples, atRate: playerSampleRate)
                 playerNode.scheduleSegment(
                     audioFile,
                     startingFrame: startFrame,

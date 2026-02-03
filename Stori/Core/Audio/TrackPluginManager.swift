@@ -217,9 +217,18 @@ class TrackPluginManager {
                 try await instance.load(sampleRate: sampleRate)
             }
         } catch {
-            // Record crash if plugin fails to load
+            // Isolate failure: record, log, notify; do not add plugin to chain or throw (DAW continues)
             PluginGreylist.shared.recordCrash(for: descriptor, reason: "Failed to load: \(error.localizedDescription)")
-            throw error
+            AppLogger.shared.error("[TrackPluginManager] Plugin '\(descriptor.name)' failed to load: \(error)", category: .audio)
+            NotificationCenter.default.post(
+                name: .pluginLoadFailed,
+                object: nil,
+                userInfo: [
+                    "pluginName": descriptor.name,
+                    "message": "'\(descriptor.name)' could not be loaded and was not added. Your project is unchanged."
+                ]
+            )
+            return
         }
         
         guard let avUnit = instance.avAudioUnit else {

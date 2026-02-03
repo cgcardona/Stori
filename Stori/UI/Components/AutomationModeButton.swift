@@ -424,7 +424,13 @@ struct AddAutomationLaneMenu: View {
             return
         }
         
-        let newLane = AutomationLane(parameter: parameter, color: parameter.color)
+        let track = project.tracks[trackIndex]
+        let newLane = AutomationLane(
+            parameter: parameter,
+            points: [],
+            initialValue: track.mixerValue(for: parameter),
+            color: parameter.color
+        )
         project.tracks[trackIndex].automationLanes.append(newLane)
         project.tracks[trackIndex].automationExpanded = true
         project.modifiedAt = Date()
