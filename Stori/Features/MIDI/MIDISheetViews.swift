@@ -318,8 +318,8 @@ struct PianoRollPanelContent: View {
                 region: regionBinding,
                 tempo: tempo,  // [PHASE-3] Project tempo for measure display
                 cycleEnabled: audioEngine.isCycleEnabled,  // [PHASE-4] Cycle region from audio engine
-                cycleStartTime: audioEngine.cycleStartBeat,  // Already in beats!
-                cycleEndTime: audioEngine.cycleEndBeat,      // Already in beats!
+                cycleStartBeats: audioEngine.cycleStartBeat,
+                cycleEndBeats: audioEngine.cycleEndBeat,
                 snapToGrid: snapToGrid,  // [PHASE-4] Pass snap toggle state
                 onCycleRegionChanged: { startBeats, endBeats in
                     // [PHASE-4] Update audio engine directly with beats

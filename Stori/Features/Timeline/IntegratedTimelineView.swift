@@ -13,11 +13,9 @@ import Combine
 
 // MARK: - Time Display Mode (Internal to Timeline)
 
-/// Controls snap behavior for regions - always uses beats
-/// Kept for backwards compatibility with snap calculations
+/// Snap/grid behavior for regions. Timeline is beat-based only; legacy time mode removed.
 enum TimeDisplayMode: String {
     case beats = "Beats"
-    case time = "Time"  // Unused - kept for snap calculation compatibility
 }
 
 struct IntegratedTimelineView: View {
@@ -73,8 +71,6 @@ struct IntegratedTimelineView: View {
     // Drag-and-drop state
     @State private var isDragOver = false
     @State private var dropTargetTrackId: UUID?
-    @State private var dropTimePosition: TimeInterval = 0.0
-    
     // Tokenization state
     @State private var showingTokenizeSheet = false
     @State private var showingWalletConnection = false
@@ -755,7 +751,7 @@ struct IntegratedTimelineView: View {
                                 projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].detectedKey = result.key
                                 projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].tempoConfidence = result.tempoConfidence
                                 projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].keyConfidence = result.keyConfidence
-                                projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].detectedBeats = result.beats
+                                projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].detectedBeatTimesInSeconds = result.beats
                                 projectManager.currentProject?.tracks[trackIndex].regions[regionIndex].downbeatIndices = result.downbeatIndices
                                 
                                 if let tempo = result.tempo {
@@ -1090,15 +1086,10 @@ struct IntegratedTimelineView: View {
     /// Scrolls the timeline view to keep the playhead visible when playing
     /// Professional DAW style: playhead stays visible, view scrolls to follow
     private func catchPlayheadIfNeeded(currentBeat: Double) {
-        guard let project = project else { return }
+        guard project != nil else { return }
         
-        // Get current time in seconds
-        let tempo = project.tempo
-        let secondsPerBeat = 60.0 / tempo
-        let currentTimeSeconds = currentBeat * secondsPerBeat
-        
-        // Calculate playhead position in pixels
-        let playheadX = CGFloat(currentTimeSeconds) * pixelsPerSecond
+        // Playhead position in pixels from beats (beats are source of truth)
+        let playheadX = CGFloat(currentBeat) * pixelsPerBeat
         
         // Current scroll offset (absolute pixels)
         let currentScrollOffset = scrollSync.horizontalScrollOffset
@@ -1239,7 +1230,7 @@ struct IntegratedTimelineView: View {
             isCycleEnabled: audioEngine.isCycleEnabled,
             cycleStartBeat: audioEngine.cycleStartBeat,
             cycleEndBeat: audioEngine.cycleEndBeat,
-            onSeek: { timeInSeconds in audioEngine.seek(toSeconds: timeInSeconds) },
+            onSeek: { beat in audioEngine.seek(toBeat: beat) },
             onCycleRegionChanged: { start, end in audioEngine.setCycleRegion(startBeat: start, endBeat: end) }
         )
         .frame(width: contentSize.width, height: rulerHeight)
@@ -1284,8 +1275,7 @@ struct IntegratedTimelineView: View {
                 contentSize: contentSize,
                 trackHeight: effectiveTrackHeight,
                 pixelsPerBeat: pixelsPerBeat,
-                trackCount: project?.tracks.count ?? 0,
-                tempo: projectTempo
+                trackCount: project?.tracks.count ?? 0
             )
             
             // Track rows with regions (automation curves are now overlays inside each row)
@@ -1302,7 +1292,7 @@ struct IntegratedTimelineView: View {
             // PERFORMANCE: Uses @Observable TransportModel for fine-grained updates
             TimelinePlayhead(
                 height: contentSize.height,
-                pixelsPerSecond: pixelsPerSecond
+                pixelsPerBeat: pixelsPerBeat
             )
             
         }
@@ -1480,9 +1470,8 @@ struct IntegratedTimelineView: View {
     private func trimSelectedRegionsStart() {
         guard var project = projectManager.currentProject else { return }
         
-        let playheadSeconds = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
+        let playheadBeat = audioEngine.currentPosition.beats
         let tempo = project.tempo
-        let playheadBeat = playheadSeconds * (tempo / 60.0)
         
         let selectedIds = selection.selectedRegionIds
         guard !selectedIds.isEmpty else { return }
@@ -1497,15 +1486,13 @@ struct IntegratedTimelineView: View {
                     
                     // Only trim if playhead is inside the region
                     if playheadBeat > region.startBeat && playheadBeat < regionEndBeat {
-                        // Calculate how much we're trimming from the start
+                        // Calculate how much we're trimming from the start (all in beats)
                         let trimBeats = playheadBeat - region.startBeat
-                        let trimSeconds = trimBeats * (60.0 / tempo)
+                        let trimSeconds = trimBeats * (60.0 / tempo)  // For audio offset (AV boundary)
                         
-                        // Update region: move start, adjust offset, reduce duration
-                        let trimDurationBeats = trimSeconds * (tempo / 60.0)
                         project.tracks[trackIndex].regions[regionIndex].startBeat = playheadBeat
                         project.tracks[trackIndex].regions[regionIndex].offset += trimSeconds
-                        project.tracks[trackIndex].regions[regionIndex].durationBeats -= trimDurationBeats
+                        project.tracks[trackIndex].regions[regionIndex].durationBeats -= trimBeats
                         project.tracks[trackIndex].regions[regionIndex].fadeIn = 0 // Reset fade after trim
                         
                         modified = true
@@ -1526,9 +1513,7 @@ struct IntegratedTimelineView: View {
     private func trimSelectedRegionsEnd() {
         guard var project = projectManager.currentProject else { return }
         
-        let playheadSeconds = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
-        let tempo = project.tempo
-        let playheadBeat = playheadSeconds * (tempo / 60.0)
+        let playheadBeat = audioEngine.currentPosition.beats
         
         let selectedIds = selection.selectedRegionIds
         guard !selectedIds.isEmpty else { return }
@@ -1845,9 +1830,7 @@ struct IntegratedTimelineView: View {
     private func splitSelectedRegionsAtPlayhead() {
         guard let project = projectManager.currentProject else { return }
         
-        let playheadSeconds = audioEngine.currentPosition.timeInterval(atTempo: project.tempo)
-        let tempo = project.tempo
-        let playheadBeat = playheadSeconds * (tempo / 60.0)
+        let playheadBeat = audioEngine.currentPosition.beats
         
         // Get selected audio region IDs
         let selectedIds = selection.selectedRegionIds
@@ -1864,7 +1847,7 @@ struct IntegratedTimelineView: View {
                 if selectedIds.contains(region.id) {
                     let regionEndBeat = region.endBeat
                     if playheadBeat > region.startBeat && playheadBeat < regionEndBeat {
-                        projectManager.splitRegionAtPosition(region.id, trackId: track.id, splitTime: playheadBeat)
+                        projectManager.splitRegionAtPosition(region.id, trackId: track.id, splitBeat: playheadBeat)
                         splitCount += 1
                     }
                 }
@@ -1881,7 +1864,7 @@ struct IntegratedTimelineView: View {
                 for region in track.regions {
                     let regionEndBeat = region.endBeat
                     if playheadBeat > region.startBeat && playheadBeat < regionEndBeat {
-                        projectManager.splitRegionAtPosition(region.id, trackId: track.id, splitTime: playheadBeat)
+                        projectManager.splitRegionAtPosition(region.id, trackId: track.id, splitBeat: playheadBeat)
                         splitCount += 1
                         break // Only split one region when nothing is selected
                     }

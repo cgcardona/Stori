@@ -209,7 +209,7 @@ struct ProjectUIState: Codable, Equatable {
     // MARK: - Zoom & View State
     var horizontalZoom: Double = 0.8          // Timeline horizontal zoom (0.1x to 10x)
     var verticalZoom: Double = 1.0            // Timeline vertical zoom (0.5x to 3x)
-    var timeDisplayMode: String = "beats"     // "beats" or "time"
+    var timeDisplayMode: String = "beats"     // Timeline is beat-based only; "time" legacy, ignored
     
     // MARK: - Timeline Controls
     var snapToGrid: Bool = true               // Snap regions/notes to grid
@@ -501,7 +501,6 @@ struct AudioTrack: Identifiable, Codable, Equatable {
     
     /// Track duration in beats (using 120 BPM as fallback)
     /// Prefer durationInBeats(tempo:) when tempo is available
-    /// Note: Returns beats, not seconds (despite TimeInterval type)
     var durationBeats: Double? {
         durationInBeats(tempo: 120.0)
     }
@@ -672,10 +671,10 @@ struct AudioRegion: Identifiable, Codable, Equatable {
     var tempoRate: Float = 1.0       // 0.5...2.0
     
     // MARK: - Beat Detection
-    /// Detected beat positions (in seconds from region start), calculated from detected tempo
-    var detectedBeats: [TimeInterval]? = nil
+    /// Detected beat grid times in seconds from region start (from tempo-derived grid). Used for snap/visualization.
+    var detectedBeatTimesInSeconds: [TimeInterval]? = nil
     
-    /// Which beats are downbeats (first beat of measure). Indices into detectedBeats array.
+    /// Which beats are downbeats (first beat of measure). Indices into detectedBeatTimesInSeconds array.
     var downbeatIndices: [Int]? = nil
     
     // MARK: - AI Generation Metadata

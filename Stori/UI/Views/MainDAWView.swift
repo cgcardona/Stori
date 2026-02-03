@@ -111,8 +111,7 @@ struct MainDAWView: View {
     }
     
     private var timeDisplayMode: TimeDisplayMode {
-        let mode = projectManager.currentProject?.uiState.timeDisplayMode ?? "beats"
-        return mode == "beats" ? .beats : .time
+        .beats  // Timeline is beat-based only; legacy time mode removed
     }
     
     private var showingInspector: Bool {
@@ -188,11 +187,6 @@ struct MainDAWView: View {
         projectManager.currentProject = project
     }
     
-    private func setTimeDisplayMode(_ value: TimeDisplayMode) {
-        guard var project = projectManager.currentProject else { return }
-        project.uiState.timeDisplayMode = value == .beats ? "beats" : "time"
-        projectManager.currentProject = project
-    }
     
     private func setShowingInspector(_ value: Bool) {
         if var project = projectManager.currentProject {
@@ -298,13 +292,6 @@ struct MainDAWView: View {
         Binding(
             get: { snapToGrid },
             set: { setSnapToGrid($0) }
-        )
-    }
-    
-    private var timeDisplayModeBinding: Binding<TimeDisplayMode> {
-        Binding(
-            get: { timeDisplayMode },
-            set: { setTimeDisplayMode($0) }
         )
     }
     

@@ -81,32 +81,16 @@ struct AddTrackButtonStyle: ButtonStyle {
 
 // MARK: - File-Level Helpers
 
-/// Calculate snap interval based on timeDisplayMode
+/// Calculate snap interval for a time value (seconds). Timeline is beat-based; snaps to nearest beat.
 /// - Parameters:
-///   - time: The time to snap
-///   - mode: The time display mode (beats or time)
-///   - tempo: The project tempo (for beats mode)
-/// - Returns: Snapped time interval
+///   - time: The time in seconds to snap
+///   - mode: Ignored (beats only)
+///   - tempo: The project tempo (for beat duration)
+/// - Returns: Snapped time in seconds (nearest beat)
 func calculateSnapInterval(for time: TimeInterval, mode: TimeDisplayMode, tempo: Double) -> TimeInterval {
-    switch mode {
-    case .beats:
-        // Snap to individual beats (not full bars) for precise placement
-        let secondsPerBeat = 60.0 / tempo
-        // Round to nearest beat using standard rounding
-        let beatNumber = round(time / secondsPerBeat)
-        return beatNumber * secondsPerBeat
-    case .time:
-        // Snap to fixed time intervals
-        let snapInterval: TimeInterval
-        if time < 10 {
-            snapInterval = 0.5  // 500ms for short times
-        } else if time < 60 {
-            snapInterval = 1.0  // 1 second for medium times
-        } else {
-            snapInterval = 5.0  // 5 seconds for long times
-        }
-        return round(time / snapInterval) * snapInterval
-    }
+    let secondsPerBeat = 60.0 / tempo
+    let beatNumber = round(time / secondsPerBeat)
+    return beatNumber * secondsPerBeat
 }
 
 // MARK: - Timeline Playhead (isolated for performance)
@@ -115,17 +99,14 @@ func calculateSnapInterval(for time: TimeInterval, mode: TimeDisplayMode, tempo:
 // NOTE: Triangle head is only in the RulerPlayhead, not here (to avoid duplication)
 struct TimelinePlayhead: View {
     @Environment(AudioEngine.self) private var audioEngine
-    @Environment(ProjectManager.self) private var projectManager
     let height: CGFloat
-    let pixelsPerSecond: CGFloat
+    let pixelsPerBeat: CGFloat
     
     private let lineWidth: CGFloat = 2
     
     var body: some View {
-        // Convert beats to seconds for pixel calculation (read from ProjectManager for consistency)
-        let tempo = projectManager.currentProject?.tempo ?? 120.0
-        let timeInSeconds = audioEngine.currentPosition.beats * (60.0 / tempo)
-        let playheadX = CGFloat(timeInSeconds) * pixelsPerSecond
+        // Position from beats (no seconds)
+        let playheadX = CGFloat(audioEngine.currentPosition.beats) * pixelsPerBeat
         
         Rectangle()
             .fill(Color.red)

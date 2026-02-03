@@ -21,8 +21,8 @@ struct IntegratedTrackRow: View {
     let snapToGrid: Bool
     let timeDisplayMode: TimeDisplayMode
     let onSelect: () -> Void
-    let onRegionMove: (UUID, TimeInterval) -> Void  // Region move callback
-    let onRegionMoveToTrack: (UUID, UUID, UUID, TimeInterval) -> Void  // Track-to-track move callback
+    let onRegionMove: (UUID, Double) -> Void  // Region move callback (position in beats)
+    let onRegionMoveToTrack: (UUID, UUID, UUID, Double) -> Void  // Track-to-track move (position in beats)
     let onMIDIRegionDoubleClick: (MIDIRegion, AudioTrack) -> Void  // Open Piano Roll callback
     let onMIDIRegionBounce: (MIDIRegion, AudioTrack) -> Void  // Bounce to audio callback
     let onMIDIRegionDelete: (MIDIRegion, AudioTrack) -> Void  // Delete MIDI region callback
@@ -55,8 +55,8 @@ struct IntegratedTrackRow: View {
                 trackHeight: height,
                 selection: selection,
                 onRegionMove: onRegionMove,
-                onRegionMoveToTrack: { regionId, targetTrackId, newStartTime in
-                    onRegionMoveToTrack(regionId, audioTrack.id, targetTrackId, newStartTime)
+                onRegionMoveToTrack: { regionId, targetTrackId, newStartBeat in
+                    onRegionMoveToTrack(regionId, audioTrack.id, targetTrackId, newStartBeat)
                 },
                 audioEngine: audioEngine,
                 projectManager: projectManager,
@@ -92,7 +92,7 @@ struct IntegratedTrackRow: View {
                         lane: lane,
                         pixelsPerBeat: pixelsPerBeat,
                         trackHeight: height,
-                        duration: projectManager.currentProject?.durationBeats ?? 60,
+                        durationBeats: projectManager.currentProject?.durationBeats ?? 60,
                         currentTrackValue: liveTrackValue(for: lane.parameter, trackId: audioTrack.id),
                         onAddPoint: { beat, value in
                             addAutomationPoint(toLane: lane.id, trackId: audioTrack.id, beat: beat, value: value)

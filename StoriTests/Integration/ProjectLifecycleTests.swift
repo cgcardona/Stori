@@ -104,7 +104,7 @@ final class ProjectLifecycleTests: XCTestCase {
             region.addNote(MIDINote(
                 pitch: UInt8(pitch),
                 velocity: UInt8(velocity),
-                startBeat: TimeInterval(i),
+                startBeat: Double(i),
                 durationBeats: 0.8
             ))
         }

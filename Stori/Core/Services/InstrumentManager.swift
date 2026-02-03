@@ -534,12 +534,7 @@ class InstrumentManager: InstrumentManagerProtocol {
     
     // MARK: - MIDI Recording
     
-    /// Get current playhead position from audio engine (in seconds)
-    var currentPlayheadPosition: TimeInterval {
-        audioEngine?.currentPosition.timeInterval ?? 0
-    }
-    
-    /// Get current playhead position in beats (for MIDI recording)
+    /// Get current playhead position in beats (source of truth; use this for MIDI recording and UI)
     var currentPlayheadBeats: Double {
         audioEngine?.currentPosition.beats ?? 0
     }

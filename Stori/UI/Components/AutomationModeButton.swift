@@ -144,7 +144,7 @@ struct AutomationDisclosureButton: View {
 /// Note: This is legacy - new automation uses AutomationCurveOverlay in IntegratedTimelineView
 struct InlineAutomationLane: View {
     @Binding var lane: AutomationLane
-    let duration: TimeInterval  // Duration in beats
+    let durationBeats: Double
     let pixelsPerBeat: CGFloat
     let height: CGFloat
     let trackId: UUID

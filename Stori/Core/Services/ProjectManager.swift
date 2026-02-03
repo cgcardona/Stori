@@ -752,7 +752,7 @@ class ProjectManager {
     /// Round beat value to avoid floating-point precision issues at non-integer tempos
     /// At tempos like 99 BPM, seconds→beats→seconds conversion can introduce tiny errors
     /// (e.g., 3.9999999999999996 instead of 4.0) causing regions to start slightly early
-    private func roundBeatValue(_ beats: TimeInterval) -> TimeInterval {
+    private func roundBeatValue(_ beats: Double) -> Double {
         // Round to nearest 1/1000th of a beat (more than enough precision for any practical use)
         return round(beats * 1000) / 1000
     }
@@ -856,7 +856,8 @@ class ProjectManager {
     }
     
     // MARK: - Region Splitting
-    func splitRegionAtPosition(_ regionId: UUID, trackId: UUID, splitTime: TimeInterval) {
+    /// Split an audio region at a beat position (beats are source of truth)
+    func splitRegionAtPosition(_ regionId: UUID, trackId: UUID, splitBeat: Double) {
         guard var project = currentProject else { return }
         
         guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }),
@@ -867,15 +868,15 @@ class ProjectManager {
         let originalRegion = project.tracks[trackIndex].regions[regionIndex]
         let tempo = project.tempo
         
-        // Validate split position is within the region (splitTime is in beats)
+        // Validate split position is within the region
         let regionEndBeat = originalRegion.endBeat
-        guard splitTime > originalRegion.startBeat && splitTime < regionEndBeat else {
+        guard splitBeat > originalRegion.startBeat && splitBeat < regionEndBeat else {
             return
         }
         
-        // Calculate split parameters (all in BEATS for consistency)
-        let beatsIntoRegion = splitTime - originalRegion.startBeat
-        let secondsIntoRegion = beatsIntoRegion * (60.0 / tempo) // For audio offset only
+        // Calculate split parameters (all in beats)
+        let beatsIntoRegion = splitBeat - originalRegion.startBeat
+        let secondsIntoRegion = beatsIntoRegion * (60.0 / tempo) // For audio offset only (AV boundary)
         let leftDurationBeats = beatsIntoRegion
         let rightDurationBeats = originalRegion.durationBeats - beatsIntoRegion
         let rightOffset = originalRegion.offset + secondsIntoRegion
@@ -888,7 +889,7 @@ class ProjectManager {
         // Create right region (new region)
         let rightRegion = AudioRegion(
             audioFile: originalRegion.audioFile,
-            startBeat: splitTime,
+            startBeat: splitBeat,
             durationBeats: rightDurationBeats,
             tempo: tempo,
             fadeIn: 0, // Reset fades for split regions
