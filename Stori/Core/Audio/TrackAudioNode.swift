@@ -558,9 +558,14 @@ final class TrackAudioNode: @unchecked Sendable {
                     let totalDelaySeconds = delaySeconds + compensationSeconds
                     let delaySamples = AVAudioFramePosition(totalDelaySeconds * playerSampleRate)
                     
-                    // If starting mid-loop, calculate offset into the file
+                    // If starting mid-loop, calculate offset into the file (clamp to [0, fileDuration]; skip if past audio)
                     let offsetIntoLoop = max(0.0, startTime - currentLoopStart)
-                    let startFrameInFile = AVAudioFramePosition(min(offsetIntoLoop, fileDuration) * sr)
+                    if offsetIntoLoop >= fileDuration {
+                        // This iteration is in the silence portion of the content unit (contentLen > fileDuration)
+                        currentLoopStart += contentLen
+                        continue
+                    }
+                    let startFrameInFile = AVAudioFramePosition(offsetIntoLoop * sr)
                     
                     // Frames to play from this loop iteration (only audio, not empty space)
                     let loopDuration = loopEnd - max(currentLoopStart, startTime)

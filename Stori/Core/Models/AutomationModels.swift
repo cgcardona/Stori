@@ -331,6 +331,9 @@ struct AutomationLane: Identifiable, Codable, Equatable {
     let id: UUID
     var parameter: AutomationParameter
     var points: [AutomationPoint]
+    /// Value used for playback before the first automation point (deterministic WYSIWYG).
+    /// When nil, playback uses the first point's value for positions before it.
+    var initialValue: Float?
     var isVisible: Bool
     var isLocked: Bool
     var colorHex: String
@@ -346,6 +349,7 @@ struct AutomationLane: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         parameter: AutomationParameter = .volume,
         points: [AutomationPoint] = [],
+        initialValue: Float? = nil,
         isVisible: Bool = true,
         isLocked: Bool = false,
         color: Color = .orange,
@@ -355,6 +359,7 @@ struct AutomationLane: Identifiable, Codable, Equatable {
         self.parameter = parameter
         // Ensure points are sorted on initialization (for deserialization)
         self.points = points.sorted { $0.beat < $1.beat }
+        self.initialValue = initialValue
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.colorHex = color.toHex()
@@ -380,9 +385,10 @@ struct AutomationLane: Identifiable, Codable, Equatable {
         
         let sorted = sortedPoints
         
-        // Before first point
+        // Before first point: use initialValue (deterministic) or first point's value
         guard let first = sorted.first else { return parameter.defaultValue }
-        if beat <= first.beat { return first.value }
+        if beat < first.beat { return initialValue ?? first.value }
+        if beat == first.beat { return first.value }
         
         // After last point
         guard let last = sorted.last else { return parameter.defaultValue }

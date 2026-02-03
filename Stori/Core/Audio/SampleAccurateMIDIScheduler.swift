@@ -116,9 +116,9 @@ enum AudioConstants {
     
     // MARK: - Automation
     
-    /// Automation smoothing factor (0.0 = instant, 1.0 = no change)
-    /// 0.7 gives smooth ~50ms ramp at 120Hz update rate
-    static let automationSmoothingFactor: Float = 0.7
+    /// Automation smoothing factor (exponential: out = out*α + target*(1-α)). 0 = instant, 1 = no change.
+    /// ~50ms to 90% at 120Hz: α^6 ≈ 0.1 → α ≈ 0.68 (0.7 was ~175ms).
+    static let automationSmoothingFactor: Float = 0.68
     
     /// Automation engine update frequency (Hz)
     static let automationUpdateFrequency: Double = 120.0

@@ -110,18 +110,23 @@ extension AudioEngine {
             
             if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
                 let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
+                let maxFramesAvailable = audioFile.length - startFrame
+                let clampedFrames = AVAudioFrameCount(min(Double(max(0, maxFramesAvailable)), Double(framesToPlay)))
+                guard clampedFrames > 0, startFrame < audioFile.length else { return }
                 
                 // Stop any existing playback on this node first
                 if playerNode.isPlaying {
                     playerNode.stop()
                 }
                 
-                // Schedule the audio segment
+                // Sample-accurate timing: use AVAudioTime so cycle jumps and sync stay aligned
+                let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
+                let when = AVAudioTime(sampleTime: 0, atRate: playerSampleRate)
                 playerNode.scheduleSegment(
                     audioFile,
                     startingFrame: startFrame,
-                    frameCount: framesToPlay,
-                    at: nil
+                    frameCount: clampedFrames,
+                    at: when
                 )
                 
                 // Start playback on this specific track's player node
@@ -149,18 +154,22 @@ extension AudioEngine {
             
             if offsetInFile >= 0 && offsetInFile < region.audioFile.duration {
                 let startFrame = AVAudioFramePosition(offsetInFile * audioFile.processingFormat.sampleRate)
+                let maxFramesAvailable = audioFile.length - startFrame
+                let clampedFrames = AVAudioFrameCount(min(Double(max(0, maxFramesAvailable)), Double(framesToPlay)))
+                guard clampedFrames > 0, startFrame < audioFile.length else { return false }
                 
                 // Stop any existing playback on this node first
                 if playerNode.isPlaying {
                     playerNode.stop()
                 }
                 
-                // Schedule the audio segment (but don't start playing yet)
+                let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
+                let when = AVAudioTime(sampleTime: 0, atRate: playerSampleRate)
                 playerNode.scheduleSegment(
                     audioFile,
                     startingFrame: startFrame,
-                    frameCount: framesToPlay,
-                    at: nil
+                    frameCount: clampedFrames,
+                    at: when
                 )
                 
                 return true

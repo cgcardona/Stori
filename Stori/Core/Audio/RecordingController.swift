@@ -272,9 +272,7 @@ final class RecordingController: @unchecked Sendable {
             }
         }
         
-        // Start playback
-        onStartPlayback()
-        
+        // Install tap (and start playback) inside startRecording/setupRecording so we don't miss first buffers
         startRecording()
     }
     
@@ -334,8 +332,11 @@ final class RecordingController: @unchecked Sendable {
             let recordTrack = findOrCreateRecordTrack(in: project)
             recordingTrackId = recordTrack.id
             
-            // Skip audio recording for MIDI tracks
-            if recordTrack.isMIDITrack { return }
+            // Skip audio recording for MIDI tracks (start transport so MIDI has timeline)
+            if recordTrack.isMIDITrack {
+                onStartPlayback()
+                return
+            }
             
             // Create recording file URL
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -424,8 +425,10 @@ final class RecordingController: @unchecked Sendable {
             
             if !engine.isRunning {
                 try engine.start()
-            } else {
             }
+            
+            // Start playback only after tap is installed so we don't miss the first 10–30 ms of audio
+            onStartPlayback()
             
         } catch {
             stopRecording()

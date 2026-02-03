@@ -133,9 +133,11 @@ final class RecordingControllerTests: XCTestCase {
         mockEngine.connect(mockMixer, to: mockEngine.outputNode, format: nil)
         try? mockEngine.start()
         
+        // Prepare first (creates file during count-in); then start recording after count-in
+        await sut.prepareRecordingDuringCountIn()
         sut.startRecordingAfterCountIn()
         
-        // Should start recording mode
+        // Should start recording mode and playback (tap installed with pre-created file)
         XCTAssertEqual(recordingModeStartCount, 1)
         XCTAssertEqual(playbackStartCount, 1)
         

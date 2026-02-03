@@ -41,11 +41,17 @@ extension AudioEngine {
             return Array(self.trackNodes.keys)
         }
         
-        // Thread-safe automation value applier
-        automationEngine.applyValuesHandler = { [weak self] trackId, volume, pan, eqLow, eqMid, eqHigh in
-            guard let trackNode = self?.trackNodes[trackId] else { return }
+        // Thread-safe automation value applier (merge with mixer for nil params = deterministic, no pops on first point)
+        automationEngine.applyValuesHandler = { [weak self] trackId, values in
+            guard let self = self, let trackNode = self.trackNodes[trackId] else { return }
+            guard let track = self.currentProject?.tracks.first(where: { $0.id == trackId }) else { return }
             
-            // Apply automation values (TrackAudioNode methods are thread-safe)
+            let volume = values.volume ?? track.mixerSettings.volume
+            let pan = values.pan ?? track.mixerSettings.pan
+            let eqLow = values.eqLow ?? 0.5
+            let eqMid = values.eqMid ?? 0.5
+            let eqHigh = values.eqHigh ?? 0.5
+            
             trackNode.applyAutomationValues(
                 volume: volume,
                 pan: pan,
@@ -72,20 +78,15 @@ extension AudioEngine {
             // Skip if automation is off for this track
             guard track.automationMode.canRead else { continue }
             
-            // Get all automation values for this track at current beat position
+            // Get all automation values for this track at current beat position (deterministic: uses initialValue/lane before first point)
             if let values = automationProcessor.getAllValues(for: track.id, atBeat: timeInBeats) {
-                // Apply volume automation with smoothing to prevent zippering
-                // Fall back to mixer settings if nil (before first breakpoint)
+                // Merge with mixer for nil params (empty lanes = use mixer)
                 let volume = values.volume ?? track.mixerSettings.volume
                 node.setVolumeSmoothed(volume)
                 
-                // Apply pan automation with smoothing
-                // Pan: mixer stores 0-1, automation stores 0-1, convert to -1..+1 for node
                 let pan = values.pan ?? track.mixerSettings.pan
                 node.setPanSmoothed(pan * 2 - 1)
                 
-                // Apply EQ automation (convert 0-1 to -12..+12 dB)
-                // EQ parameters can change without smoothing (band gains are less sensitive to zippering)
                 let eqLow = ((values.eqLow ?? 0.5) - 0.5) * 24
                 let eqMid = ((values.eqMid ?? 0.5) - 0.5) * 24
                 let eqHigh = ((values.eqHigh ?? 0.5) - 0.5) * 24
@@ -149,12 +150,14 @@ extension AudioEngine {
                 mode: track.automationMode
             )
         } else {
-            // Create new lane with the recorded points
+            // Create new lane with the recorded points; set initialValue from mixer for deterministic playback before first point
+            let mixerValue = Self.mixerValueForAutomationParameter(parameter, track: track)
             var newLane = AutomationLane(
                 parameter: parameter,
+                points: points,
+                initialValue: mixerValue,
                 color: parameter.color
             )
-            newLane.points = points
             track.automationLanes.append(newLane)
         }
         
@@ -173,6 +176,19 @@ extension AudioEngine {
         guard let project = currentProject else { return }
         for track in project.tracks {
             updateTrackAutomationInternal(track)
+        }
+    }
+    
+    /// Returns mixer value (0–1) for an automation parameter; used for lane initialValue (deterministic WYSIWYG).
+    private static func mixerValueForAutomationParameter(_ parameter: AutomationParameter, track: AudioTrack) -> Float {
+        let m = track.mixerSettings
+        switch parameter {
+        case .volume: return m.volume
+        case .pan: return m.pan
+        case .eqLow: return max(0, min(1, (m.lowEQ / 24) + 0.5))
+        case .eqMid: return max(0, min(1, (m.midEQ / 24) + 0.5))
+        case .eqHigh: return max(0, min(1, (m.highEQ / 24) + 0.5))
+        default: return parameter.defaultValue
         }
     }
 }
