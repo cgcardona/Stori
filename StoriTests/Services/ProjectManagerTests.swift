@@ -198,7 +198,7 @@ final class ProjectManagerTests: XCTestCase {
         XCTAssertTrue(project.uiState.snapToGrid)
         XCTAssertTrue(project.uiState.catchPlayheadEnabled)
         XCTAssertFalse(project.uiState.metronomeEnabled)
-        XCTAssertTrue(project.uiState.showingInspector)
+        XCTAssertFalse(project.uiState.showingInspector)  // Default is now false until service is available
         XCTAssertFalse(project.uiState.showingMixer)
     }
     

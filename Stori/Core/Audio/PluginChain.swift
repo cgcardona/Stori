@@ -237,8 +237,8 @@ class PluginChain {
         if let format = chainFormat {
             connectionFormat = format
         } else {
-            // Fallback: derive format from engine's output node (actual hardware rate)
-            let engineSampleRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+            // Fallback: use engine's processing rate (inputFormat), not hardware output rate, to avoid format mismatch/glitches
+            let engineSampleRate = engine.outputNode.inputFormat(forBus: 0).sampleRate
             let fallbackRate = engineSampleRate > 0 ? engineSampleRate : 48000
             connectionFormat = AVAudioFormat(standardFormatWithSampleRate: fallbackRate, channels: 2)!
             AppLogger.shared.warning("PluginChain: chainFormat was nil, using derived rate \(fallbackRate)", category: .audio)

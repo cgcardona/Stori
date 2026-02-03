@@ -317,13 +317,13 @@ enum QuantizationEngine {
             var quantized = note
             
             // Quantize start time
-            let quantizedStart = resolution.quantize(note.startBeat, strength: strength)
+            let quantizedStart = resolution.quantize(beat: note.startBeat, strength: strength)
             quantized.startBeat = max(0, quantizedStart)
             
             // Quantize duration if requested
             if quantizeDuration {
-                let quantizedDuration = resolution.quantize(note.durationBeats)
-                quantized.durationBeats = max(resolution.duration, quantizedDuration)
+                let quantizedDuration = resolution.quantize(beat: note.durationBeats)
+                quantized.durationBeats = max(resolution.stepDurationBeats, quantizedDuration)
             }
             
             return quantized
@@ -338,7 +338,7 @@ enum QuantizationEngine {
     ) -> [MIDINote] {
         guard amount > 0 else { return notes }
         
-        let gridDuration = gridResolution.duration
+        let gridDuration = gridResolution.stepDurationBeats
         
         return notes.map { note in
             var swung = note

@@ -785,8 +785,14 @@ struct IntegratedTrackHeader: View {
             // Lane exists - make it visible
             project.tracks[idx].automationLanes[laneIdx].isVisible = true
         } else {
-            // Create new lane (visible by default)
-            var newLane = AutomationLane(parameter: param, color: param.color)
+            // Create new lane with initialValue from mixer for deterministic playback before first point
+            let track = project.tracks[idx]
+            var newLane = AutomationLane(
+                parameter: param,
+                points: [],
+                initialValue: track.mixerValue(for: param),
+                color: param.color
+            )
             newLane.isVisible = true
             project.tracks[idx].automationLanes.append(newLane)
         }
