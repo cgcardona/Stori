@@ -144,30 +144,14 @@ class MetronomeEngine {
         engine.attach(player)
         engine.attach(mixer)
         
-        // Get the format from the DAW mixer, with safety fallbacks
-        var mixerFormat = dawMixer.outputFormat(forBus: 0)
-        self.sampleRate = mixerFormat.sampleRate
-        
-        // If format is invalid (can happen if mixer not fully connected yet), use safe defaults
-        if sampleRate == 0 || mixerFormat.channelCount == 0 {
-            // Use the engine's output format as fallback
-            mixerFormat = engine.outputNode.inputFormat(forBus: 0)
-            self.sampleRate = mixerFormat.sampleRate
-            
-            // If still invalid, create a standard format
-            if sampleRate == 0 || mixerFormat.channelCount == 0 {
-                self.sampleRate = 48000
-                mixerFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
-            }
-        }
-        
-        // Use device format from outputNode for consistent format across all connections
+        // Single source of truth: engine output node input format (device/processing rate)
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
         let finalFormat: AVAudioFormat
         if deviceFormat.sampleRate > 0 && deviceFormat.channelCount > 0 {
             finalFormat = deviceFormat
         } else {
-            finalFormat = mixerFormat
+            self.sampleRate = 48000
+            finalFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         }
         self.sampleRate = finalFormat.sampleRate
         

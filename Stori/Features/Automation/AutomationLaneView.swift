@@ -141,7 +141,8 @@ struct AutomationLaneView: View {
         Path { path in
             guard !lane.points.isEmpty else { return }
             
-            let sortedPoints = lane.points.sorted { $0.beat < $1.beat }
+            // PERF: Use pre-sorted array (points are kept sorted on insertion)
+            let sortedPoints = lane.sortedPoints
             
             // Start from bottom left
             path.move(to: CGPoint(x: 0, y: geometry.size.height))
@@ -173,7 +174,8 @@ struct AutomationLaneView: View {
         Path { path in
             guard !lane.points.isEmpty else { return }
             
-            let sortedPoints = lane.points.sorted { $0.beat < $1.beat }
+            // PERF: Use pre-sorted array (points are kept sorted on insertion)
+            let sortedPoints = lane.sortedPoints
             
             if let first = sortedPoints.first {
                 path.move(to: pointPosition(first, in: geometry))

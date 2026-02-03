@@ -958,6 +958,14 @@ extension Notification.Name {
     static let openVisualTab = Notification.Name("openVisualTab")
     static let projectUpdated = Notification.Name("projectUpdated")
     static let tempoChanged = Notification.Name("tempoChanged")  // Posted when project tempo changes during playback
+    /// Posted when audio device change completed successfully. userInfo["message"] (String) optional.
+    static let audioDeviceChangeSucceeded = Notification.Name("audioDeviceChangeSucceeded")
+    /// Posted when engine failed to restart after device change. userInfo["message"] (String).
+    static let audioDeviceChangeFailed = Notification.Name("audioDeviceChangeFailed")
+    /// Posted when a plugin failed to load (isolated, DAW continues). userInfo["pluginName"] (String), ["message"] (String).
+    static let pluginLoadFailed = Notification.Name("pluginLoadFailed")
+    /// Posted when a project was auto-repaired on load. userInfo["message"] (String).
+    static let projectRepaired = Notification.Name("projectRepaired")
     static let showServiceDiagnostics = Notification.Name("showServiceDiagnostics")
     static let showAboutWindow = Notification.Name("showAboutWindow")
     static let toggleSnapToGrid = Notification.Name("toggleSnapToGrid")

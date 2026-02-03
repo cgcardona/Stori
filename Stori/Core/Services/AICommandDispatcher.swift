@@ -1051,9 +1051,14 @@ class AICommandDispatcher {
                         project.tracks[trackIndex].automationLanes[laneIndex].points.sort { $0.beat < $1.beat }
                         project.tracks[trackIndex].automationLanes[laneIndex].isVisible = true
                     } else {
-                        // Create new lane with points (visible by default)
-                        var newLane = AutomationLane(parameter: automationParam, color: automationParam.color)
-                        newLane.points = automationPoints
+                        // Create new lane with initialValue from mixer for deterministic playback before first point
+                        let track = project.tracks[trackIndex]
+                        var newLane = AutomationLane(
+                            parameter: automationParam,
+                            points: automationPoints,
+                            initialValue: track.mixerValue(for: automationParam),
+                            color: automationParam.color
+                        )
                         newLane.isVisible = true
                         project.tracks[trackIndex].automationLanes.append(newLane)
                     }

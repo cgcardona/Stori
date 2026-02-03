@@ -52,12 +52,22 @@ struct MIDINote: Identifiable, Codable, Equatable, Hashable {
         durationBeats: Double,
         channel: UInt8 = 0
     ) {
+        // MIDI PROTOCOL: Validate pitch is in valid MIDI range (0-127)
+        assert(pitch <= 127, "MIDI pitch must be 0-127 (got \(pitch))")
+        
+        // MIDI PROTOCOL: Validate velocity is in valid MIDI range (0-127)
+        assert(velocity <= 127, "MIDI velocity must be 0-127 (got \(velocity))")
+        
+        // MIDI PROTOCOL: Validate channel is in valid MIDI range (0-15)
+        assert(channel <= 15, "MIDI channel must be 0-15 (got \(channel))")
+        
         self.id = id
-        self.pitch = pitch
-        self.velocity = velocity
+        // Clamp to safe values (release builds or corrupt data)
+        self.pitch = min(pitch, 127)
+        self.velocity = min(velocity, 127)
         self.startBeat = startBeat
         self.durationBeats = durationBeats
-        self.channel = channel
+        self.channel = min(channel, 15)
     }
     
     // MARK: - Factory Methods
@@ -182,12 +192,38 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
     }
     
     /// Transpose all notes by semitones
-    mutating func transpose(by semitones: Int) {
+    /// Returns the number of notes that were clamped (out-of-range)
+    @discardableResult
+    mutating func transpose(by semitones: Int) -> Int {
+        var clampedCount = 0
+        
         notes = notes.map { note in
             var transposed = note
-            transposed.pitch = UInt8(clamping: Int(note.pitch) + semitones)
+            let newPitch = Int(note.pitch) + semitones
+            
+            // Check if transposition would go out of range
+            if newPitch < 0 || newPitch > 127 {
+                clampedCount += 1
+                AppLogger.shared.warning(
+                    "MIDI transpose: Note \(note.noteName) + \(semitones) = \(newPitch) out of range (0-127), clamping",
+                    category: .midi
+                )
+            }
+            
+            // Clamp to valid MIDI range
+            transposed.pitch = UInt8(clamping: newPitch)
             return transposed
         }
+        
+        // Notify user if any notes were clamped
+        if clampedCount > 0 {
+            AppLogger.shared.info(
+                "Transpose clamped \(clampedCount) note(s) to MIDI range (0-127)",
+                category: .midi
+            )
+        }
+        
+        return clampedCount
     }
     
     /// Shift all notes in time
@@ -450,8 +486,8 @@ enum SnapResolution: String, CaseIterable, Codable {
     case tripletSixteenth = "1/16T"
     case off = "Off"
     
-    /// Duration in beats (assuming 4/4 time)
-    var duration: TimeInterval {
+    /// Step duration in beats (assuming 4/4 time). Use for musical grid, not seconds.
+    var stepDurationBeats: Double {
         switch self {
         case .bar: return 4.0
         case .half: return 2.0
@@ -478,18 +514,18 @@ enum SnapResolution: String, CaseIterable, Codable {
         }
     }
     
-    /// Quantize a time value to this resolution
-    func quantize(_ time: TimeInterval) -> TimeInterval {
-        guard duration > 0 else { return time }
-        return round(time / duration) * duration
+    /// Quantize a beat value to this resolution (beats in, beats out).
+    func quantize(beat: Double) -> Double {
+        guard stepDurationBeats > 0 else { return beat }
+        return round(beat / stepDurationBeats) * stepDurationBeats
     }
     
-    /// Quantize with strength (0 = no change, 1 = full quantize)
-    func quantize(_ time: TimeInterval, strength: Float) -> TimeInterval {
-        guard duration > 0, strength > 0 else { return time }
-        let quantized = quantize(time)
-        let offset = quantized - time
-        return time + (offset * Double(strength))
+    /// Quantize with strength (0 = no change, 1 = full quantize).
+    func quantize(beat: Double, strength: Float) -> Double {
+        guard stepDurationBeats > 0, strength > 0 else { return beat }
+        let quantized = quantize(beat: beat)
+        let offset = quantized - beat
+        return beat + (offset * Double(strength))
     }
 }
 

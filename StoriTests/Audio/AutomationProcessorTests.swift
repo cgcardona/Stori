@@ -34,6 +34,42 @@ final class AutomationProcessorTests: XCTestCase {
         XCTAssertEqual(lane.value(atBeat: 8.0), 0.6)
     }
     
+    /// After last point: value holds last point's value (deterministic).
+    func testAutomationAfterLastPoint() {
+        var lane = AutomationLane(parameter: .volume)
+        lane.addPoint(atBeat: 0, value: 0.2)
+        lane.addPoint(atBeat: 4.0, value: 0.8)
+        lane.addPoint(atBeat: 8.0, value: 0.5)
+        
+        XCTAssertEqual(lane.value(atBeat: 8.0), 0.5)
+        XCTAssertEqual(lane.value(atBeat: 10.0), 0.5)
+        XCTAssertEqual(lane.value(atBeat: 100.0), 0.5)
+    }
+    
+    /// Bezier interpolation returns value in [0,1] and is smooth between points.
+    func testBezierInterpolation() {
+        var lane = AutomationLane(parameter: .volume)
+        let p1 = AutomationPoint(
+            beat: 0,
+            value: 0.0,
+            curve: .linear,
+            controlPointOut: BezierControlPoint(beatOffset: 1.0, valueOffset: 0.3)
+        )
+        let p2 = AutomationPoint(
+            beat: 4.0,
+            value: 1.0,
+            curve: .linear,
+            controlPointIn: BezierControlPoint(beatOffset: -1.0, valueOffset: -0.2)
+        )
+        lane.points = [p1, p2]
+        
+        for beat in stride(from: 0.0, through: 4.0, by: 0.5) {
+            let v = lane.value(atBeat: beat)
+            XCTAssertGreaterThanOrEqual(v, 0.0)
+            XCTAssertLessThanOrEqual(v, 1.0)
+        }
+    }
+    
     func testLinearInterpolation() {
         var lane = AutomationLane(parameter: .volume)
         lane.points.append(AutomationPoint(beat: 0, value: 0.0, curve: .linear))
