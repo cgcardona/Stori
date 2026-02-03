@@ -954,39 +954,6 @@ class ProjectManager {
         return projectURL(for: project.name)
     }
     
-    /// Sanitize a string for safe use as a filename
-    /// SECURITY: Prevents path traversal, null byte injection, and other attacks
-    private func sanitizeFileName(_ name: String) -> String {
-        var sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // SECURITY: Remove null bytes (path truncation attack)
-        sanitized = sanitized.replacingOccurrences(of: "\0", with: "")
-        
-        // SECURITY: Remove path traversal sequences
-        sanitized = sanitized.replacingOccurrences(of: "..", with: "")
-        sanitized = sanitized.replacingOccurrences(of: "./", with: "")
-        sanitized = sanitized.replacingOccurrences(of: ".\\", with: "")
-        
-        // Remove or replace characters that aren't safe for file names
-        let invalidChars = CharacterSet(charactersIn: ":/\\?%*|\"<>")
-        sanitized = sanitized.components(separatedBy: invalidChars).joined(separator: "_")
-        
-        // Remove leading/trailing dots (hidden files on Unix)
-        sanitized = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        
-        // Ensure we have a valid name
-        if sanitized.isEmpty {
-            sanitized = "Untitled"
-        }
-        
-        // SECURITY: Limit filename length to prevent filesystem issues
-        if sanitized.count > 200 {
-            sanitized = String(sanitized.prefix(200))
-        }
-        
-        return sanitized
-    }
-    
     func projectExists(withName name: String) -> Bool {
         let url = projectURL(for: name)
         return fileManager.fileExists(atPath: url.path)

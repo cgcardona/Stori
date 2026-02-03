@@ -1617,11 +1617,6 @@ class ProjectExportService {
         
     }
     
-    private func sanitizeFileName(_ name: String) -> String {
-        let invalidChars = CharacterSet(charactersIn: ":/\\?%*|\"<>")
-        return name.components(separatedBy: invalidChars).joined(separator: "_")
-    }
-    
     // MARK: - Tokenization Export Methods
     
     /// Export the full project mix to Data for IPFS upload
