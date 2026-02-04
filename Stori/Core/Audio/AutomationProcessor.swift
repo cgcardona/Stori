@@ -413,11 +413,13 @@ final class AutomationProcessor: @unchecked Sendable {
     /// This dramatically reduces lock contention when processing many tracks.
     /// Returns a dictionary of trackId -> AutomationValues (nil values omitted)
     func getAllValuesForTracks(_ trackIds: [UUID], atBeat beat: Double) -> [UUID: AutomationValues] {
-        os_unfair_lock_lock(&snapshotLock)
-        defer { os_unfair_lock_unlock(&snapshotLock) }
-        
+        // PERFORMANCE: Pre-allocate results dictionary outside lock
+        // Dictionary reallocation is O(n) and can cause lock contention
         var results: [UUID: AutomationValues] = [:]
         results.reserveCapacity(trackIds.count)
+        
+        os_unfair_lock_lock(&snapshotLock)
+        defer { os_unfair_lock_unlock(&snapshotLock) }
         
         for trackId in trackIds {
             guard let snapshot = trackSnapshots[trackId],
