@@ -1900,13 +1900,13 @@ struct PianoRollView: View {
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(startPos.pitch) + pitchOffset)
             } else {
-                // Normal drag: calculate offset from current position
-                var actualBeatOffset = rawTimeOffset
+                // Normal drag: calculate offset from EACH note's own position
+                // FIX: Use movedNote.startBeat (not note.startBeat) to preserve relative timing
+                var newStartBeat = movedNote.startBeat + rawTimeOffset
                 if snapResolution != .off {
-                    let newStartBeat = snapResolution.quantize(beat:note.startBeat + rawTimeOffset)
-                    actualBeatOffset = newStartBeat - note.startBeat
+                    newStartBeat = snapResolution.quantize(beat: newStartBeat)
                 }
-                movedNote.startBeat = max(0, movedNote.startBeat + actualBeatOffset)
+                movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(movedNote.pitch) + pitchOffset)
             }
             
