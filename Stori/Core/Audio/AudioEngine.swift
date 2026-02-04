@@ -2383,4 +2383,112 @@ extension AudioEngine {
         
         return "✅ Audio Engine Healthy"
     }
+    
+    // MARK: - Playback Debugging
+    
+    /// Debug playback state - prints comprehensive diagnostics to console.
+    /// Call this when audio isn't playing to identify the issue.
+    func debugPlaybackState() {
+        print("\n" + String(repeating: "=", count: 80))
+        print("🔍 PLAYBACK DEBUG DIAGNOSTICS")
+        print(String(repeating: "=", count: 80))
+        
+        // 1. Engine State
+        print("\n📱 ENGINE STATE:")
+        print("  - Engine Running: \(engine.isRunning ? "✅" : "❌")")
+        print("  - Graph Ready: \(isGraphReadyForPlayback ? "✅" : "❌")")
+        print("  - Transport State: \(transportState)")
+        print("  - Current Position: \(currentPosition.displayStringDefault)")
+        
+        // 2. Audio Graph
+        print("\n🔊 AUDIO GRAPH:")
+        print("  - Sample Rate: \(graphFormat.sampleRate) Hz")
+        print("  - Channels: \(graphFormat.channelCount)")
+        print("  - Master Volume: \(masterVolume)")
+        print("  - Mixer Volume: \(mixer.outputVolume)")
+        print("  - Mixer Attached: \(engine.attachedNodes.contains(mixer) ? "✅" : "❌")")
+        
+        // 3. Track Status
+        print("\n🎵 TRACKS:")
+        if let project = currentProject {
+            print("  - Project: '\(project.name)'")
+            print("  - Track Count: \(project.tracks.count)")
+            print("  - Tempo: \(project.tempo) BPM")
+            
+            for track in project.tracks {
+                let node = trackNodes[track.id]
+                let connected = node != nil && engine.attachedNodes.contains(node!.playerNode)
+                let midiRegions = track.midiRegions.count
+                let audioRegions = track.regions.count
+                let muted = track.mixerSettings.isMuted
+                let volume = track.mixerSettings.volume
+                
+                print("  - '\(track.name)':")
+                print("      Type: \(track.trackType)")
+                print("      Node Connected: \(connected ? "✅" : "❌")")
+                print("      Audio Regions: \(audioRegions)")
+                print("      MIDI Regions: \(midiRegions)")
+                print("      Muted: \(muted ? "⚠️ YES" : "No")")
+                print("      Volume: \(String(format: "%.0f%%", volume * 100))")
+            }
+        } else {
+            print("  ⚠️ No project loaded")
+        }
+        
+        // 4. MIDI Instruments
+        print("\n🎹 MIDI INSTRUMENTS:")
+        if let project = currentProject {
+            let midiTracks = project.tracks.filter { $0.trackType == .midi }
+            for track in midiTracks {
+                if let instrument = InstrumentManager.shared.getInstrument(for: track.id) {
+                    print("  - '\(track.name)':")
+                    print("      Type: \(instrument.type)")
+                    print("      Name: \(instrument.name)")
+                    print("      Enabled: \(instrument.isEnabled ? "✅" : "❌")")
+                    print("      Running: \(instrument.isRunning ? "✅" : "❌")")
+                } else {
+                    print("  - '\(track.name)': ⚠️ No instrument loaded")
+                }
+            }
+            if midiTracks.isEmpty {
+                print("  ℹ️ No MIDI tracks in project")
+            }
+        } else {
+            print("  ⚠️ No project loaded")
+        }
+        
+        // 5. MIDI Playback Engine
+        print("\n🎼 MIDI PLAYBACK:")
+        let totalMidiRegions = currentProject?.tracks.reduce(0) { $0 + $1.midiRegions.count } ?? 0
+        print("  - MIDI Regions in Project: \(totalMidiRegions)")
+        print("  - Is Playing: \(transportState == .playing || transportState == .recording)")
+        
+        // 6. Health Status
+        print("\n🏥 HEALTH:")
+        if let healthMonitor = healthMonitor {
+            let healthResult = healthMonitor.validateState()
+            print("  - Overall Health: \(healthMonitor.currentHealth)")
+            print("  - Validation Issues: \(healthResult.issues.count)")
+            if !healthResult.issues.isEmpty {
+                for issue in healthResult.issues {
+                    print("      [\(issue.severity)] \(issue.component): \(issue.description)")
+                }
+            }
+        } else {
+            print("  ⚠️ Health monitor not initialized")
+        }
+        
+        // 7. Recent Errors
+        let recentErrors = errorTracker.getRecentErrors(within: 60)
+        if !recentErrors.isEmpty {
+            print("\n⚠️ RECENT ERRORS (last 60s):")
+            for (index, error) in recentErrors.prefix(5).enumerated() {
+                print("  \(index + 1). [\(error.severity)] \(error.component): \(error.message)")
+            }
+        }
+        
+        print("\n" + String(repeating: "=", count: 80))
+        print("💡 TIP: Run audioEngine.saveDiagnosticReport() for full diagnostics")
+        print(String(repeating: "=", count: 80) + "\n")
+    }
 }
