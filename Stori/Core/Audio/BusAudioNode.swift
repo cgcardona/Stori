@@ -11,6 +11,7 @@ import AudioToolbox
 import Combine
 import Accelerate
 import Observation
+import os.lock
 
 // MARK: - Bus Audio Node
 // PERFORMANCE: Using @Observable for fine-grained SwiftUI updates
@@ -30,9 +31,44 @@ class BusAudioNode {
     @ObservationIgnored
     let pluginChain: PluginChain
     
+    // MARK: - Lock for thread-safe level access
+    @ObservationIgnored
+    private var inputLevelLock = os_unfair_lock_s()
+    @ObservationIgnored
+    private var outputLevelLock = os_unfair_lock_s()
+    
+    // Internal storage for levels (protected by locks)
+    @ObservationIgnored
+    private var _inputLevel: Float = 0.0
+    @ObservationIgnored
+    private var _outputLevel: Float = 0.0
+    
     // MARK: - Audio Levels (observable for meters)
-    var inputLevel: Float = 0.0
-    var outputLevel: Float = 0.0
+    var inputLevel: Float {
+        get {
+            os_unfair_lock_lock(&inputLevelLock)
+            defer { os_unfair_lock_unlock(&inputLevelLock) }
+            return _inputLevel
+        }
+        set {
+            os_unfair_lock_lock(&inputLevelLock)
+            _inputLevel = newValue
+            os_unfair_lock_unlock(&inputLevelLock)
+        }
+    }
+    
+    var outputLevel: Float {
+        get {
+            os_unfair_lock_lock(&outputLevelLock)
+            defer { os_unfair_lock_unlock(&outputLevelLock) }
+            return _outputLevel
+        }
+        set {
+            os_unfair_lock_lock(&outputLevelLock)
+            _outputLevel = newValue
+            os_unfair_lock_unlock(&outputLevelLock)
+        }
+    }
     
     // MARK: - Bus Settings
     @ObservationIgnored
@@ -127,9 +163,10 @@ class BusAudioNode {
             self.inputLevelCounter = 0
             
             let level = self.calculateRMSLevel(buffer: buffer)
-            DispatchQueue.main.async {
-                self.inputLevel = level
-            }
+            // REAL-TIME SAFE: Write level directly with lock - no dispatch to main thread
+            os_unfair_lock_lock(&self.inputLevelLock)
+            self._inputLevel = level
+            os_unfair_lock_unlock(&self.inputLevelLock)
         }
         inputTapInstalled = true
         
@@ -140,30 +177,23 @@ class BusAudioNode {
             self.outputLevelCounter = 0
             
             let level = self.calculateRMSLevel(buffer: buffer)
-            DispatchQueue.main.async {
-                self.outputLevel = level
-            }
+            // REAL-TIME SAFE: Write level directly with lock - no dispatch to main thread
+            os_unfair_lock_lock(&self.outputLevelLock)
+            self._outputLevel = level
+            os_unfair_lock_unlock(&self.outputLevelLock)
         }
         outputTapInstalled = true
     }
     
     func stopLevelMonitoring() {
         if inputTapInstalled {
-            do {
-                inputMixer.removeTap(onBus: 0)
-                inputTapInstalled = false
-            } catch {
-                inputTapInstalled = false // Reset flag anyway
-            }
+            inputMixer.removeTap(onBus: 0)
+            inputTapInstalled = false
         }
         
         if outputTapInstalled {
-            do {
-                outputMixer.removeTap(onBus: 0)
-                outputTapInstalled = false
-            } catch {
-                outputTapInstalled = false // Reset flag anyway
-            }
+            outputMixer.removeTap(onBus: 0)
+            outputTapInstalled = false
         }
     }
     

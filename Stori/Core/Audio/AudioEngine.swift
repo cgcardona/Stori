@@ -107,7 +107,7 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     let mixer = AVAudioMixerNode()
     @ObservationIgnored
-    private let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo
+    internal let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo (internal for export parity)
     @ObservationIgnored
     private let masterLimiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
         componentType: kAudioUnitType_Effect,
@@ -262,7 +262,7 @@ class AudioEngine: AudioEngineContext {
         }
         
         // Install the metronome nodes
-        metronome.install(into: engine, dawMixer: mixer, audioEngine: self)
+        metronome.install(into: engine, dawMixer: mixer, audioEngine: self, transportController: transportController)
         installedMetronome = metronome
         
         // Restart if it was running
@@ -479,6 +479,7 @@ class AudioEngine: AudioEngineContext {
         recordingController = RecordingController(
             engine: engine,
             mixer: mixer,
+            transportController: transportController,  // NEW: For thread-safe position in audio callbacks
             getProject: { [weak self] in self?.currentProject },
             getCurrentPosition: { [weak self] in self?.currentPosition ?? PlaybackPosition() },
             getSelectedTrackId: { [weak self] in self?.selectedTrackId },

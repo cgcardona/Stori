@@ -96,6 +96,8 @@ final class RecordingController: @unchecked Sendable {
     @ObservationIgnored
     private var mixer: AVAudioMixerNode
     @ObservationIgnored
+    private weak var transportController: TransportController?  // NEW: For thread-safe position
+    @ObservationIgnored
     private var getProject: () -> AudioProject?
     @ObservationIgnored
     private var getCurrentPosition: () -> PlaybackPosition
@@ -121,6 +123,7 @@ final class RecordingController: @unchecked Sendable {
     init(
         engine: AVAudioEngine,
         mixer: AVAudioMixerNode,
+        transportController: TransportController,  // NEW: For thread-safe position
         getProject: @escaping () -> AudioProject?,
         getCurrentPosition: @escaping () -> PlaybackPosition,
         getSelectedTrackId: @escaping () -> UUID?,
@@ -134,6 +137,7 @@ final class RecordingController: @unchecked Sendable {
     ) {
         self.engine = engine
         self.mixer = mixer
+        self.transportController = transportController  // NEW
         self.getProject = getProject
         self.getCurrentPosition = getCurrentPosition
         self.getSelectedTrackId = getSelectedTrackId
@@ -375,9 +379,16 @@ final class RecordingController: @unchecked Sendable {
                 
                 // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
                 // This ensures sample-accurate alignment with timeline
+                // REAL-TIME SAFE: Use atomic position accessor from TransportController
                 if !self.recordingFirstBufferReceived {
                     self.recordingFirstBufferReceived = true
-                    self.recordingStartBeat = self.getCurrentPosition().beats
+                    // Thread-safe read from atomic position
+                    if let transport = self.transportController {
+                        self.recordingStartBeat = transport.atomicBeatPosition
+                    } else {
+                        // Fallback: Use closure (may hit MainActor but unlikely on first buffer)
+                        self.recordingStartBeat = self.getCurrentPosition().beats
+                    }
                 }
                 
                 guard let bufferCopy = bufferPool.acquireAndCopy(from: buffer) else { return }
@@ -394,12 +405,23 @@ final class RecordingController: @unchecked Sendable {
                     rms = sqrt(sum / Float(max(1, frameCount)))
                 }
                 
+                // Capture file reference before async to avoid Sendable crossing actor boundaries
+                guard let file = recordingFile else {
+                    bufferPool.release(bufferCopy)
+                    return
+                }
+                
                 // Write to file on background queue
                 writerQueue.async { [weak self] in
-                    guard let self = self, let file = self.recordingFile else {
+                    guard let self = self else {
                         bufferPool.release(bufferCopy)
                         return
                     }
+                    // CRITICAL FIX: Release buffer in defer to prevent memory leak on write errors
+                    defer {
+                        bufferPool.release(bufferCopy)
+                    }
+                    
                     do {
                         try file.write(from: bufferCopy)
                         if bufferPool.incrementWriteCount() {
@@ -407,8 +429,10 @@ final class RecordingController: @unchecked Sendable {
                                 try? fileHandle.synchronize()
                             }
                         }
-                    } catch {}
-                    bufferPool.release(bufferCopy)
+                    } catch {
+                        // Log error but continue - buffer is released by defer
+                        AppLogger.shared.error("Failed to write recording buffer: \(error)", category: .audio)
+                    }
                 }
                 
                 // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
@@ -465,9 +489,16 @@ final class RecordingController: @unchecked Sendable {
             
             // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
             // This ensures sample-accurate alignment with timeline
+            // REAL-TIME SAFE: Use atomic position accessor from TransportController
             if !self.recordingFirstBufferReceived {
                 self.recordingFirstBufferReceived = true
-                self.recordingStartBeat = self.getCurrentPosition().beats
+                // Thread-safe read from atomic position
+                if let transport = self.transportController {
+                    self.recordingStartBeat = transport.atomicBeatPosition
+                } else {
+                    // Fallback: Use closure (may hit MainActor but unlikely on first buffer)
+                    self.recordingStartBeat = self.getCurrentPosition().beats
+                }
             }
             
             guard let bufferCopy = bufferPool.acquireAndCopy(from: buffer) else { return }
@@ -483,11 +514,22 @@ final class RecordingController: @unchecked Sendable {
                 rms = sqrt(sum / Float(max(1, frameCount)))
             }
             
+            // Capture file reference before async to avoid Sendable crossing actor boundaries
+            guard let file = recordingFile else {
+                bufferPool.release(bufferCopy)
+                return
+            }
+            
             writerQueue.async { [weak self] in
-                guard let self = self, let file = self.recordingFile else {
+                guard let self = self else {
                     bufferPool.release(bufferCopy)
                     return
                 }
+                // CRITICAL FIX: Release buffer in defer to prevent memory leak on write errors
+                defer {
+                    bufferPool.release(bufferCopy)
+                }
+                
                 do {
                     try file.write(from: bufferCopy)
                     if bufferPool.incrementWriteCount() {
@@ -495,8 +537,10 @@ final class RecordingController: @unchecked Sendable {
                             try? fileHandle.synchronize()
                         }
                     }
-                } catch {}
-                bufferPool.release(bufferCopy)
+                } catch {
+                    // Log error but continue - buffer is released by defer
+                    AppLogger.shared.error("Failed to write recording buffer: \(error)", category: .audio)
+                }
             }
             
             // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
