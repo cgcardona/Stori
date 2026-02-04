@@ -45,6 +45,7 @@ struct PianoRollView: View {
     @State private var isMarqueeSelecting = false
     @State private var marqueeStart: CGPoint = .zero
     @State private var marqueeEnd: CGPoint = .zero
+    @State private var previousMarqueeSelection: Set<UUID> = []  // Track previous selection for audio feedback
     
     // For brush tool - track notes painted in current drag for undo
     @State private var brushPaintedNotes: Set<UUID> = []
@@ -57,8 +58,14 @@ struct PianoRollView: View {
     @State private var duplicateStartPositions: [UUID: (beat: Double, pitch: UInt8)] = [:]
     @State private var originalPositionsBeforeDrag: [UUID: (beat: Double, pitch: UInt8)] = [:]
     
+    // For undo support during note drag (capture state at drag START, register at drag END)
+    @State private var notesBeforeDrag: [MIDINote] = []
+    
+    // For undo support during note resize (capture state at resize START, register at resize END)
+    @State private var notesBeforeResize: [MIDINote] = []
+    
     // For pitch preview during drag (debouncing to avoid audio spam)
-    @State private var lastPreviewedPitch: UInt8 = 0
+    @State private var lastPreviewedPitches: Set<UInt8> = []  // Track chord for multi-note drag
     @State private var lastPreviewTime: Date = .distantPast
     
     // For keyboard pitch indicator during drag (shows target pitch on keyboard)
@@ -1310,14 +1317,45 @@ struct PianoRollView: View {
             onMove: { offset in moveNote(note, by: offset) },
             onResize: { delta in resizeNote(note, by: delta) },
             onDelete: { deleteNote(note) },
+            onResizeEnd: {
+                // Register undo ONCE at resize end (not during resize motion)
+                if !notesBeforeResize.isEmpty {
+                    let beforeNotes = notesBeforeResize
+                    let afterNotes = region.notes
+                    
+                    undoManager?.registerUndo(withTarget: undoManager!) { _ in
+                        self.region.notes = beforeNotes
+                    }
+                    undoManager?.setActionName("Resize Note")
+                    
+                    // Clear snapshot
+                    notesBeforeResize = []
+                }
+            },
             onDragEnd: { 
+                // Register undo ONCE at drag end (not during drag motion)
+                // This prevents undo stack pollution (hundreds of undo entries per drag)
+                if !notesBeforeDrag.isEmpty {
+                    let beforeNotes = notesBeforeDrag
+                    let afterNotes = region.notes
+                    
+                    undoManager?.registerUndo(withTarget: undoManager!) { _ in
+                        self.region.notes = beforeNotes
+                    }
+                    undoManager?.setActionName("Move Notes")
+                    
+                    // Clear snapshot
+                    notesBeforeDrag = []
+                }
+                
+                // Clean up drag state
                 isDuplicatingDrag = false
                 draggedNotesOriginalIds = []
                 hasDuplicatedForCurrentDrag = false
                 duplicateStartPositions.removeAll()
                 originalPositionsBeforeDrag.removeAll()
                 // Reset pitch preview and keyboard indicator state
-                lastPreviewedPitch = 0
+                lastPreviewedPitches.removeAll()
                 draggingPitch = nil
                 // Stop any playing preview note to prevent stuck notes
                 onStopPreview?()
@@ -1392,6 +1430,7 @@ struct PianoRollView: View {
             if !isMarqueeSelecting {
                 isMarqueeSelecting = true
                 marqueeStart = value.startLocation
+                previousMarqueeSelection = []  // Reset tracking at start of new marquee
             }
             marqueeEnd = value.location
             
@@ -1405,6 +1444,8 @@ struct PianoRollView: View {
             
             // Find notes within the marquee rectangle
             var newSelection = Set<UUID>()
+            var notesInMarquee: [MIDINote] = []  // Track actual notes for audio feedback
+            
             for note in region.notes {
                 let noteX = note.startBeat * scaledPixelsPerBeat
                 let noteY = CGFloat(maxPitch - Int(note.pitch)) * scaledNoteHeight
@@ -1413,9 +1454,34 @@ struct PianoRollView: View {
                 
                 if rect.intersects(noteRect) {
                     newSelection.insert(note.id)
+                    notesInMarquee.append(note)
                 }
             }
+            
+            // LOGIC PRO BEHAVIOR: Play audio for newly selected notes
+            // Detect notes that just became selected (weren't in previous selection)
+            let newlySelectedIds = newSelection.subtracting(previousMarqueeSelection)
+            
+            if !newlySelectedIds.isEmpty {
+                // Find the notes that were newly selected and play their pitches
+                let newlySelectedNotes = notesInMarquee.filter { newlySelectedIds.contains($0.id) }
+                
+                // Group by pitch to avoid playing the same pitch multiple times
+                let uniquePitches = Set(newlySelectedNotes.map { $0.pitch })
+                
+                // Play each unique pitch (sorted for consistent audio experience)
+                // Limit to 8 simultaneous previews to avoid audio overload on fast drags
+                let sortedPitches = uniquePitches.sorted()
+                let pitchesToPlay = sortedPitches.prefix(8)
+                
+                for pitch in pitchesToPlay {
+                    onPreviewNote?(pitch)
+                }
+            }
+            
+            // Update state
             selectedNotes = newSelection
+            previousMarqueeSelection = newSelection
             
         case .brush:
             // Brush tool: paint notes at grid positions as you drag
@@ -1503,6 +1569,7 @@ struct PianoRollView: View {
         
         // End marquee selection
         isMarqueeSelecting = false
+        previousMarqueeSelection = []  // Reset for next marquee operation
         
         isDrawing = false
         drawingNote = nil
@@ -1758,8 +1825,12 @@ struct PianoRollView: View {
     }
     
     private func moveNote(_ note: MIDINote, by offset: CGSize) {
-        // Capture original positions on VERY FIRST call (before any movement)
+        // Capture original state on VERY FIRST call (before any movement) for undo
         if originalPositionsBeforeDrag.isEmpty {
+            // Snapshot entire notes array for undo (capture at drag START)
+            notesBeforeDrag = region.notes
+            
+            // Capture individual positions for drag calculations
             let notesToCapture = selectedNotes.isEmpty ? [note.id] : selectedNotes
             for noteId in notesToCapture {
                 if let originalNote = region.notes.first(where: { $0.id == noteId }) {
@@ -1805,8 +1876,8 @@ struct PianoRollView: View {
         // If multiple notes are selected, move all of them together with the same offset
         let notesToMove = selectedNotes.isEmpty ? [note.id] : Array(selectedNotes)
         
-        // Track the new pitch for audio preview (use the first note's new pitch)
-        var newPitchForPreview: UInt8? = nil
+        // Track ALL new pitches for audio preview (play the entire chord)
+        var newPitchesForPreview: Set<UInt8> = []
         
         for noteId in notesToMove {
             // Skip original notes during duplication - they should never move
@@ -1841,48 +1912,54 @@ struct PianoRollView: View {
             
             region.notes[index] = movedNote
             
-            // Capture the first note's new pitch for audio preview
-            if newPitchForPreview == nil {
-                newPitchForPreview = movedNote.pitch
-            }
+            // Collect all unique pitches for chord preview
+            newPitchesForPreview.insert(movedNote.pitch)
         }
         
         // Play audio preview and update keyboard indicator when pitch changes
-        if let newPitch = newPitchForPreview {
-            // Always update dragging pitch for keyboard highlight (even without audio)
-            draggingPitch = newPitch
+        if !newPitchesForPreview.isEmpty {
+            // Update dragging pitch for keyboard highlight (use highest pitch)
+            draggingPitch = newPitchesForPreview.max()
             
             // Play audio preview when pitch actually changes (debounced to avoid spam)
             if pitchOffset != 0 {
-                previewPitchIfChanged(newPitch)
+                previewPitchesIfChanged(newPitchesForPreview)
             }
         }
         
-        // Register undo
-        if let undoManager = undoManager {
-            undoManager.registerUndo(withTarget: undoManager) { _ in
-                self.region.notes = oldNotes
-            }
-            undoManager.setActionName("Move Notes")
-        }
+        // NOTE: Undo is registered at drag END, not during drag motion (see onDragEnd callback)
+        // This prevents undo stack pollution (hundreds of undo entries per drag)
     }
     
-    /// Preview a pitch with debouncing to avoid audio spam during fast drags
-    private func previewPitchIfChanged(_ pitch: UInt8) {
+    /// Preview multiple pitches (chord) with debouncing to avoid audio spam during fast drags
+    private func previewPitchesIfChanged(_ pitches: Set<UInt8>) {
         let now = Date()
-        // Only trigger if pitch changed or at least 100ms have passed
-        if pitch != lastPreviewedPitch || now.timeIntervalSince(lastPreviewTime) > 0.1 {
-            lastPreviewedPitch = pitch
+        let timeSinceLastPreview = now.timeIntervalSince(lastPreviewTime)
+        let pitchesChanged = pitches != lastPreviewedPitches
+        
+        // Only trigger if pitch set changed or at least 100ms have passed
+        if pitchesChanged || timeSinceLastPreview > 0.1 {
+            lastPreviewedPitches = pitches
             lastPreviewTime = now
-            onPreviewNote?(pitch)
+            
+            // Play all pitches in the chord (sorted for consistent triggering)
+            // Limit to 8 simultaneous notes to prevent audio overload
+            let sortedPitches = pitches.sorted()
+            let pitchesToPlay = sortedPitches.prefix(8)
+            
+            for pitch in pitchesToPlay {
+                onPreviewNote?(pitch)
+            }
         }
     }
     
     private func resizeNote(_ note: MIDINote, by delta: CGFloat) {
         guard let index = region.notes.firstIndex(where: { $0.id == note.id }) else { return }
         
-        // Capture state for undo
-        let oldNotes = region.notes
+        // Capture state at resize START (first call)
+        if notesBeforeResize.isEmpty {
+            notesBeforeResize = region.notes
+        }
         
         let durationDelta = delta / scaledPixelsPerBeat
         var newDuration = note.durationBeats + durationDelta
@@ -1895,13 +1972,8 @@ struct PianoRollView: View {
         
         region.notes[index].durationBeats = newDuration
         
-        // Register undo
-        if let undoManager = undoManager {
-            undoManager.registerUndo(withTarget: undoManager) { _ in
-                self.region.notes = oldNotes
-            }
-            undoManager.setActionName("Resize Note")
-        }
+        // NOTE: Undo is registered at resize END, not during resize motion (see onResizeEnd callback)
+        // This prevents undo stack pollution (hundreds of undo entries per resize)
     }
     
     private func updateNoteVelocity(_ noteId: UUID, velocity: UInt8) {
@@ -2016,6 +2088,7 @@ struct NoteView: View {
     let onMove: (CGSize) -> Void
     let onResize: (CGFloat) -> Void
     let onDelete: () -> Void
+    let onResizeEnd: () -> Void
     let onDragEnd: () -> Void
     let onSlice: (Double) -> Void  // Split note at position in beats (relative to note start)
     let onGlue: () -> Void               // Merge with next adjacent note
@@ -2144,6 +2217,7 @@ struct NoteView: View {
             }
             .onEnded { _ in
                 isResizing = false
+                onResizeEnd()
             }
     }
     
