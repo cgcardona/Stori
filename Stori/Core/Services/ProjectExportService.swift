@@ -764,6 +764,10 @@ class ProjectExportService {
         // Store tempo for automation calculations
         exportTempo = project.tempo
         
+        // PDC: Initialize PluginLatencyManager with export sample rate
+        // This ensures compensation delays are calculated correctly for offline rendering
+        PluginLatencyManager.shared.setSampleRate(sampleRate)
+        
         // Set up automation processor for export
         exportAutomationProcessor = AutomationProcessor()
         for track in project.tracks {
@@ -889,6 +893,39 @@ class ProjectExportService {
                 )
                 midiTrackCount += 1
             }
+        }
+        
+        // PDC: Calculate delay compensation for all tracks after plugin chains are cloned
+        // This ensures export uses the same compensation as playback for perfect parity
+        // Build a map of track ID -> cloned plugin instances for PDC calculation
+        //
+        // WYHIWYG CRITICAL: Export MUST use identical PDC to playback.
+        // Without this, tracks with different plugin latencies will be misaligned in the bounce,
+        // causing phase cancellation, flamming, and a mix that doesn't match what was heard.
+        //
+        // How it works:
+        // 1. Get live plugin instances (cloned AUs have same latency characteristics)
+        // 2. Calculate compensation delays using PluginLatencyManager
+        // 3. scheduleRegionForPlayback applies these delays to each track's audio scheduling
+        //
+        var trackPluginsForPDC: [UUID: [PluginInstance]] = [:]
+        
+        for (trackId, clonedAUNodes) in clonedTrackPlugins {
+            // We need to convert AVAudioUnit back to PluginInstance for PDC calculation
+            // For now, we'll use the live engine's plugin instances as a reference
+            // since cloned plugins have the same latency characteristics
+            if let livePluginChain = await audioEngine.getPluginChain(for: trackId) {
+                let liveActivePlugins = await livePluginChain.activePlugins.filter { !$0.isBypassed }
+                trackPluginsForPDC[trackId] = liveActivePlugins
+            }
+        }
+        
+        // Calculate and store compensation delays for export
+        let _ = PluginLatencyManager.shared.calculateCompensation(trackPlugins: trackPluginsForPDC)
+        
+        let maxLatency = PluginLatencyManager.shared.maxLatencyMs
+        if maxLatency > 1.0 {
+            AppLogger.shared.info("Export PDC: Applying \(String(format: "%.2f", maxLatency))ms max latency compensation", category: .audio)
         }
         
         // Schedule all audio files for playback
@@ -1396,7 +1433,15 @@ class ProjectExportService {
         
         // Convert beat position to seconds for AVAudioEngine scheduling
         let startTimeSeconds = region.startTimeSeconds(tempo: tempo)
-        let startFrame = AVAudioFramePosition(startTimeSeconds * sampleRate)
+        
+        // PDC: Get compensation delay for this track (in samples)
+        // This ensures export matches playback when plugins have different latencies
+        let compensationDelaySamples = PluginLatencyManager.shared.getCompensationDelay(for: track.id)
+        let compensationSeconds = Double(compensationDelaySamples) / sampleRate
+        
+        // Apply compensation to start time
+        let compensatedStartTime = startTimeSeconds + compensationSeconds
+        let startFrame = AVAudioFramePosition(compensatedStartTime * sampleRate)
         
         // Use contentLength for loop unit (includes empty space), fallback to source file duration
         let loopUnitDuration = region.contentLength > 0 ? region.contentLength : sourceFileDuration
@@ -1410,8 +1455,8 @@ class ProjectExportService {
         if region.isLooped && regionDurationSeconds > loopUnitDuration {
             // Calculate how many times to loop
             // CRITICAL: Use loopUnitDuration (contentLength) to respect empty space in loops
-            var currentTimeSeconds = startTimeSeconds
-            let endTimeSeconds = startTimeSeconds + regionDurationSeconds
+            var currentTimeSeconds = compensatedStartTime
+            let endTimeSeconds = compensatedStartTime + regionDurationSeconds
             var loopCount = 0
             
             while currentTimeSeconds < endTimeSeconds {

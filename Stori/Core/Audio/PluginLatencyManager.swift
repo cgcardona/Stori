@@ -14,6 +14,47 @@ import os.lock
 // MARK: - Plugin Latency Manager
 
 /// Manages plugin delay compensation (PDC) for the entire project
+///
+/// # Plugin Delay Compensation (PDC)
+///
+/// PDC ensures all tracks stay phase-aligned when using latency-inducing plugins.
+/// Without PDC, plugins with processing latency (like linear-phase EQs, lookahead compressors,
+/// or convolution reverbs) cause timing misalignment between tracks.
+///
+/// ## How PDC Works
+///
+/// 1. **Measure Plugin Latency**: Each AU plugin reports its processing latency via `AVAudioUnit.latency`
+/// 2. **Calculate Compensation**: Find the track with maximum latency, then delay all other tracks to match
+/// 3. **Apply Delays**: Add sample-accurate delays to tracks during audio scheduling
+///
+/// ## Example
+///
+/// ```
+/// Track 1: Linear-phase EQ (10ms latency)
+/// Track 2: Standard EQ (0ms latency)
+/// Track 3: No plugins (0ms latency)
+///
+/// PDC Compensation:
+/// Track 1: 0ms delay (highest latency)
+/// Track 2: 10ms delay (compensate for difference)
+/// Track 3: 10ms delay (compensate for difference)
+///
+/// Result: All tracks play in perfect phase alignment
+/// ```
+///
+/// ## WYHIWYG (What You Hear Is What You Get)
+///
+/// PDC is critical for WYHIWYG because:
+/// - Playback uses PDC to align tracks in real-time
+/// - Export uses the SAME PDC values to ensure the bounce matches playback exactly
+/// - Without PDC, mixed audio suffers from phase smear, flamming, and loss of clarity
+///
+/// ## Thread Safety
+///
+/// - `calculateCompensation` runs on main thread (called when plugin chain changes)
+/// - `getCompensationDelay` is thread-safe and can be called from audio thread
+/// - Uses `os_unfair_lock` for minimal overhead on compensation delay reads
+///
 @Observable
 @MainActor
 class PluginLatencyManager {

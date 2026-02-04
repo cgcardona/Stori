@@ -355,6 +355,11 @@ class SynthVoice {
         releaseStartTime = time
     }
     
+    /// Mark voice as inactive (for cleanup)
+    func deactivate() {
+        isActive = false
+    }
+    
     /// Check if voice should be deallocated
     func shouldDeallocate(at time: Float) -> Bool {
         guard isReleased else { return false }
@@ -627,7 +632,7 @@ class SynthEngine {
         // They will be cleaned up later on main thread or in noteOn (outside render path)
         for i in 0..<voices.count {
             if voices[i].shouldDeallocate(at: currentTime) {
-                voices[i].isActive = false
+                voices[i].deactivate()
             }
         }
         
