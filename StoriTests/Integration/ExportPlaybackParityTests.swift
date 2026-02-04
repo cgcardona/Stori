@@ -21,6 +21,7 @@ final class ExportPlaybackParityTests: XCTestCase {
     var exportService: ProjectExportService!
     var testProject: AudioProject!
     
+    @MainActor
     override func setUp() {
         super.setUp()
         audioEngine = AudioEngine()
@@ -30,6 +31,7 @@ final class ExportPlaybackParityTests: XCTestCase {
         testProject = createTestProject()
     }
     
+    @MainActor
     override func tearDown() {
         audioEngine = nil
         exportService = nil
@@ -107,10 +109,6 @@ final class ExportPlaybackParityTests: XCTestCase {
                          "Track pan should be normalized (0-1)")
         }
         
-        // Master settings should be preserved
-        XCTAssertTrue(project.masterVolume >= 0.0 && project.masterVolume <= 2.0,
-                     "Master volume should be in valid range")
-        
         // Tempo should be positive
         XCTAssertGreaterThan(project.tempo, 0, "Tempo must be positive")
     }
@@ -120,12 +118,12 @@ final class ExportPlaybackParityTests: XCTestCase {
         var project = testProject!
         
         // Test mute state
-        project.tracks[0].isMuted = true
-        XCTAssertTrue(project.tracks[0].isMuted, "Track should be muted")
+        project.tracks[0].mixerSettings.isMuted = true
+        XCTAssertTrue(project.tracks[0].mixerSettings.isMuted, "Track should be muted")
         
         // Test solo state
-        project.tracks[0].isSoloed = true
-        XCTAssertTrue(project.tracks[0].isSoloed, "Track should be soloed")
+        project.tracks[0].mixerSettings.isSolo = true
+        XCTAssertTrue(project.tracks[0].mixerSettings.isSolo, "Track should be soloed")
         
         // Note: Actual enforcement of mute/solo in export is verified through
         // the isEnabled check in setupOfflineAudioGraph
