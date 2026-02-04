@@ -543,6 +543,12 @@ class AudioEngine: AudioEngineContext {
         projectLifecycleManager.onSetGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
         projectLifecycleManager.onSetTransportStopped = { [weak self] in self?.transportState = .stopped }
         projectLifecycleManager.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
+        projectLifecycleManager.onProjectLoaded = { [weak self] project in
+            print("\n🎉 PROJECT LOADED: '\(project.name)' - Running diagnostics...")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self?.debugPlaybackState()
+            }
+        }
         
         // Initialize device configuration manager
         deviceConfigManager = DeviceConfigurationManager()
@@ -809,6 +815,12 @@ class AudioEngine: AudioEngineContext {
         
         // Log sample rate diagnostic info on startup
         dumpSampleRateInfo()
+        
+        // Debug: Show initial engine state
+        print("\n🚀 AUDIO ENGINE INITIALIZED")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.debugPlaybackState()
+        }
     }
     
     private func setupMasterMeterTap() {
@@ -1467,12 +1479,21 @@ class AudioEngine: AudioEngineContext {
                     if healthMonitor.currentHealth.requiresRecovery {
                         attemptEngineRecovery()
                     }
+                    
+                    // Debug: Show why playback failed
+                    print("\n❌ PLAYBACK FAILED - Health check failed before play")
+                    debugPlaybackState()
                     return
                 }
             }
         }
         
         transportController.play()
+        
+        // Debug: Print playback state after starting
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.debugPlaybackState()
+        }
     }
     
     func pause() {
