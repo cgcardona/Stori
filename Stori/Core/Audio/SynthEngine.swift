@@ -549,6 +549,9 @@ class SynthEngine {
         voicesLock.lock()
         defer { voicesLock.unlock() }
         
+        // CLEANUP: Remove inactive voices before allocating new ones (outside render path)
+        voices.removeAll { !$0.isActive }
+        
         // Voice stealing if at max polyphony
         if voices.count >= maxPolyphony {
             // Remove oldest voice
@@ -619,8 +622,14 @@ class SynthEngine {
         // Update time
         currentTime += Float(frameCount) / Float(sampleRate)
         
-        // Remove finished voices
-        voices.removeAll { $0.shouldDeallocate(at: currentTime) }
+        // REAL-TIME SAFE: Mark voices for deallocation (no immediate removal/allocation)
+        // Instead of removeAll (allocates), we iterate and mark inactive voices
+        // They will be cleaned up later on main thread or in noteOn (outside render path)
+        for i in 0..<voices.count {
+            if voices[i].shouldDeallocate(at: currentTime) {
+                voices[i].isActive = false
+            }
+        }
         
         voicesLock.unlock()
     }
