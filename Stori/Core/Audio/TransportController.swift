@@ -478,7 +478,6 @@ class TransportController {
     
     private func updatePosition(capturedWallTime: TimeInterval) {
         guard transportState.isPlaying else {
-            print("⚠️ updatePosition() called but not playing (state: \(transportState))")
             return
         }
         guard let project = getProject() else { return }
