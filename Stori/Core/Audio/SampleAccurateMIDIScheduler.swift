@@ -444,6 +444,11 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
     /// High-precision GCD timer
     private var schedulingTimer: DispatchSourceTimer?
     
+    /// Pre-allocated event buffer to avoid allocation in timer callback
+    /// Reused on each timer tick for real-time safety (no malloc at 500Hz)
+    /// FIX: Eliminates memory allocation at 500Hz which can cause crackling under load
+    private var eventBuffer: [(status: UInt8, data1: UInt8, data2: UInt8, trackId: UUID, sampleTime: AUEventSampleTime)] = []
+    
     // MARK: - Public Properties
     
     /// Whether playback is active (thread-safe read)
@@ -455,7 +460,11 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
     
     // MARK: - Initialization
     
-    init() {}
+    init() {
+        // Pre-allocate event buffer to avoid malloc in timer callback
+        // Reserve capacity for typical burst size (e.g., chord with 8 notes + CC events)
+        eventBuffer.reserveCapacity(32)
+    }
     
     // MARK: - Configuration (Call from MainActor)
     
@@ -690,8 +699,8 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         // Get current beat from transport
         guard let currentBeat = currentBeatProvider?() else { return }
         
-        // Collect events to dispatch with their sample times
-        var eventsToDispatch: [(status: UInt8, data1: UInt8, data2: UInt8, trackId: UUID, sampleTime: AUEventSampleTime)] = []
+        // Reuse pre-allocated buffer to avoid malloc in timer callback (real-time safety)
+        eventBuffer.removeAll(keepingCapacity: true)
         
         os_unfair_lock_lock(&stateLock)
         
@@ -758,7 +767,7 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
             // Queue event for dispatch with calculated sample time
             // Clamp to immediate if slightly in the past
             let clampedSampleTime = max(0, sampleTime)
-            eventsToDispatch.append((event.status, event.data1, event.data2, event.trackId, clampedSampleTime))
+            eventBuffer.append((event.status, event.data1, event.data2, event.trackId, clampedSampleTime))
             
             // Mark as scheduled
             scheduledEventIndices.insert(eventIndex)
@@ -780,14 +789,14 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         guard let handler = sampleAccurateMIDIHandler else {
             // No handler configured - this is a configuration error
             #if DEBUG
-            if !eventsToDispatch.isEmpty {
+            if !eventBuffer.isEmpty {
                 AppLogger.shared.warning("MIDI events dropped - no handler configured", category: .audio)
             }
             #endif
             return
         }
         
-        for event in eventsToDispatch {
+        for event in eventBuffer {
             handler(event.status, event.data1, event.data2, event.trackId, event.sampleTime)
         }
     }
