@@ -310,6 +310,15 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     private var graphManager: AudioGraphManager!
     
+    // MARK: - Engine Health Monitor
+    /// Validates engine state consistency and detects desyncs
+    @ObservationIgnored
+    private var healthMonitor: AudioEngineHealthMonitor!
+    
+    /// Error tracker for surfacing critical issues
+    @ObservationIgnored
+    private var errorTracker: AudioEngineErrorTracker { AudioEngineErrorTracker.shared }
+    
     /// Computed accessor for bus nodes (delegates to BusManager)
     private var busNodes: [UUID: BusAudioNode] {
         busManager?.busNodes ?? [:]
@@ -580,6 +589,19 @@ class AudioEngine: AudioEngineContext {
         graphManager.getCurrentPosition = { [weak self] in self?.currentPosition ?? PlaybackPosition() }
         graphManager.setGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
         graphManager.onPlayFromBeat = { [weak self] beat in self?.playFromBeat(beat) }
+        
+        // Initialize health monitor
+        healthMonitor = AudioEngineHealthMonitor()
+        healthMonitor.configure(
+            engine: engine,
+            mixer: mixer,
+            masterEQ: masterEQ,
+            masterLimiter: masterLimiter,
+            getGraphFormat: { [weak self] in self?.graphFormat },
+            getIsGraphStable: { [weak self] in self?.isGraphStable ?? true },
+            getIsGraphReady: { [weak self] in self?.isGraphReadyForPlayback ?? false },
+            getTrackNodes: { [weak self] in self?.trackNodes ?? [:] }
+        )
         
         transportController.setupPositionTimer()
         automationRecorder.configure(audioEngine: self)
@@ -889,10 +911,38 @@ class AudioEngine: AudioEngineContext {
                 isGraphReadyForPlayback = true
                 engineExpectedToRun = true
                 engineStartRetryAttempt = 0  // Reset retry counter on success
+                
+                // Validate engine health after start
+                let healthResult = healthMonitor.validateState()
+                if !healthResult.isValid {
+                    AppLogger.shared.warning("Engine started but health check found issues", category: .audio)
+                    for issue in healthResult.criticalIssues {
+                        AppLogger.shared.error(issue.logMessage, category: .audio)
+                        errorTracker.recordError(
+                            severity: .error,
+                            component: issue.component,
+                            message: issue.description
+                        )
+                    }
+                }
+                
                 AppLogger.shared.info("Audio engine started successfully", category: .audio)
             }
         } catch {
-            AppLogger.shared.error("Engine start failed (attempt \(engineStartRetryAttempt + 1)): \(error.localizedDescription)", category: .audio)
+            let errorMsg = "Engine start failed (attempt \(engineStartRetryAttempt + 1)): \(error.localizedDescription)"
+            AppLogger.shared.error(errorMsg, category: .audio)
+            
+            // Track the error with context
+            errorTracker.recordError(
+                severity: engineStartRetryAttempt >= 2 ? .critical : .error,
+                component: "AudioEngine",
+                message: "Failed to start engine",
+                context: [
+                    "attempt": String(engineStartRetryAttempt + 1),
+                    "maxRetries": String(Self.maxEngineStartRetries),
+                    "error": error.localizedDescription
+                ]
+            )
             
             // Implement exponential backoff retry
             scheduleEngineStartRetry()
@@ -1399,6 +1449,25 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Transport Controls (Delegated to TransportController)
     
     func play() {
+        // Validate engine health before starting playback
+        if !healthMonitor.quickValidate() {
+            let result = healthMonitor.validateState()
+            if !result.isValid {
+                errorTracker.recordError(
+                    severity: .critical,
+                    component: "AudioEngine",
+                    message: "Cannot play: Engine health check failed",
+                    context: ["criticalIssues": String(result.criticalIssues.count)]
+                )
+                
+                // Attempt recovery for critical issues
+                if healthMonitor.currentHealth.requiresRecovery {
+                    attemptEngineRecovery()
+                }
+                return
+            }
+        }
+        
         transportController.play()
     }
     
@@ -1831,7 +1900,27 @@ class AudioEngine: AudioEngineContext {
     
     /// Seek to a specific beat position (primary method)
     func seekToBeat(_ beat: Double) {
+        // Validate input
+        guard beat.isFinite else {
+            errorTracker.recordError(
+                severity: .warning,
+                component: "Transport",
+                message: "Invalid seek position (non-finite): \(beat)"
+            )
+            return
+        }
+        
         let targetBeat = max(0, beat)
+        
+        // Warn if seeking very far (might indicate bug)
+        if targetBeat > 100000 {
+            errorTracker.recordError(
+                severity: .warning,
+                component: "Transport",
+                message: "Seeking to very high beat position: \(targetBeat)"
+            )
+        }
+        
         transportController.seekToBeat(targetBeat)
         
         // Also update MIDI playback position (in beats)
@@ -1966,6 +2055,25 @@ class AudioEngine: AudioEngineContext {
     
     /// Set cycle region in BEATS (consistent with MIDI timing throughout the app)
     func setCycleRegion(startBeat: Double, endBeat: Double) {
+        // Validate inputs
+        guard startBeat >= 0 else {
+            errorTracker.recordError(
+                severity: .warning,
+                component: "Transport",
+                message: "Invalid cycle start beat (negative): \(startBeat)"
+            )
+            return
+        }
+        
+        guard endBeat > startBeat else {
+            errorTracker.recordError(
+                severity: .warning,
+                component: "Transport",
+                message: "Invalid cycle region: end (\(endBeat)) must be > start (\(startBeat))"
+            )
+            return
+        }
+        
         transportController.setCycleRegion(startBeat: startBeat, endBeat: endBeat)
     }
 }
@@ -2119,7 +2227,136 @@ extension AudioEngine {
     /// Called under memory pressure to release non-essential caches. Safe to call from main thread.
     /// On macOS there is no system memory-warning notification; wire to DISPATCH_SOURCE_TYPE_MEMORYPRESSURE if desired.
     func handleMemoryWarning() {
+        AppLogger.shared.warning("AudioEngine: Handling memory pressure", category: .audio)
+        
+        // Release mixer caches
         mixerController.invalidateTrackIndexCache()
-        // Future: clear cachedAudioFiles, cachedWaveforms when those caches exist
+        
+        // Release audio buffer pool
+        AudioResourcePool.shared.handleMemoryWarning()
+        
+        // Clear audio file caches in track nodes
+        for (_, trackNode) in trackNodes {
+            trackNode.clearAudioFileCache()
+        }
+        
+        // Future: clear cachedWaveforms when those caches exist
+    }
+    
+    // MARK: - Diagnostics
+    
+    /// Generate comprehensive diagnostic report for troubleshooting.
+    /// Returns markdown-formatted text suitable for bug reports or logging.
+    func generateDiagnosticReport() -> String {
+        return AudioEngineDiagnostics.generateReport(
+            engine: engine,
+            graphFormat: graphFormat,
+            trackNodes: trackNodes,
+            busNodes: busNodes,
+            currentProject: currentProject,
+            healthMonitor: healthMonitor,
+            errorTracker: errorTracker,
+            performanceMonitor: AudioPerformanceMonitor.shared
+        )
+    }
+    
+    /// Save diagnostic report to Documents folder.
+    /// Returns URL of saved report or nil if failed.
+    @discardableResult
+    func saveDiagnosticReport() -> URL? {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        
+        return AudioEngineDiagnostics.saveDiagnosticReport(
+            to: documentsURL,
+            engine: engine,
+            graphFormat: graphFormat,
+            trackNodes: trackNodes,
+            busNodes: busNodes,
+            currentProject: currentProject,
+            healthMonitor: healthMonitor,
+            errorTracker: errorTracker,
+            performanceMonitor: AudioPerformanceMonitor.shared
+        )
+    }
+    
+    /// Perform comprehensive system health check.
+    /// Returns true if all systems are healthy and ready for operation.
+    /// Use this for quick health verification or before critical operations.
+    @discardableResult
+    func performSystemHealthCheck() -> Bool {
+        logDebug("🏥 Performing system health check", category: "HEALTH")
+        
+        // 1. Validate engine state
+        let healthResult = healthMonitor.validateState()
+        if !healthResult.isValid {
+            logDebug("❌ Health validation failed: \(healthResult.issues.count) issues", category: "HEALTH")
+            for issue in healthResult.criticalIssues {
+                logDebug("  - CRITICAL: \(issue.component): \(issue.description)", category: "HEALTH")
+            }
+            return false
+        }
+        
+        // 2. Check error tracker health
+        let errorHealth = errorTracker.engineHealth
+        switch errorHealth {
+        case .healthy:
+            logDebug("✅ Error health: Healthy", category: "HEALTH")
+        case .degraded(let reason):
+            logDebug("⚠️ Error health: Degraded - \(reason)", category: "HEALTH")
+        case .unhealthy(let reason):
+            logDebug("❌ Error health: Unhealthy - \(reason)", category: "HEALTH")
+            return false
+        case .critical(let reason):
+            logDebug("🔴 Error health: CRITICAL - \(reason)", category: "HEALTH")
+            return false
+        }
+        
+        // 3. Check memory pressure
+        let resourcePool = AudioResourcePool.shared
+        if resourcePool.isUnderMemoryPressure {
+            logDebug("⚠️ Memory pressure detected", category: "HEALTH")
+        }
+        
+        // 4. Check for recent performance issues
+        let recentSlowOps = AudioPerformanceMonitor.shared.getRecentSlowOperations(within: 60, limit: 5)
+        if !recentSlowOps.isEmpty {
+            logDebug("⚠️ \(recentSlowOps.count) slow operations in last 60s", category: "HEALTH")
+        }
+        
+        logDebug("✅ System health check: PASSED", category: "HEALTH")
+        return true
+    }
+    
+    /// Get a user-facing health status message.
+    /// Use this to display engine status in UI.
+    func getHealthStatusMessage() -> String {
+        let healthStatus = healthMonitor.currentHealth
+        let errorStatus = errorTracker.engineHealth
+        let memoryPressure = AudioResourcePool.shared.isUnderMemoryPressure
+        
+        // Return worst status
+        if case .critical = healthStatus {
+            return "🔴 Audio Engine Critical Error - Restart Required"
+        }
+        if case .critical = errorStatus {
+            return "🔴 Multiple Critical Errors - Check Diagnostics"
+        }
+        if case .unhealthy = healthStatus {
+            return "❌ Audio Engine Unhealthy - Playback May Fail"
+        }
+        if case .unhealthy = errorStatus {
+            return "❌ High Error Rate - Check Error Log"
+        }
+        if memoryPressure {
+            return "⚠️ Memory Pressure - Close Other Applications"
+        }
+        if case .degraded = healthStatus {
+            return "⚠️ Audio Engine Degraded - Minor Issues Detected"
+        }
+        if case .degraded = errorStatus {
+            return "⚠️ Some Warnings - Audio Should Work"
+        }
+        
+        return "✅ Audio Engine Healthy"
     }
 }

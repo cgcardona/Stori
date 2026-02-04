@@ -48,6 +48,18 @@ final class AudioGraphManager {
     @ObservationIgnored
     private(set) var graphGeneration: Int = 0
     
+    // MARK: - Rate Limiting
+    
+    /// Timestamps of recent mutations for rate limiting
+    @ObservationIgnored
+    private var recentMutationTimestamps: [Date] = []
+    
+    /// Maximum mutations allowed per second (prevents rebuild storms)
+    private static let maxMutationsPerSecond = 10
+    
+    /// Time window for rate limiting (seconds)
+    private static let rateLimitWindow: TimeInterval = 1.0
+    
     // MARK: - Dependencies (set by AudioEngine)
     
     @ObservationIgnored
@@ -119,6 +131,30 @@ final class AudioGraphManager {
             return
         }
         
+        // RATE LIMITING: Prevent rebuild storms
+        if shouldRateLimitMutation(type: type) {
+            let recentCount = recentMutationTimestamps.count
+            AppLogger.shared.warning(
+                "AudioGraphManager: Rate limit exceeded (\(recentCount) mutations in last \(Self.rateLimitWindow)s), rejecting mutation",
+                category: .audio
+            )
+            
+            AudioEngineErrorTracker.shared.recordError(
+                severity: .warning,
+                component: "AudioGraphManager",
+                message: "Graph mutation rate limit exceeded",
+                context: [
+                    "type": String(describing: type),
+                    "recentCount": String(recentCount)
+                ]
+            )
+            
+            return
+        }
+        
+        // Record mutation timestamp
+        recordMutationTimestamp()
+        
         _isGraphMutationInProgress = true
         defer {
             _isGraphMutationInProgress = false
@@ -164,6 +200,34 @@ final class AudioGraphManager {
         }
     }
     
+    // MARK: - Rate Limiting Helpers
+    
+    /// Check if mutation should be rate limited
+    private func shouldRateLimitMutation(type: MutationType) -> Bool {
+        // Don't rate limit connection-only mutations (very fast)
+        if case .connection = type {
+            return false
+        }
+        
+        // Clean up old timestamps
+        let cutoff = Date().addingTimeInterval(-Self.rateLimitWindow)
+        recentMutationTimestamps.removeAll { $0 < cutoff }
+        
+        // Check if over limit
+        return recentMutationTimestamps.count >= Self.maxMutationsPerSecond
+    }
+    
+    /// Record a mutation timestamp for rate limiting
+    private func recordMutationTimestamp() {
+        recentMutationTimestamps.append(Date())
+        
+        // Keep only recent timestamps
+        let cutoff = Date().addingTimeInterval(-Self.rateLimitWindow)
+        recentMutationTimestamps.removeAll { $0 < cutoff }
+    }
+    
+    // MARK: - Mutation Implementations
+    
     /// Structural mutation: Full stop, reset, work, restart
     private func performStructuralMutation(
         work: () throws -> Void,
@@ -172,6 +236,8 @@ final class AudioGraphManager {
         savedBeatPosition: Double,
         mutationStartTime: TimeInterval
     ) rethrows {
+        let operationStart = CACurrentMediaTime()
+        
         // Increment graph generation
         graphGeneration += 1
         
@@ -220,6 +286,18 @@ final class AudioGraphManager {
         }
         
         transportController?.setupPositionTimer()
+        
+        // Record performance
+        let duration = (CACurrentMediaTime() - operationStart) * 1000
+        AudioPerformanceMonitor.shared.recordTiming(
+            operation: "StructuralMutation",
+            startTime: operationStart,
+            context: [
+                "wasRunning": String(wasRunning),
+                "wasPlaying": String(wasPlaying),
+                "durationMs": String(format: "%.1f", duration)
+            ]
+        )
     }
     
     /// Connection mutation: Pause, work, resume
@@ -227,6 +305,8 @@ final class AudioGraphManager {
         work: () throws -> Void,
         wasRunning: Bool
     ) rethrows {
+        let operationStart = CACurrentMediaTime()
+        
         if wasRunning {
             engine.pause()
         }
@@ -245,6 +325,14 @@ final class AudioGraphManager {
         
         setGraphReady?(true)
         // No need to reschedule audio for connection changes
+        
+        // Record performance
+        let duration = (CACurrentMediaTime() - operationStart) * 1000
+        AudioPerformanceMonitor.shared.recordTiming(
+            operation: "ConnectionMutation",
+            startTime: operationStart,
+            context: ["durationMs": String(format: "%.1f", duration)]
+        )
     }
     
     /// Hot-swap mutation: Pause, reset affected track only, work, resume
@@ -256,6 +344,8 @@ final class AudioGraphManager {
         savedBeatPosition: Double,
         mutationStartTime: TimeInterval
     ) rethrows {
+        let operationStart = CACurrentMediaTime()
+        
         if wasRunning {
             engine.pause()
         }
@@ -301,5 +391,17 @@ final class AudioGraphManager {
                 AppLogger.shared.error("Failed to reschedule track after hot-swap", category: .audio)
             }
         }
+        
+        // Record performance
+        let duration = (CACurrentMediaTime() - operationStart) * 1000
+        AudioPerformanceMonitor.shared.recordTiming(
+            operation: "HotSwapMutation",
+            startTime: operationStart,
+            context: [
+                "trackId": trackId.uuidString,
+                "wasPlaying": String(wasPlaying),
+                "durationMs": String(format: "%.1f", duration)
+            ]
+        )
     }
 }
