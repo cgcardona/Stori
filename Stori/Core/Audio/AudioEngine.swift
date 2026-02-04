@@ -479,6 +479,7 @@ class AudioEngine: AudioEngineContext {
         recordingController = RecordingController(
             engine: engine,
             mixer: mixer,
+            transportController: transportController,  // NEW: For thread-safe position in audio callbacks
             getProject: { [weak self] in self?.currentProject },
             getCurrentPosition: { [weak self] in self?.currentPosition ?? PlaybackPosition() },
             getSelectedTrackId: { [weak self] in self?.selectedTrackId },

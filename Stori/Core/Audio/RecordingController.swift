@@ -96,6 +96,8 @@ final class RecordingController: @unchecked Sendable {
     @ObservationIgnored
     private var mixer: AVAudioMixerNode
     @ObservationIgnored
+    private weak var transportController: TransportController?  // NEW: For thread-safe position
+    @ObservationIgnored
     private var getProject: () -> AudioProject?
     @ObservationIgnored
     private var getCurrentPosition: () -> PlaybackPosition
@@ -121,6 +123,7 @@ final class RecordingController: @unchecked Sendable {
     init(
         engine: AVAudioEngine,
         mixer: AVAudioMixerNode,
+        transportController: TransportController,  // NEW: For thread-safe position
         getProject: @escaping () -> AudioProject?,
         getCurrentPosition: @escaping () -> PlaybackPosition,
         getSelectedTrackId: @escaping () -> UUID?,
@@ -134,6 +137,7 @@ final class RecordingController: @unchecked Sendable {
     ) {
         self.engine = engine
         self.mixer = mixer
+        self.transportController = transportController  // NEW
         self.getProject = getProject
         self.getCurrentPosition = getCurrentPosition
         self.getSelectedTrackId = getSelectedTrackId
@@ -375,9 +379,16 @@ final class RecordingController: @unchecked Sendable {
                 
                 // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
                 // This ensures sample-accurate alignment with timeline
+                // REAL-TIME SAFE: Use atomic position accessor from TransportController
                 if !self.recordingFirstBufferReceived {
                     self.recordingFirstBufferReceived = true
-                    self.recordingStartBeat = self.getCurrentPosition().beats
+                    // Thread-safe read from atomic position
+                    if let transport = self.transportController {
+                        self.recordingStartBeat = transport.atomicBeatPosition
+                    } else {
+                        // Fallback: Use closure (may hit MainActor but unlikely on first buffer)
+                        self.recordingStartBeat = self.getCurrentPosition().beats
+                    }
                 }
                 
                 guard let bufferCopy = bufferPool.acquireAndCopy(from: buffer) else { return }
@@ -465,9 +476,16 @@ final class RecordingController: @unchecked Sendable {
             
             // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
             // This ensures sample-accurate alignment with timeline
+            // REAL-TIME SAFE: Use atomic position accessor from TransportController
             if !self.recordingFirstBufferReceived {
                 self.recordingFirstBufferReceived = true
-                self.recordingStartBeat = self.getCurrentPosition().beats
+                // Thread-safe read from atomic position
+                if let transport = self.transportController {
+                    self.recordingStartBeat = transport.atomicBeatPosition
+                } else {
+                    // Fallback: Use closure (may hit MainActor but unlikely on first buffer)
+                    self.recordingStartBeat = self.getCurrentPosition().beats
+                }
             }
             
             guard let bufferCopy = bufferPool.acquireAndCopy(from: buffer) else { return }
