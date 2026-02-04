@@ -456,6 +456,7 @@ class AudioEngine: AudioEngineContext {
         trackNodeManager.onRebuildTrackGraph = { [weak self] trackId in self?.rebuildTrackGraph(trackId: trackId) }
         trackNodeManager.onSafeDisconnectTrackNode = { [weak self] trackNode in self?.safeDisconnectTrackNode(trackNode) }
         trackNodeManager.onLoadAudioRegion = { [weak self] region, trackNode in self?.loadAudioRegion(region, trackNode: trackNode) }
+        trackNodeManager.onPerformBatchOperation = { [weak self] work in self?.performBatchGraphOperation(work) }
         trackNodeManager.mixer = mixer
         // Note: installedMetronome and mixerController are set after they're initialized
         
@@ -1389,6 +1390,12 @@ class AudioEngine: AudioEngineContext {
     /// DELEGATED to AudioGraphManager
     func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
         try graphManager.modifyGraphForTrack(trackId, work)
+    }
+    
+    /// Performs multiple graph mutations in batch mode (suspends rate limiting).
+    /// Use for bulk operations like project load, multi-track import, etc.
+    func performBatchGraphOperation(_ work: () throws -> Void) rethrows {
+        try graphManager.performBatchOperation(work)
     }
     
     // NOTE: Core graph mutation implementation is now handled by AudioGraphManager
