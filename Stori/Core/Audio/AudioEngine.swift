@@ -912,7 +912,11 @@ class AudioEngine: AudioEngineContext {
                 engineExpectedToRun = true
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
-                // Validate engine health after start
+                // Validate engine health after start (only if monitor is initialized)
+                guard let healthMonitor = healthMonitor else {
+                    // Health monitor not yet initialized - this is OK during AudioEngine init
+                    return
+                }
                 let healthResult = healthMonitor.validateState()
                 if !healthResult.isValid {
                     AppLogger.shared.warning("Engine started but health check found issues", category: .audio)
@@ -1449,22 +1453,24 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Transport Controls (Delegated to TransportController)
     
     func play() {
-        // Validate engine health before starting playback
-        if !healthMonitor.quickValidate() {
-            let result = healthMonitor.validateState()
-            if !result.isValid {
-                errorTracker.recordError(
-                    severity: .critical,
-                    component: "AudioEngine",
-                    message: "Cannot play: Engine health check failed",
-                    context: ["criticalIssues": String(result.criticalIssues.count)]
-                )
-                
-                // Attempt recovery for critical issues
-                if healthMonitor.currentHealth.requiresRecovery {
-                    attemptEngineRecovery()
+        // Validate engine health before starting playback (only if monitor is initialized)
+        if let healthMonitor = healthMonitor {
+            if !healthMonitor.quickValidate() {
+                let result = healthMonitor.validateState()
+                if !result.isValid {
+                    errorTracker.recordError(
+                        severity: .critical,
+                        component: "AudioEngine",
+                        message: "Cannot play: Engine health check failed",
+                        context: ["criticalIssues": String(result.criticalIssues.count)]
+                    )
+                    
+                    // Attempt recovery for critical issues
+                    if healthMonitor.currentHealth.requiresRecovery {
+                        attemptEngineRecovery()
+                    }
+                    return
                 }
-                return
             }
         }
         
@@ -2248,6 +2254,10 @@ extension AudioEngine {
     /// Generate comprehensive diagnostic report for troubleshooting.
     /// Returns markdown-formatted text suitable for bug reports or logging.
     func generateDiagnosticReport() -> String {
+        guard let healthMonitor = healthMonitor else {
+            return "⚠️ Diagnostic report unavailable: Health monitor not yet initialized"
+        }
+        
         return AudioEngineDiagnostics.generateReport(
             engine: engine,
             graphFormat: graphFormat,
@@ -2264,6 +2274,11 @@ extension AudioEngine {
     /// Returns URL of saved report or nil if failed.
     @discardableResult
     func saveDiagnosticReport() -> URL? {
+        guard let healthMonitor = healthMonitor else {
+            AppLogger.shared.warning("Cannot save diagnostic report: Health monitor not initialized", category: .audio)
+            return nil
+        }
+        
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         
         return AudioEngineDiagnostics.saveDiagnosticReport(
@@ -2285,6 +2300,12 @@ extension AudioEngine {
     @discardableResult
     func performSystemHealthCheck() -> Bool {
         logDebug("🏥 Performing system health check", category: "HEALTH")
+        
+        // Check if health monitor is initialized
+        guard let healthMonitor = healthMonitor else {
+            logDebug("⚠️ Health monitor not yet initialized", category: "HEALTH")
+            return false
+        }
         
         // 1. Validate engine state
         let healthResult = healthMonitor.validateState()
@@ -2330,6 +2351,11 @@ extension AudioEngine {
     /// Get a user-facing health status message.
     /// Use this to display engine status in UI.
     func getHealthStatusMessage() -> String {
+        // Check if health monitor is initialized
+        guard let healthMonitor = healthMonitor else {
+            return "⏳ Audio Engine Initializing..."
+        }
+        
         let healthStatus = healthMonitor.currentHealth
         let errorStatus = errorTracker.engineHealth
         let memoryPressure = AudioResourcePool.shared.isUnderMemoryPressure

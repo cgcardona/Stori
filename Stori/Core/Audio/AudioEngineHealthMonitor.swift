@@ -300,15 +300,15 @@ final class AudioEngineHealthMonitor {
         // Update health status
         if issues.isEmpty {
             currentHealth = .healthy
-        } else if !issues.filter({ $0.severity == .critical }).isEmpty {
-            let criticalIssue = issues.first { $0.severity == .critical }!
+        } else if let criticalIssue = issues.first(where: { $0.severity == .critical }) {
             currentHealth = .critical(reason: criticalIssue.description)
-        } else if !issues.filter({ $0.severity == .error }).isEmpty {
-            let errorIssue = issues.first { $0.severity == .error }!
+        } else if let errorIssue = issues.first(where: { $0.severity == .error }) {
             currentHealth = .unhealthy(reason: errorIssue.description)
-        } else {
-            let warningIssue = issues.first!
+        } else if let warningIssue = issues.first {
             currentHealth = .degraded(reason: warningIssue.description)
+        } else {
+            // Fallback: should never reach here, but be safe
+            currentHealth = .healthy
         }
         
         // Log issues
