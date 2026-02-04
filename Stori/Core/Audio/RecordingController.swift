@@ -405,9 +405,15 @@ final class RecordingController: @unchecked Sendable {
                     rms = sqrt(sum / Float(max(1, frameCount)))
                 }
                 
+                // Capture file reference before async to avoid Sendable crossing actor boundaries
+                guard let file = recordingFile else {
+                    bufferPool.release(bufferCopy)
+                    return
+                }
+                
                 // Write to file on background queue
                 writerQueue.async { [weak self] in
-                    guard let self = self, let file = self.recordingFile else {
+                    guard let self = self else {
                         bufferPool.release(bufferCopy)
                         return
                     }
@@ -501,8 +507,14 @@ final class RecordingController: @unchecked Sendable {
                 rms = sqrt(sum / Float(max(1, frameCount)))
             }
             
+            // Capture file reference before async to avoid Sendable crossing actor boundaries
+            guard let file = recordingFile else {
+                bufferPool.release(bufferCopy)
+                return
+            }
+            
             writerQueue.async { [weak self] in
-                guard let self = self, let file = self.recordingFile else {
+                guard let self = self else {
                     bufferPool.release(bufferCopy)
                     return
                 }

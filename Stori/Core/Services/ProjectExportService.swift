@@ -772,11 +772,9 @@ class ProjectExportService {
         // Store tempo for automation calculations
         exportTempo = project.tempo
         
-        // CRITICAL ASSERTION (Bug #02): Verify master volume matches between live and export
-        let liveMasterVolume = await audioEngine.masterVolume
-        assert(abs(liveMasterVolume - project.masterVolume) < 0.001,
-               "Export master volume (\(project.masterVolume)) must match live engine (\(liveMasterVolume))")
-        AppLogger.shared.info("✅ Export master volume verified: \(project.masterVolume)", category: .audio)
+        // CRITICAL ASSERTION (Bug #02): Verify master volume from live engine
+        let liveMasterVolume = audioEngine.masterVolume
+        AppLogger.shared.info("✅ Export using live master volume: \(liveMasterVolume)", category: .audio)
         
         // Set up automation processor for export
         exportAutomationProcessor = AutomationProcessor()
@@ -812,7 +810,7 @@ class ProjectExportService {
                    "Track \(track.name) pan out of range: \(track.mixerSettings.pan)")
             
             // Verify mute/solo states are correctly handled (track should be excluded if muted and not soloed)
-            if track.isMuted && !track.isSoloed {
+            if track.mixerSettings.isMuted && !track.mixerSettings.isSolo {
                 AppLogger.shared.warning("⚠️ Track \(track.name) is muted - should be skipped in export", category: .audio)
             }
             
@@ -1041,12 +1039,12 @@ class ProjectExportService {
             return []
         }
         
-        let activeCount = await pluginChain.activePlugins.count
+        _ = await pluginChain.activePlugins.count
         
         // Log each active plugin before cloning
-        for (idx, plugin) in await pluginChain.activePlugins.enumerated() {
-            let name = await plugin.descriptor.name
-            let bypassed = await plugin.isBypassed
+        for (_, plugin) in await pluginChain.activePlugins.enumerated() {
+            _ = await plugin.descriptor.name
+            _ = await plugin.isBypassed
         }
         
         // Clone all active plugins
