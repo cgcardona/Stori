@@ -1184,17 +1184,20 @@ class AudioEngine: AudioEngineContext {
             
             if !addedTrackIds.isEmpty {
                 logDebug("New tracks detected: \(addedTrackIds.count)", category: "PROJECT-UPDATE")
-            }
-            
-            
-            // Set up audio nodes for new tracks
-            for trackId in addedTrackIds {
-                if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
-                    let trackNode = createTrackNode(for: newTrack)
-                    trackNodeManager.storeTrackNode(trackNode, for: trackId)
-                    
-                    // Use centralized rebuild for all connections
-                    rebuildTrackGraph(trackId: trackId)
+                
+                // BATCH MODE: Wrap multiple track additions in batch to avoid rate limiting
+                // This handles MIDI import creating many tracks at once
+                performBatchGraphOperation {
+                    // Set up audio nodes for new tracks
+                    for trackId in addedTrackIds {
+                        if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
+                            let trackNode = createTrackNode(for: newTrack)
+                            trackNodeManager.storeTrackNode(trackNode, for: trackId)
+                            
+                            // Use centralized rebuild for all connections
+                            rebuildTrackGraph(trackId: trackId)
+                        }
+                    }
                 }
             }
             
