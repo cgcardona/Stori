@@ -237,7 +237,6 @@ class TransportController {
         case .stopped:
             playbackStartWallTime = CACurrentMediaTime()
             playbackStartBeat = 0
-            print("🎵 PLAY FROM STOP: startBeat=0, wallTime=\(String(format: "%.6f", playbackStartWallTime)), tempo=\(project.tempo)")
             transportState = .playing
             onTransportStateChanged(.playing)
             
@@ -305,12 +304,6 @@ class TransportController {
         let elapsedSeconds = CACurrentMediaTime() - playbackStartWallTime
         let beatsPerSecond = project.tempo / 60.0
         let exactStopBeat = playbackStartBeat + (elapsedSeconds * beatsPerSecond)
-        print("⏸️  PAUSE:")
-        print("    startBeat: \(String(format: "%.6f", playbackStartBeat))")
-        print("    elapsedSeconds: \(String(format: "%.6f", elapsedSeconds))")
-        print("    beatsPerSecond: \(String(format: "%.6f", beatsPerSecond))")
-        print("    exactStopBeat: \(String(format: "%.6f", exactStopBeat))")
-        print("    position: \(PlaybackPosition(beats: exactStopBeat, timeSignature: project.timeSignature, tempo: project.tempo).displayStringDefault)")
         currentPosition = PlaybackPosition(beats: exactStopBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         onPositionChanged(currentPosition)
         
@@ -478,7 +471,6 @@ class TransportController {
     
     private func updatePosition(capturedWallTime: TimeInterval) {
         guard transportState.isPlaying else {
-            print("⚠️ updatePosition() called but not playing (state: \(transportState))")
             return
         }
         guard let project = getProject() else { return }
@@ -503,16 +495,7 @@ class TransportController {
         
         // First update after resume? Log it with detailed timing
         if lastStartBeat != playbackStartBeat {
-            print("⏱️  FIRST POSITION UPDATE AFTER STATE CHANGE:")
-            print("    playbackStartBeat: \(String(format: "%.6f", playbackStartBeat))")
-            print("    capturedWallTime: \(String(format: "%.6f", capturedWallTime))")
-            print("    playbackStartWallTime: \(String(format: "%.6f", playbackStartWallTime))")
-            print("    elapsedSeconds: \(String(format: "%.6f", elapsedSeconds))")
-            print("    beatsPerSecond: \(String(format: "%.6f", beatsPerSecond))")
-            print("    elapsedBeats: \(String(format: "%.6f", elapsedBeats))")
-            print("    currentBeat: \(String(format: "%.6f", currentBeat))")
             let position = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
-            print("    displayPosition: \(position.displayStringDefault)")
             lastStartBeat = playbackStartBeat
         }
         

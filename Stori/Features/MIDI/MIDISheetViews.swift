@@ -138,16 +138,12 @@ struct SynthesizerSheet: View {
     /// Access shared instrument manager for track routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
     
-    /// Fallback synth for when no track is selected
-    @State private var fallbackSynth: SynthEngine?
+    /// Audio engine (passed for consistency, not used for preview)
+    var audioEngine: AudioEngine
     
-    /// Current synth engine (from track or fallback)
+    /// Current synth engine from active track only
     private var activeSynth: SynthEngine? {
-        if let instrument = instrumentManager.activeInstrument,
-           let synth = instrument.synthEngine {
-            return synth
-        }
-        return fallbackSynth
+        instrumentManager.activeInstrument?.synthEngine
     }
     
     var body: some View {
@@ -161,17 +157,23 @@ struct SynthesizerSheet: View {
             if let synth = activeSynth {
                 SynthesizerView(engine: synth)
             } else {
-                ProgressView("Loading Synthesizer...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 16) {
+                    Image(systemName: "waveform.path.ecg.rectangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("No Synthesizer Selected")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("Select a MIDI track with a synth instrument to edit its parameters.")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 500)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(width: 800, height: 700)
-        .task {
-            await setupFallbackSynth()
-        }
-        .onDisappear {
-            fallbackSynth?.stop()
-        }
     }
     
     private var synthHeader: some View {
@@ -208,16 +210,6 @@ struct SynthesizerSheet: View {
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor))
-    }
-    
-    @MainActor
-    private func setupFallbackSynth() async {
-        let engine = SynthEngine()
-        do {
-            try engine.start()
-            fallbackSynth = engine
-        } catch {
-        }
     }
 }
 
@@ -510,16 +502,12 @@ struct SynthesizerPanelContent: View {
     /// Access shared instrument manager for track routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
     
-    /// Fallback synth for when no track is selected
-    @State private var fallbackSynth: SynthEngine?
+    /// Audio engine (passed for future use, not used for preview synths)
+    var audioEngine: AudioEngine
     
-    /// Current synth engine (from track or fallback)
+    /// Current synth engine from the active track only
     private var activeSynth: SynthEngine? {
-        if let instrument = instrumentManager.activeInstrument,
-           let synth = instrument.synthEngine {
-            return synth
-        }
-        return fallbackSynth
+        instrumentManager.activeInstrument?.synthEngine
     }
     
     var body: some View {
@@ -536,22 +524,22 @@ struct SynthesizerPanelContent: View {
                         SynthesizerView(engine: synth)
                     }
                 } else {
-                    VStack {
-                        ProgressView()
-                        Text("Loading Synthesizer...")
+                    VStack(spacing: 12) {
+                        Image(systemName: "waveform.path.ecg.rectangle")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("Select a MIDI track with a synthesizer")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Text("Create a MIDI track and assign a synth instrument to edit its parameters here.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 400)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-        }
-        .task {
-            await setupFallbackSynth()
-        }
-        .onDisappear {
-            // Only stop fallback synth - track instruments are managed by InstrumentManager
-            fallbackSynth?.stop()
         }
     }
     
@@ -598,16 +586,6 @@ struct SynthesizerPanelContent: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-    }
-    
-    @MainActor
-    private func setupFallbackSynth() async {
-        let engine = SynthEngine()
-        do {
-            try engine.start()
-            fallbackSynth = engine
-        } catch {
-        }
     }
 }
 
