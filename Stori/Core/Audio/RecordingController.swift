@@ -411,6 +411,11 @@ final class RecordingController: @unchecked Sendable {
                         bufferPool.release(bufferCopy)
                         return
                     }
+                    // CRITICAL FIX: Release buffer in defer to prevent memory leak on write errors
+                    defer {
+                        bufferPool.release(bufferCopy)
+                    }
+                    
                     do {
                         try file.write(from: bufferCopy)
                         if bufferPool.incrementWriteCount() {
@@ -418,8 +423,10 @@ final class RecordingController: @unchecked Sendable {
                                 try? fileHandle.synchronize()
                             }
                         }
-                    } catch {}
-                    bufferPool.release(bufferCopy)
+                    } catch {
+                        // Log error but continue - buffer is released by defer
+                        AppLogger.shared.error("Failed to write recording buffer: \(error)", category: .audio)
+                    }
                 }
                 
                 // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
@@ -506,6 +513,11 @@ final class RecordingController: @unchecked Sendable {
                     bufferPool.release(bufferCopy)
                     return
                 }
+                // CRITICAL FIX: Release buffer in defer to prevent memory leak on write errors
+                defer {
+                    bufferPool.release(bufferCopy)
+                }
+                
                 do {
                     try file.write(from: bufferCopy)
                     if bufferPool.incrementWriteCount() {
@@ -513,8 +525,10 @@ final class RecordingController: @unchecked Sendable {
                             try? fileHandle.synchronize()
                         }
                     }
-                } catch {}
-                bufferPool.release(bufferCopy)
+                } catch {
+                    // Log error but continue - buffer is released by defer
+                    AppLogger.shared.error("Failed to write recording buffer: \(error)", category: .audio)
+                }
             }
             
             // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
