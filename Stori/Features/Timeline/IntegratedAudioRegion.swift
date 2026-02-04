@@ -12,9 +12,10 @@ import SwiftUI
 
 /// Audio region view with resize gestures (drag gesture handled by PositionedAudioRegion wrapper)
 struct IntegratedAudioRegion: View {
-    private let regionCorner: CGFloat = 4
-    private let selectionStroke: CGFloat = 3
-    private let headerHeight: CGFloat = 20
+    // Use shared layout constants for consistency with MIDI regions
+    private let regionCorner: CGFloat = RegionLayout.cornerRadius
+    private let selectionStroke: CGFloat = RegionLayout.selectionStrokeWidth
+    private let headerHeight: CGFloat = RegionLayout.headerHeight
     let region: AudioRegion
     let pixelsPerBeat: CGFloat  // Beat-based timeline (proper DAW architecture)
     let tempo: Double  // For beat→seconds conversion
@@ -808,20 +809,19 @@ struct IntegratedAudioRegion: View {
                     cornerRadius: regionCorner
                 ) {
                     HStack(spacing: 6) {
-                        // Track icon
+                        // Track icon - white for consistency with MIDI regions
                         Image(systemName: trackIcon)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.black.opacity(0.8))
                         
                         Text(region.audioFile.name)
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.black)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Spacer(minLength: 4)
                     }
+                    .foregroundColor(.white)  // White text for all regions (unified with MIDI)
                     .padding(.leading, 8)
                     .padding(.trailing, 6)
                     .padding(.top, 1)
@@ -921,14 +921,13 @@ struct IntegratedAudioRegion: View {
         .overlay(leftResizeIndicatorOverlay) // [PHASE-3] Left-edge indicator
         .overlay(fadeHandlesOverlay) // [PHASE-2] Fade in/out handles
         .overlay(regenerateZoneOverlay)
-        // Hover highlight overlay (pre-selection feedback)
+        // Hover highlight overlay (pre-selection feedback) - using shared component
         .overlay(
-            Group {
-                if isHoveringRegion && !isSelected {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-                }
-            }
+            RegionHoverHighlight(
+                isHovering: isHoveringRegion,
+                isSelected: isSelected,
+                cornerRadius: regionCorner
+            )
         )
         .scaleEffect(1.0)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
