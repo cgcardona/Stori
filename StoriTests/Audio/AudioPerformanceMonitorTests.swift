@@ -48,7 +48,8 @@ final class AudioPerformanceMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.recentEvents.count, 1)
         
         let event = monitor.recentEvents[0]
-        XCTAssertGreaterThanOrEqual(event.durationMs, 10, accuracy: 5, "Should measure ~10ms")
+        XCTAssertGreaterThan(event.durationMs, 5, "Should measure at least 5ms")
+        XCTAssertLessThan(event.durationMs, 50, "Should measure less than 50ms")
     }
     
     func testTracksOperationStatistics() {

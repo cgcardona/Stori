@@ -633,7 +633,7 @@ final class TrackAudioNode: @unchecked Sendable {
                         component: "TrackAudioNode[\(id)]",
                         message: "Failed to load audio file during scheduling",
                         error: error,
-                        context: ["file": region.audioFile.url.lastPathComponent]
+                        additionalContext: ["file": region.audioFile.url.lastPathComponent]
                     )
                     continue
                 }

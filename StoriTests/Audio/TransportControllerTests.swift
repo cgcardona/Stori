@@ -310,16 +310,10 @@ final class TransportControllerTests: XCTestCase {
     /// Regression test for: pause captures exact stop from wall clock; timer first fire at +16ms.
     @MainActor
     func testPauseResumePositionDoesNotJump() async throws {
-        let project = AudioProject(
-            id: UUID(),
+        var project = AudioProject(
             name: "Test",
-            createdAt: Date(),
-            modifiedAt: Date(),
             tempo: 120.0,
-            timeSignature: .fourFour,
-            tracks: [],
-            buses: [],
-            masterVolume: 1.0
+            timeSignature: .fourFour
         )
         var startBeatFromCallback: Double?
         let controller = TransportController(
@@ -350,8 +344,7 @@ final class TransportControllerTests: XCTestCase {
         
         XCTAssertNotNil(startBeatWhenResumed, "onStartPlayback should be called")
         if let resumed = startBeatWhenResumed {
-            assertApproximatelyEqual(resumed, positionAfterPause, epsilon: 0.01,
-                "Resume should start from exact pause position (no jump forward)")
+            assertApproximatelyEqual(resumed, positionAfterPause, tolerance: 0.01)
         }
     }
     
