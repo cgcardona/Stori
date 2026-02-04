@@ -181,6 +181,14 @@ struct ProfessionalChannelStrip: View {
         return "music.quarternote.3"
     }
     
+    /// AU plugin name from voicePreset (format: "AU:PluginName:Manufacturer").
+    private func extractAUNameFromVoicePreset(_ voicePreset: String?) -> String? {
+        guard let preset = voicePreset, preset.hasPrefix("AU:") else { return nil }
+        let components = preset.split(separator: ":").map(String.init)
+        guard components.count >= 2 else { return nil }
+        return components[1]
+    }
+    
     // MARK: - Instrument Section (MIDI/Instrument tracks only)
     @State private var showingInstrumentBrowser = false
     
@@ -233,9 +241,8 @@ struct ProfessionalChannelStrip: View {
                     onGMInstrumentSelected: { gmInstrument in
                         loadGMInstrument(gmInstrument)
                     },
-                    onDrumKitSelected: { kitName in
-                        loadDrumKit(kitName)
-                    }
+                    currentGMProgram: track.gmProgram,
+                    currentAUName: extractAUNameFromVoicePreset(track.voicePreset)
                 )
             }
         }

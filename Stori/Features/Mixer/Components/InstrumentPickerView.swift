@@ -15,7 +15,10 @@ struct UnifiedInstrumentPickerView: View {
     
     let onAUInstrumentSelected: (PluginDescriptor) -> Void
     let onGMInstrumentSelected: (GMInstrument) -> Void
-    var onDrumKitSelected: ((String) -> Void)? = nil
+    /// Current GM program (0–127 or 1000+ for drum kits) if track uses GM; used to pre-select when opening.
+    var currentGMProgram: Int? = nil
+    /// Current AU plugin name if track uses AU; used to pre-select when opening.
+    var currentAUName: String? = nil
     
     @State private var selectedTab: InstrumentTab = .soundFont
     @State private var searchText = ""
@@ -29,22 +32,13 @@ struct UnifiedInstrumentPickerView: View {
     @State private var selectedGMInstrument: GMInstrument?
     @State private var loadingInstrument: Bool = false
     
-    // Drum Kits
-    @State private var drumKitLoader = DrumKitLoader()
-    @State private var selectedDrumKit: DrumKit?
-    
-    // On-demand asset download (drum kits + SoundFont from API)
-    @State private var remoteDrumKits: [DrumKitItem] = []
+    // On-demand asset download (SoundFont from API)
     @State private var remoteSoundfonts: [SoundFontItem] = []
     @State private var assetListLoading = false
     @State private var assetError: String?
-    @State private var downloadingKitId: String?
     @State private var downloadingSoundfontId: String?
-    @State private var downloadingBundle = false
-    @State private var downloadingAllDrums = false
     @State private var downloadingAllInstruments = false
-    /// (current, total) when downloading all drums or all instruments
-    @State private var downloadAllDrumsProgress: (Int, Int)?
+    /// (current, total) when downloading all instruments
     @State private var downloadAllInstrumentsProgress: (Int, Int)?
     /// Download progress percentage (0.0 to 1.0) for individual downloads
     @State private var downloadProgressPercent: Double = 0
@@ -100,6 +94,28 @@ struct UnifiedInstrumentPickerView: View {
             await scanner.loadCachedPlugins()
             if scanner.discoveredPlugins.isEmpty {
                 await scanner.scanForPlugins()
+            }
+            initializeSelection()
+        }
+    }
+    
+    // MARK: - Selection Initialization
+    
+    /// Pre-select the current instrument when picker opens.
+    private func initializeSelection() {
+        if let gmProgram = currentGMProgram,
+           let gmInstrument = GMInstrument(rawValue: gmProgram) {
+            selectedGMInstrument = gmInstrument
+            selectedTab = .soundFont
+            expandedCategories.insert(gmInstrument.category.rawValue)
+            return
+        }
+        if let auName = currentAUName {
+            selectedPlugin = scanner.discoveredPlugins.first { plugin in
+                plugin.name == auName || auName.contains(plugin.name)
+            }
+            if selectedPlugin != nil {
+                selectedTab = .audioUnit
             }
         }
     }
@@ -256,159 +272,6 @@ struct UnifiedInstrumentPickerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
-    // MARK: - Drum Kits Content
-    
-    private var drumKitsContent: some View {
-        VStack(spacing: 0) {
-            if drumKitLoader.availableKits.isEmpty {
-                noDrumKitsView
-                    .task { await loadRemoteDrumKitsIfNeeded() }
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(drumKitLoader.availableKits) { kit in
-                            drumKitRow(kit)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-    }
-    
-    private var noDrumKitsView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "drum")
-                .font(.system(size: 32))
-                .foregroundColor(.secondary)
-            
-            Text("No Drum Kits Found")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            if assetListLoading {
-                ProgressView()
-                    .scaleEffect(0.8)
-            } else if let error = assetError {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                Button("Retry") { Task { await loadRemoteDrumKitsIfNeeded() } }
-                    .buttonStyle(.borderedProminent)
-                Text("Or download a kit directly:")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
-                drumKitFallbackDownloadButtons
-                downloadAllSoundPacksCard(downloading: downloadingBundle) {
-                    Task { await downloadAllSoundPacks() }
-                }
-            } else if !remoteDrumKits.isEmpty {
-                Text("Download a drum kit to get started")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                downloadAllDrumsButton
-                downloadAllSoundPacksCard(downloading: downloadingBundle) {
-                    Task { await downloadAllSoundPacks() }
-                }
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(remoteDrumKits) { item in
-                            drumKitDownloadRow(item)
-                        }
-                    }
-                    .padding(8)
-                }
-                .frame(maxHeight: 200)
-            } else {
-                Text("Place drum kit folders in ~/Library/Application Support/Stori/DrumKits/")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
-    private func drumKitDownloadRow(_ item: DrumKitItem) -> some View {
-        let isInstalled = AssetDownloadService.isDrumKitInstalled(kitId: item.id)
-        let isDownloading = downloadingKitId == item.id
-        return HStack(spacing: 8) {
-            Image(systemName: "drum")
-                .font(.system(size: 14))
-                .foregroundColor(.orange)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                if let count = item.fileCount {
-                    Text("\(count) files")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-            }
-            Spacer()
-            if isInstalled {
-                Text("Installed")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            } else if isDownloading {
-                HStack(spacing: 6) {
-                    ProgressView(value: downloadProgressPercent, total: 1.0)
-                        .frame(width: 50)
-                        .scaleEffect(0.8)
-                    Text("\(Int(downloadProgressPercent * 100))%")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .frame(width: 32, alignment: .trailing)
-                }
-            } else {
-                Button("Download") {
-                    Task { await downloadDrumKit(item.id) }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color.orange.opacity(0.08))
-        .cornerRadius(4)
-    }
-    
-    /// Fallback drum kit download buttons when list API fails (known backend kit ids).
-    private var drumKitFallbackDownloadButtons: some View {
-        VStack(spacing: 6) {
-            ForEach([("tr909", "TR-909"), ("cr78", "CR-78"), ("linndrum", "LinnDrum")], id: \.0) { kitId, displayName in
-                if AssetDownloadService.isDrumKitInstalled(kitId: kitId) {
-                    HStack {
-                        Text("\(displayName): Installed")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                } else if downloadingKitId == kitId {
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                        Text("Downloading \(displayName)...")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    Button("Download \(displayName)") {
-                        Task { await downloadDrumKit(kitId) }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-        .padding(.top, 4)
-    }
-
     /// Fallback SoundFont download when list API fails (known backend id/filename).
     private var soundFontFallbackDownloadButton: some View {
         let soundfontId = "musescore_general"
@@ -436,59 +299,6 @@ struct UnifiedInstrumentPickerView: View {
             }
         }
         .padding(.top, 4)
-    }
-
-    /// "Download all" (bundle: drums + SoundFont) card with progress.
-    private func downloadAllSoundPacksCard(downloading: Bool, action: @escaping () -> Void) -> some View {
-        VStack(spacing: 6) {
-            if downloading {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Downloading all assets...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            } else {
-                Button(action: action) {
-                    Label("Download all (drums + instruments)", systemImage: "square.and.arrow.down")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(.top, 8)
-    }
-
-    /// "Download all drums" button with progress.
-    private var downloadAllDrumsButton: some View {
-        Group {
-            if downloadingAllDrums {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    if let (current, total) = downloadAllDrumsProgress, total > 0 {
-                        Text("Downloading \(current) of \(total)...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Downloading drums...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            } else if remoteDrumKits.contains(where: { !AssetDownloadService.isDrumKitInstalled(kitId: $0.id) }) {
-                Button(action: { Task { await downloadAllDrumKits() } }) {
-                    Label("Download all drums", systemImage: "square.and.arrow.down")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .padding(.bottom, 4)
-            }
-        }
     }
 
     /// "Download all instruments" (SoundFonts) button with progress.
@@ -520,55 +330,6 @@ struct UnifiedInstrumentPickerView: View {
         }
     }
 
-    private func loadRemoteDrumKitsIfNeeded() async {
-        guard drumKitLoader.availableKits.isEmpty else { return }
-        assetListLoading = true
-        assetError = nil
-        defer { assetListLoading = false }
-        do {
-            remoteDrumKits = try await AssetDownloadService.shared.listDrumKits()
-        } catch {
-            assetError = error.localizedDescription
-        }
-    }
-    
-    private func downloadDrumKit(_ kitId: String) async {
-        downloadingKitId = kitId
-        downloadProgressPercent = 0
-        defer {
-            downloadingKitId = nil
-            downloadProgressPercent = 0
-        }
-        do {
-            try await AssetDownloadService.shared.downloadDrumKit(
-                kitId: kitId,
-                progress: { percent in
-                    downloadProgressPercent = percent
-                }
-            )
-            drumKitLoader.loadAvailableKits()
-        } catch {
-            assetError = error.localizedDescription
-        }
-    }
-
-    private func downloadAllDrumKits() async {
-        downloadingAllDrums = true
-        downloadAllDrumsProgress = nil
-        defer {
-            downloadingAllDrums = false
-            downloadAllDrumsProgress = nil
-        }
-        do {
-            try await AssetDownloadService.shared.downloadAllDrumKits { current, total in
-                downloadAllDrumsProgress = (current, total)
-            }
-            drumKitLoader.loadAvailableKits()
-        } catch {
-            assetError = error.localizedDescription
-        }
-    }
-
     private func downloadAllSoundfonts() async {
         downloadingAllInstruments = true
         downloadAllInstrumentsProgress = nil
@@ -586,72 +347,6 @@ struct UnifiedInstrumentPickerView: View {
         }
     }
 
-    private func downloadAllSoundPacks() async {
-        downloadingBundle = true
-        defer { downloadingBundle = false }
-        do {
-            try await AssetDownloadService.shared.downloadBundle()
-            drumKitLoader.loadAvailableKits()
-            SoundFontManager.shared.discoverSoundFonts()
-        } catch {
-            assetError = error.localizedDescription
-        }
-    }
-    
-    private func drumKitRow(_ kit: DrumKit) -> some View {
-        Button(action: { selectedDrumKit = kit }) {
-            HStack(spacing: 8) {
-                // Selection indicator
-                Circle()
-                    .fill(selectedDrumKit?.id == kit.id ? Color.accentColor : Color.clear)
-                    .frame(width: 8, height: 8)
-                    .overlay(
-                        Circle().stroke(Color.secondary.opacity(0.5), lineWidth: 1)
-                    )
-                
-                // Kit icon
-                Image(systemName: "drum")
-                    .font(.system(size: 14))
-                    .foregroundColor(.orange)
-                    .frame(width: 24)
-                
-                // Kit info
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(kit.name)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                    
-                    if !kit.author.isEmpty {
-                        Text("by \(kit.author)")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                
-                Spacer()
-                
-                // Category badge
-                Text("Kit")
-                    .font(.system(size: 8, weight: .medium))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.2))
-                    .foregroundColor(.orange)
-                    .cornerRadius(3)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                selectedDrumKit?.id == kit.id ?
-                Color.accentColor.opacity(0.1) :
-                Color.clear
-            )
-            .cornerRadius(4)
-        }
-        .buttonStyle(.plain)
-    }
-    
     // MARK: - SoundFont Content
     
     private var soundFontContent: some View {
@@ -910,7 +605,7 @@ struct UnifiedInstrumentPickerView: View {
     }
     
     private func gmInstrumentRow(_ instrument: GMInstrument) -> some View {
-        Button(action: { selectedGMInstrument = instrument }) {
+                Button(action: { selectedGMInstrument = instrument }) {
             HStack(spacing: 8) {
                 // Selection indicator
                 Circle()

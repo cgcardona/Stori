@@ -183,6 +183,17 @@ enum GMInstrument: Int, CaseIterable, Identifiable {
     case applause = 126
     case gunshot = 127
     
+    // GM Drum Kits (Channel 10) - Extended values for special handling
+    // Note: These use program numbers 0, 8, 16, 24, 25, 32, 40, 48 on channel 10
+    case standardDrumKit = 1000   // Program 0
+    case roomDrumKit = 1008       // Program 8
+    case powerDrumKit = 1016      // Program 16
+    case electronicDrumKit = 1024 // Program 24
+    case tr808DrumKit = 1025      // Program 25
+    case jazzDrumKit = 1032       // Program 32
+    case brushDrumKit = 1040     // Program 40
+    case orchestraDrumKit = 1048  // Program 48
+    
     var id: Int { rawValue }
     
     var name: String {
@@ -331,6 +342,15 @@ enum GMInstrument: Int, CaseIterable, Identifiable {
         case .helicopter: return "Helicopter"
         case .applause: return "Applause"
         case .gunshot: return "Gunshot"
+        // GM Drum Kits
+        case .standardDrumKit: return "Standard Drum Kit"
+        case .roomDrumKit: return "Room Drum Kit"
+        case .powerDrumKit: return "Power Drum Kit"
+        case .electronicDrumKit: return "Electronic Drum Kit"
+        case .tr808DrumKit: return "TR-808 Drum Kit"
+        case .jazzDrumKit: return "Jazz Drum Kit"
+        case .brushDrumKit: return "Brush Drum Kit"
+        case .orchestraDrumKit: return "Orchestra Drum Kit"
         }
     }
     
@@ -352,6 +372,7 @@ enum GMInstrument: Int, CaseIterable, Identifiable {
         case 104...111: return .ethnic
         case 112...119: return .percussive
         case 120...127: return .soundEffects
+        case 1000...1999: return .drums  // GM Drum Kits (channel 10)
         default: return .piano
         }
     }
@@ -380,6 +401,7 @@ enum GMCategory: String, CaseIterable, Identifiable {
     case ethnic = "Ethnic"
     case percussive = "Percussive"
     case soundEffects = "Sound Effects"
+    case drums = "Drums"
     
     var id: String { rawValue }
     
@@ -399,8 +421,9 @@ enum GMCategory: String, CaseIterable, Identifiable {
         case .synthPad: return "waveform.badge.plus"
         case .synthEffects: return "sparkles"
         case .ethnic: return "globe"
-        case .percussive: return "drum.fill"
+        case .percussive: return "circle.hexagongrid.fill"
         case .soundEffects: return "speaker.wave.3.fill"
+        case .drums: return "music.note.list"
         }
     }
     
@@ -558,9 +581,17 @@ class SamplerEngine {
         }
         
         // General MIDI uses bank 0 (MSB=0x79 for melodic, 0x78 for drums)
-        let program = UInt8(instrument.rawValue)
-        let bankMSB: UInt8 = 0x79  // GM melodic bank
+        let program: UInt8
+        let bankMSB: UInt8
         let bankLSB: UInt8 = 0
+        if instrument.rawValue >= 1000 {
+            // GM Drum Kits (channel 10): bank 0x78, program 0–127
+            bankMSB = 0x78
+            program = UInt8(instrument.rawValue - 1000)
+        } else {
+            bankMSB = 0x79  // GM melodic bank
+            program = UInt8(instrument.rawValue)
+        }
         
         // Load the instrument directly - Apple's API supports switching programs
         // without recreating the sampler node. This preserves the audio graph routing
