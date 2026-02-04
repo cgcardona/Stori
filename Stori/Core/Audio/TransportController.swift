@@ -237,7 +237,6 @@ class TransportController {
         case .stopped:
             playbackStartWallTime = CACurrentMediaTime()
             playbackStartBeat = 0
-            print("🎵 PLAY FROM STOP: startBeat=0, wallTime=\(String(format: "%.6f", playbackStartWallTime)), tempo=\(project.tempo)")
             transportState = .playing
             onTransportStateChanged(.playing)
             
@@ -253,14 +252,6 @@ class TransportController {
             // Adjust timing state forward by the delay so when timer fires, elapsed = 0
             playbackStartWallTime = CACurrentMediaTime() + delaySeconds
             playbackStartBeat = resumeBeat
-            
-            print("🎵 PLAY FROM PAUSE (RESUME):")
-            print("    resumeBeat: \(String(format: "%.6f", resumeBeat))")
-            print("    delayBeats: \(delayBeats) beats")
-            print("    delaySeconds: \(String(format: "%.6f", delaySeconds))s @ \(project.tempo) BPM")
-            print("    wallTime: \(String(format: "%.6f", playbackStartWallTime)) (adjusted +\(String(format: "%.3f", delaySeconds))s)")
-            print("    tempo: \(project.tempo) BPM")
-            print("    position: \(currentPosition.displayStringDefault)")
             transportState = .playing
             onTransportStateChanged(.playing)
             
@@ -305,12 +296,6 @@ class TransportController {
         let elapsedSeconds = CACurrentMediaTime() - playbackStartWallTime
         let beatsPerSecond = project.tempo / 60.0
         let exactStopBeat = playbackStartBeat + (elapsedSeconds * beatsPerSecond)
-        print("⏸️  PAUSE:")
-        print("    startBeat: \(String(format: "%.6f", playbackStartBeat))")
-        print("    elapsedSeconds: \(String(format: "%.6f", elapsedSeconds))")
-        print("    beatsPerSecond: \(String(format: "%.6f", beatsPerSecond))")
-        print("    exactStopBeat: \(String(format: "%.6f", exactStopBeat))")
-        print("    position: \(PlaybackPosition(beats: exactStopBeat, timeSignature: project.timeSignature, tempo: project.tempo).displayStringDefault)")
         currentPosition = PlaybackPosition(beats: exactStopBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         onPositionChanged(currentPosition)
         
@@ -326,7 +311,6 @@ class TransportController {
     }
     
     func stop() {
-        print("⏹️  STOP: Resetting position to beat 0")
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -339,7 +323,6 @@ class TransportController {
         if let project = getProject() {
             currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
             onPositionChanged(currentPosition)
-            print("    position: \(currentPosition.displayStringDefault)")
         }
         
         // Update atomic state
@@ -477,10 +460,7 @@ class TransportController {
     }
     
     private func updatePosition(capturedWallTime: TimeInterval) {
-        guard transportState.isPlaying else {
-            print("⚠️ updatePosition() called but not playing (state: \(transportState))")
-            return
-        }
+        guard transportState.isPlaying else { return }
         guard let project = getProject() else { return }
         
         // Check if a cycle jump occurred - if so, skip this update
@@ -501,18 +481,8 @@ class TransportController {
         // Current position = start position + elapsed beats
         let currentBeat = playbackStartBeat + elapsedBeats
         
-        // First update after resume? Log it with detailed timing
+        // Track state changes for debugging (no console output)
         if lastStartBeat != playbackStartBeat {
-            print("⏱️  FIRST POSITION UPDATE AFTER STATE CHANGE:")
-            print("    playbackStartBeat: \(String(format: "%.6f", playbackStartBeat))")
-            print("    capturedWallTime: \(String(format: "%.6f", capturedWallTime))")
-            print("    playbackStartWallTime: \(String(format: "%.6f", playbackStartWallTime))")
-            print("    elapsedSeconds: \(String(format: "%.6f", elapsedSeconds))")
-            print("    beatsPerSecond: \(String(format: "%.6f", beatsPerSecond))")
-            print("    elapsedBeats: \(String(format: "%.6f", elapsedBeats))")
-            print("    currentBeat: \(String(format: "%.6f", currentBeat))")
-            let position = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
-            print("    displayPosition: \(position.displayStringDefault)")
             lastStartBeat = playbackStartBeat
         }
         

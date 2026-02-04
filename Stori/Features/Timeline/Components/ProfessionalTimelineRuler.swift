@@ -348,30 +348,12 @@ private struct RulerPlayhead: View {
     private let triangleHeight: CGFloat = 8
     private let lineWidth: CGFloat = 2
     
-    // Track last logged position to avoid spam
-    @State private var lastLoggedBeat: Double = -1
-    @State private var lastLoggedX: CGFloat = -1
-    
     var body: some View {
         // Position from beats (no seconds)
-        let currentBeat = audioEngine.currentPosition.beats
-        let playheadX = CGFloat(currentBeat) * pixelsPerBeat
-        
-        // Log whenever position changes significantly (> 0.01 beats or > 1 pixel)
-        let _ = {
-            if abs(currentBeat - lastLoggedBeat) > 0.01 || abs(playheadX - lastLoggedX) > 1.0 {
-                print("📐 RULER PLAYHEAD RENDER:")
-                print("    beat: \(String(format: "%.6f", currentBeat))")
-                print("    pixelsPerBeat: \(String(format: "%.2f", pixelsPerBeat))")
-                print("    playheadX: \(String(format: "%.2f", playheadX)) px")
-                print("    transportState: \(audioEngine.transportState)")
-                lastLoggedBeat = currentBeat
-                lastLoggedX = playheadX
-            }
-        }()
+        let playheadX = CGFloat(audioEngine.currentPosition.beats) * pixelsPerBeat
         
         // Use Canvas for precise pixel-perfect positioning
-        return Canvas { context, size in
+        Canvas { context, size in
             // Draw triangle head at top, centered on the playhead position
             let trianglePath = Path { path in
                 // Triangle centered at playheadX
