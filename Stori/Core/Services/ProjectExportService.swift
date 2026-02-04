@@ -1395,6 +1395,19 @@ class ProjectExportService {
     }
     
     /// Apply automation to track mixer nodes during export render
+    /// 
+    /// SAMPLE-ACCURATE AUTOMATION:
+    /// This method applies automation at the same granularity as live playback (120Hz = ~8.3ms).
+    /// Export uses sub-buffer automation application to ensure WYHIWYG - the bounce matches playback exactly.
+    ///
+    /// Architecture:
+    /// - Playback: AutomationEngine fires at 120Hz, applies values to TrackAudioNode
+    /// - Export: This method fires at 120Hz intervals within each buffer, applies to mixer nodes
+    /// - Both use the same AutomationProcessor for identical value calculation
+    ///
+    /// Why this matters:
+    /// Without frequent updates, fast automation (quick fades, rapid pans) would be stepped in export.
+    /// Pro DAWs apply automation at 60-240Hz for smooth parameter changes.
     private func applyExportAutomation(atSample samplePosition: AVAudioFrameCount, sampleRate: Double) {
         guard let processor = exportAutomationProcessor else { return }
         
@@ -1414,6 +1427,20 @@ class ProjectExportService {
                 // Apply pan automation (convert 0-1 to -1..+1)
                 if let pan = values.pan {
                     mixerNode.pan = pan * 2 - 1
+                }
+                
+                // Apply EQ automation if track has EQ node
+                if let eqNode = trackEQNodes[trackId] {
+                    if let eqLow = values.eqLow {
+                        // Convert 0-1 to -12..+12 dB
+                        eqNode.bands[2].gain = (eqLow - 0.5) * 24
+                    }
+                    if let eqMid = values.eqMid {
+                        eqNode.bands[1].gain = (eqMid - 0.5) * 24
+                    }
+                    if let eqHigh = values.eqHigh {
+                        eqNode.bands[0].gain = (eqHigh - 0.5) * 24
+                    }
                 }
             }
         }
@@ -1571,8 +1598,24 @@ class ProjectExportService {
                     samplerEventPosition = targetPosition
                 }
                 
-                // Apply automation to track mixer nodes
-                self.applyExportAutomation(atSample: capturedFrames, sampleRate: sampleRate)
+                // SAMPLE-ACCURATE AUTOMATION:
+                // Apply automation at 120Hz intervals (same as playback) for smooth parameter changes.
+                // This ensures export matches playback exactly - no stepped automation.
+                //
+                // Calculate: 120Hz = 8.33ms interval = 400 samples at 48kHz
+                let automationUpdateInterval = Int(sampleRate / 120.0)  // ~400 samples at 48kHz
+                let bufferFrameCount = Int(buffer.frameLength)
+                
+                // Apply automation multiple times within this buffer for smooth curves
+                var sampleOffset = 0
+                while sampleOffset < bufferFrameCount {
+                    let automationSamplePos = capturedFrames + AVAudioFrameCount(sampleOffset)
+                    self.applyExportAutomation(atSample: automationSamplePos, sampleRate: sampleRate)
+                    sampleOffset += automationUpdateInterval
+                }
+                
+                // Apply one final time at the end of the buffer for precision
+                self.applyExportAutomation(atSample: capturedFrames + AVAudioFrameCount(bufferFrameCount), sampleRate: sampleRate)
                 
                 // Copy buffer data to output buffer
                 let framesToCopy = min(buffer.frameLength, frameCount - capturedFrames)

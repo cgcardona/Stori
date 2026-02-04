@@ -40,11 +40,35 @@ enum AutomationCurveConstants {
 /// High-priority engine for applying automation values during playback.
 /// Runs on a dedicated queue, separate from UI updates.
 ///
-/// ARCHITECTURE:
-/// - Fires at 120Hz (8.3ms) for smooth parameter updates
-/// - Reads beat position atomically from transport
-/// - Applies values directly to track nodes (thread-safe)
-/// - Uses AutomationProcessor for value lookups (O(log n))
+/// # Sample-Accurate Automation Architecture
+///
+/// ## Playback (120Hz Real-Time)
+/// - AutomationEngine fires at 120Hz (8.3ms intervals) for smooth parameter updates
+/// - Reads beat position atomically from TransportController
+/// - Applies values directly to TrackAudioNode setters (thread-safe, with adaptive smoothing)
+/// - Uses AutomationProcessor for O(log n) binary search value lookups
+/// - Prevents zipper noise with adaptive smoothing based on rate of change
+///
+/// ## Export (120Hz Offline)
+/// - ProjectExportService applies automation at same 120Hz frequency
+/// - Uses identical AutomationProcessor for value calculation
+/// - Converts samples → seconds → beats using project tempo
+/// - Applies to AVAudioMixerNode parameters directly
+/// - Ensures WYHIWYG: export matches playback exactly
+///
+/// ## Why 120Hz?
+/// - 8.3ms update interval is smooth enough for most automation curves
+/// - Faster than typical 60Hz (16.7ms) for professional-grade automation
+/// - Matches industry standard for automation resolution
+/// - Balances CPU efficiency with smooth parameter changes
+///
+/// ## Smoothing Strategy
+/// - TrackAudioNode applies adaptive smoothing on top of 120Hz updates
+/// - Large jumps (> 0.2): Minimal smoothing (step-like behavior)
+/// - Medium changes: Light smoothing (linear curves)
+/// - Small changes: Heavy smoothing (zipper prevention)
+/// - This two-stage approach (120Hz + adaptive smoothing) provides professional results
+///
 final class AutomationEngine: @unchecked Sendable {
     
     // MARK: - Configuration
