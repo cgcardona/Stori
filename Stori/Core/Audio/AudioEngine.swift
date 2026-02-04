@@ -913,20 +913,18 @@ class AudioEngine: AudioEngineContext {
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
                 // Validate engine health after start (only if monitor is initialized)
-                guard let healthMonitor = healthMonitor else {
-                    // Health monitor not yet initialized - this is OK during AudioEngine init
-                    return
-                }
-                let healthResult = healthMonitor.validateState()
-                if !healthResult.isValid {
-                    AppLogger.shared.warning("Engine started but health check found issues", category: .audio)
-                    for issue in healthResult.criticalIssues {
-                        AppLogger.shared.error(issue.logMessage, category: .audio)
-                        errorTracker.recordError(
-                            severity: .error,
-                            component: issue.component,
-                            message: issue.description
-                        )
+                if let healthMonitor = healthMonitor {
+                    let healthResult = healthMonitor.validateState()
+                    if !healthResult.isValid {
+                        AppLogger.shared.warning("Engine started but health check found issues", category: .audio)
+                        for issue in healthResult.criticalIssues {
+                            AppLogger.shared.error(issue.logMessage, category: .audio)
+                            errorTracker.recordError(
+                                severity: .error,
+                                component: issue.component,
+                                message: issue.description
+                            )
+                        }
                     }
                 }
                 
