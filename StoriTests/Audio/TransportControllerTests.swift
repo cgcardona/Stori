@@ -304,6 +304,57 @@ final class TransportControllerTests: XCTestCase {
         XCTAssertEqual(mockEngine.playCallCount, 0)
     }
     
+    // MARK: - Pause/Resume Position Consistency (no playhead jump)
+    
+    /// Resuming from pause must start from the exact stop position (no jump forward).
+    /// Regression test for: pause captures exact stop from wall clock; timer first fire at +16ms.
+    @MainActor
+    func testPauseResumePositionDoesNotJump() async throws {
+        let project = AudioProject(
+            id: UUID(),
+            name: "Test",
+            createdAt: Date(),
+            modifiedAt: Date(),
+            tempo: 120.0,
+            timeSignature: .fourFour,
+            tracks: [],
+            buses: [],
+            masterVolume: 1.0
+        )
+        var startBeatFromCallback: Double?
+        let controller = TransportController(
+            getProject: { project },
+            isInstallingPlugin: { false },
+            isGraphStable: { true },
+            getSampleRate: { 48000 },
+            onStartPlayback: { startBeatFromCallback = $0 },
+            onStopPlayback: {},
+            onTransportStateChanged: { _ in },
+            onPositionChanged: { _ in },
+            onCycleJump: { _ in }
+        )
+        
+        controller.play()
+        XCTAssertTrue(controller.isPlaying)
+        startBeatFromCallback = nil
+        
+        // Let position advance (timer runs every 16ms; wait for at least one tick)
+        try await Task.sleep(nanoseconds: 25_000_000) // 25ms
+        
+        controller.pause()
+        XCTAssertFalse(controller.isPlaying)
+        let positionAfterPause = controller.currentPosition.beats
+        
+        controller.play()
+        let startBeatWhenResumed = startBeatFromCallback
+        
+        XCTAssertNotNil(startBeatWhenResumed, "onStartPlayback should be called")
+        if let resumed = startBeatWhenResumed {
+            assertApproximatelyEqual(resumed, positionAfterPause, epsilon: 0.01,
+                "Resume should start from exact pause position (no jump forward)")
+        }
+    }
+    
     // MARK: - Performance Tests
     
     func testPlaybackPositionCreationPerformance() {
