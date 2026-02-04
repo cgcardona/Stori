@@ -131,12 +131,13 @@ class MetronomeEngine {
     
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
-    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine) {
+    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine, transportController: TransportController) {
         // Idempotent: only install once
         guard !isInstalled else { return }
         
         self.avAudioEngine = engine
         self.dawAudioEngine = audioEngine
+        self.transportController = transportController
         
         // Create nodes
         let player = AVAudioPlayerNode()
