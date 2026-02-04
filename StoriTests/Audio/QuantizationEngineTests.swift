@@ -1,0 +1,776 @@
+//
+//  QuantizationEngineTests.swift
+//  StoriTests
+//
+//  Comprehensive tests for QuantizationEngine - MIDI note quantization and swing
+//  Tests cover grid quantization, strength, duration quantization, and swing
+//
+
+import XCTest
+@testable import Stori
+
+final class QuantizationEngineTests: XCTestCase {
+    
+    // MARK: - Quantization Tests
+    
+    func testQuantizeToQuarterNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 1.2, lengthBeats: 0.5, pitch: 62, velocity: 100),
+            MIDINote(startBeat: 2.8, lengthBeats: 0.5, pitch: 64, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Should snap to nearest quarter note
+        XCTAssertEqual(quantized[0].startBeat, 0.0)
+        XCTAssertEqual(quantized[1].startBeat, 1.0)
+        XCTAssertEqual(quantized[2].startBeat, 3.0)
+    }
+    
+    func testQuantizeToEighthNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 0.6, lengthBeats: 0.5, pitch: 62, velocity: 100),
+            MIDINote(startBeat: 1.3, lengthBeats: 0.5, pitch: 64, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .eighth,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Should snap to nearest 8th note (0.5 beat grid)
+        XCTAssertEqual(quantized[0].startBeat, 0.0)
+        assertApproximatelyEqual(quantized[1].startBeat, 0.5, tolerance: 0.01)
+        assertApproximatelyEqual(quantized[2].startBeat, 1.5, tolerance: 0.01)
+    }
+    
+    func testQuantizeToSixteenthNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.25, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 0.3, lengthBeats: 0.25, pitch: 62, velocity: 100),
+            MIDINote(startBeat: 0.7, lengthBeats: 0.25, pitch: 64, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .sixteenth,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Should snap to nearest 16th note (0.25 beat grid)
+        assertApproximatelyEqual(quantized[0].startBeat, 0.0, tolerance: 0.01)
+        assertApproximatelyEqual(quantized[1].startBeat, 0.25, tolerance: 0.01)
+        assertApproximatelyEqual(quantized[2].startBeat, 0.75, tolerance: 0.01)
+    }
+    
+    func testQuantizeWithOffResolution() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .off,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Notes should be unchanged
+        XCTAssertEqual(quantized[0].startBeat, 0.1)
+    }
+    
+    // MARK: - Quantization Strength Tests
+    
+    func testQuantizeStrengthFull() {
+        let notes = [
+            MIDINote(startBeat: 0.9, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,  // 100% strength
+            quantizeDuration: false
+        )
+        
+        // Should snap completely to grid (1.0)
+        XCTAssertEqual(quantized[0].startBeat, 1.0)
+    }
+    
+    func testQuantizeStrengthHalf() {
+        let notes = [
+            MIDINote(startBeat: 0.8, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 0.5,  // 50% strength
+            quantizeDuration: false
+        )
+        
+        // Should move halfway to grid: 0.8 + (1.0 - 0.8) * 0.5 = 0.9
+        assertApproximatelyEqual(quantized[0].startBeat, 0.9, tolerance: 0.01)
+    }
+    
+    func testQuantizeStrengthZero() {
+        let notes = [
+            MIDINote(startBeat: 0.7, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 0.0,  // 0% strength
+            quantizeDuration: false
+        )
+        
+        // Notes should be unchanged
+        XCTAssertEqual(quantized[0].startBeat, 0.7)
+    }
+    
+    func testQuantizeStrengthIntermediate() {
+        let notes = [
+            MIDINote(startBeat: 0.2, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 0.75,  // 75% strength
+            quantizeDuration: false
+        )
+        
+        // Should move 75% toward grid: 0.2 + (0.0 - 0.2) * 0.75 = 0.05
+        assertApproximatelyEqual(quantized[0].startBeat, 0.05, tolerance: 0.01)
+    }
+    
+    // MARK: - Duration Quantization Tests
+    
+    func testQuantizeDurationEnabled() {
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.3, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: true
+        )
+        
+        // Duration should be quantized to grid (minimum: grid size)
+        XCTAssertGreaterThanOrEqual(quantized[0].durationBeats, 1.0)
+    }
+    
+    func testQuantizeDurationDisabled() {
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.3, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Duration should remain unchanged
+        XCTAssertEqual(quantized[0].durationBeats, 0.3)
+    }
+    
+    func testQuantizeDurationWithPartialStrength() {
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.7, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 0.5,
+            quantizeDuration: true
+        )
+        
+        // Duration should move partially toward grid
+        XCTAssertNotEqual(quantized[0].durationBeats, 0.7)
+        XCTAssertGreaterThan(quantized[0].durationBeats, 0.7)
+    }
+    
+    // MARK: - Swing Tests
+    
+    func testApplySwingToEighthNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.5, pitch: 60, velocity: 100),   // On-beat
+            MIDINote(startBeat: 0.5, lengthBeats: 0.5, pitch: 62, velocity: 100),   // Off-beat
+            MIDINote(startBeat: 1.0, lengthBeats: 0.5, pitch: 64, velocity: 100),   // On-beat
+            MIDINote(startBeat: 1.5, lengthBeats: 0.5, pitch: 67, velocity: 100)    // Off-beat
+        ]
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 1.0,  // Full swing
+            gridResolution: 0.5  // 8th note grid
+        )
+        
+        // On-beats (even grid positions) should be unchanged
+        XCTAssertEqual(swung[0].startBeat, 0.0)
+        XCTAssertEqual(swung[2].startBeat, 1.0)
+        
+        // Off-beats (odd grid positions) should be delayed
+        XCTAssertGreaterThan(swung[1].startBeat, 0.5)
+        XCTAssertGreaterThan(swung[3].startBeat, 1.5)
+    }
+    
+    func testApplySwingAmount() {
+        let notes = [
+            MIDINote(startBeat: 0.5, lengthBeats: 0.5, pitch: 60, velocity: 100)  // Off-beat
+        ]
+        
+        // No swing
+        let noSwing = QuantizationEngine.applySwing(notes: notes, amount: 0.0, gridResolution: 0.5)
+        XCTAssertEqual(noSwing[0].startBeat, 0.5)
+        
+        // Partial swing
+        let partialSwing = QuantizationEngine.applySwing(notes: notes, amount: 0.5, gridResolution: 0.5)
+        XCTAssertGreaterThan(partialSwing[0].startBeat, 0.5)
+        XCTAssertLessThan(partialSwing[0].startBeat, 0.5 + 0.5/3.0)
+        
+        // Full swing
+        let fullSwing = QuantizationEngine.applySwing(notes: notes, amount: 1.0, gridResolution: 0.5)
+        assertApproximatelyEqual(fullSwing[0].startBeat, 0.5 + 0.5/3.0, tolerance: 0.01)
+    }
+    
+    func testSwingOnlyAffectsOffBeats() {
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.5, pitch: 60, velocity: 100),   // On-beat (index 0)
+            MIDINote(startBeat: 0.5, lengthBeats: 0.5, pitch: 62, velocity: 100),   // Off-beat (index 1)
+            MIDINote(startBeat: 1.0, lengthBeats: 0.5, pitch: 64, velocity: 100),   // On-beat (index 2)
+            MIDINote(startBeat: 1.5, lengthBeats: 0.5, pitch: 67, velocity: 100)    // Off-beat (index 3)
+        ]
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 1.0,
+            gridResolution: 0.5
+        )
+        
+        // Even indices (on-beats) unchanged
+        XCTAssertEqual(swung[0].startBeat, notes[0].startBeat)
+        XCTAssertEqual(swung[2].startBeat, notes[2].startBeat)
+        
+        // Odd indices (off-beats) delayed
+        XCTAssertGreaterThan(swung[1].startBeat, notes[1].startBeat)
+        XCTAssertGreaterThan(swung[3].startBeat, notes[3].startBeat)
+    }
+    
+    func testSwingWithSixteenthNoteGrid() {
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.25, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 0.25, lengthBeats: 0.25, pitch: 62, velocity: 100),
+            MIDINote(startBeat: 0.5, lengthBeats: 0.25, pitch: 64, velocity: 100),
+            MIDINote(startBeat: 0.75, lengthBeats: 0.25, pitch: 67, velocity: 100)
+        ]
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 1.0,
+            gridResolution: 0.25  // 16th note grid
+        )
+        
+        // Beats at 0.25 and 0.75 (odd grid positions) should be delayed
+        XCTAssertEqual(swung[0].startBeat, 0.0)
+        XCTAssertGreaterThan(swung[1].startBeat, 0.25)
+        XCTAssertEqual(swung[2].startBeat, 0.5)
+        XCTAssertGreaterThan(swung[3].startBeat, 0.75)
+    }
+    
+    func testSwingWithZeroAmount() {
+        let notes = [
+            MIDINote(startBeat: 0.5, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 0.0,
+            gridResolution: 0.5
+        )
+        
+        // Notes should be unchanged
+        XCTAssertEqual(swung[0].startBeat, 0.5)
+    }
+    
+    func testSwingWithZeroGrid() {
+        let notes = [
+            MIDINote(startBeat: 0.5, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 1.0,
+            gridResolution: 0.0
+        )
+        
+        // Notes should be unchanged (zero grid = no swing)
+        XCTAssertEqual(swung[0].startBeat, 0.5)
+    }
+    
+    // MARK: - Combined Quantization + Swing Tests
+    
+    func testQuantizeThenSwing() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 0.6, lengthBeats: 0.5, pitch: 62, velocity: 100),
+            MIDINote(startBeat: 1.2, lengthBeats: 0.5, pitch: 64, velocity: 100),
+            MIDINote(startBeat: 1.7, lengthBeats: 0.5, pitch: 67, velocity: 100)
+        ]
+        
+        // First quantize to 8th note grid
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .eighth,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Then apply swing
+        let swung = QuantizationEngine.applySwing(
+            notes: quantized,
+            amount: 0.6,
+            gridResolution: 0.5
+        )
+        
+        // Result should have quantized positions with swing applied
+        XCTAssertNotEqual(swung, notes)
+    }
+    
+    // MARK: - Preserve Properties Tests
+    
+    func testQuantizePreservesPitch() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 1.2, lengthBeats: 0.5, pitch: 72, velocity: 80)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized[0].pitch, 60)
+        XCTAssertEqual(quantized[1].pitch, 72)
+    }
+    
+    func testQuantizePreservesVelocity() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 1.2, lengthBeats: 0.5, pitch: 62, velocity: 64)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized[0].velocity, 100)
+        XCTAssertEqual(quantized[1].velocity, 64)
+    }
+    
+    func testQuantizePreservesChannel() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100, channel: 0),
+            MIDINote(startBeat: 1.2, lengthBeats: 0.5, pitch: 62, velocity: 100, channel: 5)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized[0].channel, 0)
+        XCTAssertEqual(quantized[1].channel, 5)
+    }
+    
+    func testQuantizePreservesId() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        let originalId = notes[0].id
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized[0].id, originalId)
+    }
+    
+    func testSwingPreservesAllProperties() {
+        let notes = [
+            MIDINote(startBeat: 0.5, lengthBeats: 0.4, pitch: 72, velocity: 88, channel: 3)
+        ]
+        let originalId = notes[0].id
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 0.8,
+            gridResolution: 0.5
+        )
+        
+        XCTAssertEqual(swung[0].id, originalId)
+        XCTAssertEqual(swung[0].pitch, 72)
+        XCTAssertEqual(swung[0].velocity, 88)
+        XCTAssertEqual(swung[0].durationBeats, 0.4)
+        XCTAssertEqual(swung[0].channel, 3)
+    }
+    
+    // MARK: - Edge Case Tests
+    
+    func testQuantizeEmptyNoteArray() {
+        let notes: [MIDINote] = []
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized.count, 0)
+    }
+    
+    func testSwingEmptyNoteArray() {
+        let notes: [MIDINote] = []
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 1.0,
+            gridResolution: 0.5
+        )
+        
+        XCTAssertEqual(swung.count, 0)
+    }
+    
+    func testQuantizeSingleNote() {
+        let notes = [
+            MIDINote(startBeat: 0.7, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized.count, 1)
+        XCTAssertEqual(quantized[0].startBeat, 1.0)
+    }
+    
+    func testQuantizeManyNotes() {
+        // Create 100 notes with slight timing variations
+        var notes: [MIDINote] = []
+        for i in 0..<100 {
+            let beat = Double(i) * 0.25 + 0.03  // Slightly off grid
+            notes.append(MIDINote(startBeat: beat, lengthBeats: 0.2, pitch: 60, velocity: 100))
+        }
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .sixteenth,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized.count, 100)
+    }
+    
+    func testQuantizeNotesAtExactGrid() {
+        // Notes already on grid should remain unchanged
+        let notes = [
+            MIDINote(startBeat: 0.0, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 1.0, lengthBeats: 0.5, pitch: 62, velocity: 100),
+            MIDINote(startBeat: 2.0, lengthBeats: 0.5, pitch: 64, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarter,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        for i in 0..<notes.count {
+            XCTAssertEqual(quantized[i].startBeat, notes[i].startBeat)
+        }
+    }
+    
+    // MARK: - Performance Tests
+    
+    func testQuantizePerformance() {
+        // Create realistic note set
+        var notes: [MIDINote] = []
+        for i in 0..<1000 {
+            let beat = Double(i) * 0.25 + Double.random(in: -0.05...0.05)
+            notes.append(MIDINote(startBeat: beat, lengthBeats: 0.2, pitch: 60, velocity: 100))
+        }
+        
+        measure {
+            _ = QuantizationEngine.quantize(
+                notes: notes,
+                resolution: .sixteenth,
+                strength: 0.8,
+                quantizeDuration: false
+            )
+        }
+    }
+    
+    func testSwingPerformance() {
+        var notes: [MIDINote] = []
+        for i in 0..<1000 {
+            let beat = Double(i) * 0.25
+            notes.append(MIDINote(startBeat: beat, lengthBeats: 0.2, pitch: 60, velocity: 100))
+        }
+        
+        measure {
+            _ = QuantizationEngine.applySwing(
+                notes: notes,
+                amount: 0.6,
+                gridResolution: 0.5
+            )
+        }
+    }
+    
+    func testQuantizeWithDurationPerformance() {
+        var notes: [MIDINote] = []
+        for i in 0..<500 {
+            let beat = Double(i) * 0.5
+            notes.append(MIDINote(startBeat: beat, lengthBeats: 0.3, pitch: 60, velocity: 100))
+        }
+        
+        measure {
+            _ = QuantizationEngine.quantize(
+                notes: notes,
+                resolution: .eighth,
+                strength: 1.0,
+                quantizeDuration: true
+            )
+        }
+    }
+    
+    // MARK: - Real-World Scenario Tests
+    
+    func testQuantizeRealisticPerformance() {
+        // Simulate quantizing a recorded MIDI performance
+        var notes: [MIDINote] = []
+        
+        // Generate 16 bars of 16th notes with human timing variation
+        for bar in 0..<16 {
+            for beat in 0..<16 {
+                let exactBeat = Double(bar * 4) + Double(beat) * 0.25
+                let humanTiming = Double.random(in: -0.04...0.04)  // ±40ms timing at 120 BPM
+                let actualBeat = exactBeat + humanTiming
+                
+                notes.append(MIDINote(
+                    startBeat: actualBeat,
+                    lengthBeats: 0.2,
+                    pitch: UInt8(60 + beat % 12),
+                    velocity: UInt8(70 + Int.random(in: -10...20))
+                ))
+            }
+        }
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .sixteenth,
+            strength: 0.75,  // 75% correction (preserve some human feel)
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized.count, notes.count)
+        
+        // Verify timing was tightened (variance should be lower)
+        let originalVariance = notes.map { $0.startBeat.truncatingRemainder(dividingBy: 0.25) }.reduce(0, +) / Double(notes.count)
+        let quantizedVariance = quantized.map { $0.startBeat.truncatingRemainder(dividingBy: 0.25) }.reduce(0, +) / Double(quantized.count)
+        
+        XCTAssertLessThan(quantizedVariance, originalVariance)
+    }
+    
+    func testQuantizeAndSwingWorkflow() {
+        // Typical workflow: record -> quantize -> apply swing
+        var notes: [MIDINote] = []
+        
+        for i in 0..<32 {
+            let beat = Double(i) * 0.5 + Double.random(in: -0.03...0.03)
+            notes.append(MIDINote(startBeat: beat, lengthBeats: 0.4, pitch: 60, velocity: 100))
+        }
+        
+        // 1. Quantize to 8th note grid
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .eighth,
+            strength: 0.8,
+            quantizeDuration: false
+        )
+        
+        // 2. Apply swing
+        let final = QuantizationEngine.applySwing(
+            notes: quantized,
+            amount: 0.5,
+            gridResolution: 0.5
+        )
+        
+        XCTAssertEqual(final.count, notes.count)
+    }
+    
+    // MARK: - Multiple Resolution Tests
+    
+    func testQuantizeToHalfNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.3, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 2.7, lengthBeats: 0.5, pitch: 62, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .half,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Should snap to nearest half note (2 beat grid)
+        XCTAssertEqual(quantized[0].startBeat, 0.0)
+        assertApproximatelyEqual(quantized[1].startBeat, 2.0, tolerance: 0.1)
+    }
+    
+    func testQuantizeToWholeNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.7, lengthBeats: 0.5, pitch: 60, velocity: 100),
+            MIDINote(startBeat: 3.2, lengthBeats: 0.5, pitch: 62, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .whole,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Should snap to nearest whole note (4 beat grid)
+        XCTAssertEqual(quantized[0].startBeat, 0.0)
+        XCTAssertEqual(quantized[1].startBeat, 4.0)
+    }
+    
+    func testQuantizeToThirtySecondNotes() {
+        let notes = [
+            MIDINote(startBeat: 0.1, lengthBeats: 0.1, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .thirtySecond,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Should snap to nearest 32nd note (0.125 beat grid)
+        assertApproximatelyEqual(quantized[0].startBeat, 0.125, tolerance: 0.01)
+    }
+    
+    // MARK: - Triplet Resolution Tests
+    
+    func testQuantizeToEighthTriplets() {
+        let notes = [
+            MIDINote(startBeat: 0.35, lengthBeats: 0.2, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .eighthTriplet,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // 8th triplet grid = 1/3 beat steps
+        // 0.35 should snap to nearest triplet (0.333...)
+        assertApproximatelyEqual(quantized[0].startBeat, 0.333, tolerance: 0.02)
+    }
+    
+    func testQuantizeToQuarterTriplets() {
+        let notes = [
+            MIDINote(startBeat: 0.7, lengthBeats: 0.5, pitch: 60, velocity: 100)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .quarterTriplet,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        // Quarter triplet grid = 2/3 beat steps
+        // 0.7 should snap to 0.666...
+        assertApproximatelyEqual(quantized[0].startBeat, 0.666, tolerance: 0.02)
+    }
+    
+    // MARK: - Stress Tests
+    
+    func testQuantizeVeryLargeNoteSet() {
+        // 10,000 notes
+        var notes: [MIDINote] = []
+        for i in 0..<10000 {
+            notes.append(MIDINote(
+                startBeat: Double(i) * 0.25 + 0.02,
+                lengthBeats: 0.2,
+                pitch: 60,
+                velocity: 100
+            ))
+        }
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .sixteenth,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        
+        XCTAssertEqual(quantized.count, 10000)
+    }
+    
+    func testSwingVeryLargeNoteSet() {
+        var notes: [MIDINote] = []
+        for i in 0..<10000 {
+            notes.append(MIDINote(
+                startBeat: Double(i) * 0.25,
+                lengthBeats: 0.2,
+                pitch: 60,
+                velocity: 100
+            ))
+        }
+        
+        let swung = QuantizationEngine.applySwing(
+            notes: notes,
+            amount: 0.6,
+            gridResolution: 0.5
+        )
+        
+        XCTAssertEqual(swung.count, 10000)
+    }
+}
