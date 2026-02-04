@@ -387,10 +387,8 @@ final class TransportControllerTests: XCTestCase {
         let beatsPerSecond = tempo / 60.0
         let expectedBeats = startBeat + (elapsedSeconds * beatsPerSecond)
         
-        assertApproximatelyEqual(expectedBeats, 8.0, accuracy: 0.001)
-        
         // Verify formula: beats = startBeat + (elapsedSeconds * (tempo / 60.0))
-        XCTAssertEqual(expectedBeats, 8.0, accuracy: 0.001, "4 seconds at 120 BPM should equal 8 beats")
+        assertApproximatelyEqual(expectedBeats, 8.0, tolerance: 0.001)
     }
     
     /// Test position calculation at different tempos
@@ -401,19 +399,19 @@ final class TransportControllerTests: XCTestCase {
         
         // 60 BPM: 1 beat per second → 2 seconds = 2 beats
         let beats60 = startBeat + (elapsedSeconds * (60.0 / 60.0))
-        assertApproximatelyEqual(beats60, 2.0, accuracy: 0.001)
+        assertApproximatelyEqual(beats60, 2.0, tolerance: 0.001)
         
         // 120 BPM: 2 beats per second → 2 seconds = 4 beats
         let beats120 = startBeat + (elapsedSeconds * (120.0 / 60.0))
-        assertApproximatelyEqual(beats120, 4.0, accuracy: 0.001)
+        assertApproximatelyEqual(beats120, 4.0, tolerance: 0.001)
         
         // 180 BPM: 3 beats per second → 2 seconds = 6 beats
         let beats180 = startBeat + (elapsedSeconds * (180.0 / 60.0))
-        assertApproximatelyEqual(beats180, 6.0, accuracy: 0.001)
+        assertApproximatelyEqual(beats180, 6.0, tolerance: 0.001)
         
         // 240 BPM: 4 beats per second → 2 seconds = 8 beats
         let beats240 = startBeat + (elapsedSeconds * (240.0 / 60.0))
-        assertApproximatelyEqual(beats240, 8.0, accuracy: 0.001)
+        assertApproximatelyEqual(beats240, 8.0, tolerance: 0.001)
     }
     
     /// Test that position calculation is consistent over longer durations
@@ -428,12 +426,12 @@ final class TransportControllerTests: XCTestCase {
         let expectedBeats = startBeat + (elapsedSeconds * beatsPerSecond)
         
         // At 120 BPM, 60 seconds = 120 beats
-        assertApproximatelyEqual(expectedBeats, 120.0, accuracy: 0.001)
+        assertApproximatelyEqual(expectedBeats, 120.0, tolerance: 0.001)
         
         // Test 5 minutes
         let fiveMinutes = 300.0
         let beatsIn5Min = startBeat + (fiveMinutes * beatsPerSecond)
-        assertApproximatelyEqual(beatsIn5Min, 600.0, accuracy: 0.01)
+        assertApproximatelyEqual(beatsIn5Min, 600.0, tolerance: 0.01)
     }
     
     /// Test position calculation starting from non-zero beat
@@ -447,7 +445,7 @@ final class TransportControllerTests: XCTestCase {
         let expectedBeats = startBeat + (elapsedSeconds * beatsPerSecond)
         
         // 16 + (2 * 2) = 20 beats
-        assertApproximatelyEqual(expectedBeats, 20.0, accuracy: 0.001)
+        assertApproximatelyEqual(expectedBeats, 20.0, tolerance: 0.001)
     }
     
     /// Test that the position formula is frame-accurate
@@ -465,14 +463,14 @@ final class TransportControllerTests: XCTestCase {
         let beatsPerBuffer = bufferDuration * beatsPerSecond
         
         // At 120 BPM, one 512-sample buffer at 48kHz = ~0.0213 beats
-        assertApproximatelyEqual(beatsPerBuffer, 0.0213, accuracy: 0.0001)
+        assertApproximatelyEqual(beatsPerBuffer, 0.0213, tolerance: 0.0001)
         
         // After 100 buffers (~1.07 seconds)
         let elapsed100Buffers = bufferDuration * 100
         let beats100Buffers = startBeat + (elapsed100Buffers * beatsPerSecond)
         
         // Should be ~2.13 beats
-        assertApproximatelyEqual(beats100Buffers, 2.133, accuracy: 0.001)
+        assertApproximatelyEqual(beats100Buffers, 2.133, tolerance: 0.001)
     }
     
     /// Test position consistency across rapid tempo changes
@@ -486,7 +484,7 @@ final class TransportControllerTests: XCTestCase {
         let phase1Duration = 2.0
         let phase1Tempo = 120.0
         let phase1Beats = startBeat + (phase1Duration * (phase1Tempo / 60.0))
-        assertApproximatelyEqual(phase1Beats, 4.0, accuracy: 0.001)
+        assertApproximatelyEqual(phase1Beats, 4.0, tolerance: 0.001)
         
         // Phase 2: 3 seconds at 90 BPM (starting from where phase 1 ended)
         let phase2Start = phase1Beats
@@ -495,7 +493,7 @@ final class TransportControllerTests: XCTestCase {
         let phase2Beats = phase2Start + (phase2Duration * (phase2Tempo / 60.0))
         
         // 4.0 + (3.0 * 1.5) = 4.0 + 4.5 = 8.5 beats
-        assertApproximatelyEqual(phase2Beats, 8.5, accuracy: 0.001)
+        assertApproximatelyEqual(phase2Beats, 8.5, tolerance: 0.001)
     }
     
     /// Performance test: Verify position calculation is fast enough for real-time use
