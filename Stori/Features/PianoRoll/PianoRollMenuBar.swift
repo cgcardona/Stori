@@ -214,17 +214,13 @@ struct PianoRollMenuBar: View {
     // MARK: - Helpers
     
     private func menuLabel(_ title: String) -> some View {
-        HStack(spacing: 2) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
-        }
-        .foregroundColor(.primary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.01)) // Invisible but clickable
-        .contentShape(Rectangle())
+        Text(title)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.01)) // Invisible but clickable
+            .contentShape(Rectangle())
     }
     
     private func setSelectedVelocity(_ velocity: UInt8) {

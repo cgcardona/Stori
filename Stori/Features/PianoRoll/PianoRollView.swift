@@ -598,21 +598,17 @@ struct PianoRollView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text(snapResolution.rawValue)
-                        .font(.system(size: 11, weight: .semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                }
-                .foregroundColor(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(4)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                )
+                Text(snapResolution.rawValue)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    )
             }
             .menuStyle(.borderlessButton)
         }
