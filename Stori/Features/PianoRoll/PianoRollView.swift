@@ -26,7 +26,6 @@ struct PianoRollView: View {
     @State private var showScaleHighlight = false
     @State private var showAutomationLanes = false  // Toggle for MIDI CC lanes
     @State private var automationLanes: [AutomationLane] = []  // Active CC/PitchBend lanes
-    @State private var showAddLanePopover = false  // Popover for adding lanes
     @State private var showTransformSheet = false   // MIDI Transform dialog
     @State private var showQuantizeOptions = false  // Quantize options sheet
     @State private var showVelocityPopover = false  // Velocity editor popover
@@ -383,68 +382,6 @@ struct PianoRollView: View {
         }
     }
     
-    // MARK: - Add CC Lane Popover
-    
-    /// Popover for adding MIDI CC automation lanes
-    private var addLanePopover: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Add MIDI CC Lane")
-                .font(.headline)
-                .padding(.bottom, 4)
-            
-            // MIDI CC parameters for piano roll
-            ForEach(midiCCLaneOptions, id: \.self) { param in
-                Button(action: {
-                    addAutomationLane(for: param)
-                    showAddLanePopover = false
-                    showAutomationLanes = true  // Ensure lanes are visible
-                }) {
-                    HStack {
-                        Image(systemName: param.icon)
-                            .foregroundColor(param.color)
-                            .frame(width: 20)
-                        Text(param.rawValue)
-                        Spacer()
-                        if automationLanes.contains(where: { $0.parameter == param }) {
-                            Image(systemName: "checkmark")
-                                .foregroundColor(.green)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(automationLanes.contains(where: { $0.parameter == param }))
-            }
-            
-            Divider()
-            
-            // Remove all button
-            if !automationLanes.isEmpty {
-                Button(role: .destructive, action: {
-                    automationLanes.removeAll()
-                    showAddLanePopover = false
-                }) {
-                    Label("Remove All Lanes", systemImage: "trash")
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.red)
-            }
-        }
-        .padding()
-        .frame(width: 220)
-    }
-    
-    /// Available MIDI CC parameters for piano roll lanes
-    private var midiCCLaneOptions: [AutomationParameter] {
-        [.midiCC1, .midiCC11, .midiCC64, .midiCC74, .pitchBend]
-    }
-    
-    /// Add a new automation lane for the specified parameter
-    private func addAutomationLane(for parameter: AutomationParameter) {
-        guard !automationLanes.contains(where: { $0.parameter == parameter }) else { return }
-        let lane = AutomationLane(parameter: parameter, color: parameter.color)
-        automationLanes.append(lane)
-    }
-    
     // MARK: - Computed Properties
     
     private var gridWidth: CGFloat {
@@ -539,6 +476,7 @@ struct PianoRollView: View {
                 showScaleHighlight: $showScaleHighlight,
                 currentScale: $currentScale,
                 showAutomationLanes: $showAutomationLanes,
+                automationLanes: $automationLanes,
                 horizontalZoom: $horizontalZoom,
                 showTransformSheet: $showTransformSheet,
                 showQuantizeOptions: $showQuantizeOptions,
