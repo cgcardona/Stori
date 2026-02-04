@@ -46,6 +46,25 @@ Creates a **signed and notarized** .dmg installer for distribution. Requires App
 
 ---
 
+## 🧪 Testing: Clear Downloaded Assets
+
+### `clear-downloaded-assets.sh`
+
+Removes the GM SoundFont and drum kits from `~/Library/Application Support/Stori/` so you can test the download flow and "no assets installed" state.
+
+**Usage:**
+```bash
+./scripts/clear-downloaded-assets.sh
+```
+
+**What it removes:**
+- `~/Library/Application Support/Stori/SoundFonts/` (GM .sf2 file, e.g. MuseScore_General.sf2)
+- `~/Library/Application Support/Stori/DrumKits/` (downloaded drum kit folders)
+
+**Tip:** Quit Stori first, run the script, then relaunch Stori so the picker shows the "No SoundFont Installed" / download UI.
+
+---
+
 ## 🔍 Diagnostic Scripts
 
 ### `diagnose-app-launch.sh`

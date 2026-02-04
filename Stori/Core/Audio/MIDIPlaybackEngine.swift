@@ -62,9 +62,16 @@ class MIDIPlaybackEngine {
     @ObservationIgnored
     private var sampleRate: Double = 48000.0
     
+    /// Thread-safe current position in beats
+    /// CRITICAL: Use atomic accessor from TransportController, not MainActor-isolated AudioEngine property
     @ObservationIgnored
     private var currentPositionBeats: Double {
-        audioEngine?.currentPosition.beats ?? 0
+        // Prefer atomic accessor for thread-safe, jitter-free position
+        if let transport = transportController {
+            return transport.atomicBeatPosition
+        }
+        // Fallback: MainActor-isolated read (NOT safe from audio thread!)
+        return audioEngine?.currentPosition.beats ?? 0
     }
     
     // MARK: - Cycle Awareness
@@ -304,7 +311,7 @@ extension MIDIPlaybackEngine {
         guard let block = midiBlock else {
             // No cached block means instrument isn't properly configured
             // This is a bug that should be fixed, not worked around
-            #if DEBUG
+            
             // Log once per unique trackId to avoid spam (use static set)
             struct MissingBlockTracker {
                 static var loggedTracks: Set<UUID> = []
@@ -320,9 +327,18 @@ extension MIDIPlaybackEngine {
             if !alreadyLogged {
                 DispatchQueue.global(qos: .utility).async {
                     AppLogger.shared.warning("MIDI block missing for track \(trackId) - instrument not configured", category: .audio)
+                    
+                    // Track in error system (off audio thread)
+                    Task { @MainActor in
+                        AudioEngineErrorTracker.shared.recordError(
+                            severity: .error,
+                            component: "MIDIPlayback",
+                            message: "MIDI block missing - instrument not configured",
+                            context: ["trackId": trackId.uuidString]
+                        )
+                    }
                 }
             }
-            #endif
             return
         }
         

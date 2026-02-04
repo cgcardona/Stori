@@ -1120,8 +1120,8 @@ class AICommandDispatcher {
                     throw AICommandError.invalidParameter("regionId")
                 }
                 
-                let amount = Float(params["amount"]?.doubleValue ?? 0.2)  // Default 20% swing
-                let gridResolution = SnapResolution.eighth  // Default to eighth notes
+                let amount = params["amount"]?.doubleValue ?? 0.2  // Default 20% swing
+                let gridResolution = SnapResolution.eighth.stepDurationBeats  // Convert to beats (0.5)
                 
                 // Find and update the region
                 for trackIndex in project.tracks.indices {

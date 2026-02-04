@@ -76,6 +76,13 @@ class MixerController {
     /// O(1) track lookup: cache of trackId → index. Rebuilt when project track count changes or on miss.
     private var trackIndexCache: [UUID: Int] = [:]
     
+    /// Generation counter for cache invalidation.
+    /// Incremented when tracks are added, removed, or reordered.
+    private var cacheGeneration: Int = 0
+    
+    /// Last known project track generation (derived from track IDs and order)
+    private var projectTrackGeneration: Int = 0
+    
     // MARK: - Initialization
     
     init(
@@ -455,6 +462,12 @@ class MixerController {
     private func rebuildTrackIndexCache() {
         guard let project = getProject() else { return }
         trackIndexCache = Dictionary(uniqueKeysWithValues: project.tracks.enumerated().map { ($0.element.id, $0.offset) })
+        
+        // Calculate generation from track IDs and order (detects reorders)
+        // Use hash of ordered track IDs to detect any structural change
+        let trackIdSequence = project.tracks.map { $0.id.uuidString }.joined(separator: ",")
+        projectTrackGeneration = trackIdSequence.hashValue
+        cacheGeneration = projectTrackGeneration
     }
     
     /// Release the track index cache (e.g. on memory pressure). Next lookup will rebuild automatically.
@@ -462,16 +475,28 @@ class MixerController {
         trackIndexCache.removeAll()
     }
     
-    /// Return track index for trackId, rebuilding cache if needed (count mismatch or miss).
+    /// Return track index for trackId, rebuilding cache if needed (count mismatch, reorder, or miss).
     private func trackIndex(for trackId: UUID) -> Int? {
         guard let project = getProject() else { return nil }
-        if trackIndexCache.count != project.tracks.count {
+        
+        // Check if cache needs rebuild due to structural changes
+        let trackIdSequence = project.tracks.map { $0.id.uuidString }.joined(separator: ",")
+        let currentGeneration = trackIdSequence.hashValue
+        
+        if cacheGeneration != currentGeneration {
+            // Track structure changed (added, removed, or reordered)
             rebuildTrackIndexCache()
         }
-        guard let index = trackIndexCache[trackId], index < project.tracks.count, project.tracks[index].id == trackId else {
+        
+        // Verify cached index is still valid
+        guard let index = trackIndexCache[trackId],
+              index < project.tracks.count,
+              project.tracks[index].id == trackId else {
+            // Cache miss or invalid - rebuild
             rebuildTrackIndexCache()
             return trackIndexCache[trackId]
         }
+        
         return index
     }
     
