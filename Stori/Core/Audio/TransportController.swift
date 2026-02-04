@@ -144,6 +144,10 @@ class TransportController {
     @ObservationIgnored
     private var lastCycleJumpTime: TimeInterval = 0
     
+    /// Debug tracking: last playback start beat for detecting resume events
+    @ObservationIgnored
+    private var lastStartBeat: Double? = nil
+    
     // MARK: - Dependencies (injected via closures for loose coupling)
     
     /// Returns current project
@@ -237,10 +241,30 @@ class TransportController {
             onTransportStateChanged(.playing)
             
         case .paused:
-            playbackStartWallTime = CACurrentMediaTime()
-            playbackStartBeat = currentPosition.beats
+            let resumeBeat = currentPosition.beats
+            
+            // CRITICAL FIX: Delay position updates to avoid visual playhead jump on resume.
+            // Define delay in BEATS (tempo-aware), then convert to seconds.
+            // This gives SwiftUI time to render the resume position before it starts advancing.
+            let delayBeats: Double = 0.2  // ~1/8th note at 120 BPM
+            let delaySeconds = (delayBeats * 60.0) / project.tempo
+            
+            // Adjust timing state forward by the delay so when timer fires, elapsed = 0
+            playbackStartWallTime = CACurrentMediaTime() + delaySeconds
+            playbackStartBeat = resumeBeat
+            
+            print("🎵 PLAY FROM PAUSE (RESUME):")
+            print("    resumeBeat: \(String(format: "%.6f", resumeBeat))")
+            print("    delayBeats: \(delayBeats) beats")
+            print("    delaySeconds: \(String(format: "%.6f", delaySeconds))s @ \(project.tempo) BPM")
+            print("    wallTime: \(String(format: "%.6f", playbackStartWallTime)) (adjusted +\(String(format: "%.3f", delaySeconds))s)")
+            print("    tempo: \(project.tempo) BPM")
+            print("    position: \(currentPosition.displayStringDefault)")
             transportState = .playing
             onTransportStateChanged(.playing)
+            
+            // Ensure UI has the resume position (even though it hasn't changed since pause)
+            onPositionChanged(currentPosition)
             
         case .playing, .recording:
             return // Already playing
@@ -255,26 +279,47 @@ class TransportController {
         )
         
         // Restart position timer
-        setupPositionTimer()
+        // For resume, calculate beat-based delay; for play-from-stop, no delay needed
+        let timerDelayBeats: Double
+        let timerDelaySeconds: TimeInterval
+        if transportState == .playing && playbackStartBeat > 0 {
+            // Resuming - use beat-based delay to avoid visual jump
+            timerDelayBeats = 0.2  // Matches delay above
+            timerDelaySeconds = (timerDelayBeats * 60.0) / project.tempo
+        } else {
+            // Playing from stop - no delay needed
+            timerDelayBeats = 0.0
+            timerDelaySeconds = 0.0
+        }
+        setupPositionTimer(delaySeconds: timerDelaySeconds)
         
         startPlayback()
     }
     
     func pause() {
         guard transportState.isPlaying else { return }
+        guard let project = getProject() else { return }
+        
+        // Capture exact stop position from wall clock (avoids using last timer tick, 0–16ms stale)
+        let elapsedSeconds = CACurrentMediaTime() - playbackStartWallTime
+        let beatsPerSecond = project.tempo / 60.0
+        let exactStopBeat = playbackStartBeat + (elapsedSeconds * beatsPerSecond)
+        currentPosition = PlaybackPosition(beats: exactStopBeat, timeSignature: project.timeSignature, tempo: project.tempo)
+        onPositionChanged(currentPosition)
         
         transportState = .paused
         onTransportStateChanged(.paused)
         stopPlayback()
         
-        // Update atomic state
-        updateAtomicBeatPosition(currentPosition.beats, isPlaying: false)
+        // Update atomic state with exact stop position
+        updateAtomicBeatPosition(exactStopBeat, isPlaying: false)
         
         // Stop position timer to save CPU
         stopPositionTimer()
     }
     
     func stop() {
+        print("⏹️  STOP: Resetting position to beat 0")
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -287,6 +332,7 @@ class TransportController {
         if let project = getProject() {
             currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
             onPositionChanged(currentPosition)
+            print("    position: \(currentPosition.displayStringDefault)")
         }
         
         // Update atomic state
@@ -380,7 +426,7 @@ class TransportController {
     
     // MARK: - Position Timer (High-Priority DispatchSourceTimer)
     
-    func setupPositionTimer() {
+    func setupPositionTimer(delaySeconds: TimeInterval = 0) {
         // Cancel existing timer
         positionTimer?.cancel()
         positionTimer = nil
@@ -388,17 +434,30 @@ class TransportController {
         // Capture current generation for this timer session
         positionUpdateGeneration = cycleGeneration
         
-        // Create high-priority timer that's immune to main thread blocking
+        // Create high-priority timer that's immune to main thread blocking.
+        // CRITICAL: For resume, start timer after a beat-based delay (converted to seconds).
+        // After resume, the main thread is busy (audio start, MIDI scheduling, state updates)
+        // causing SwiftUI to batch/drop render frames. Logs show it takes ~100ms for the first
+        // render to happen. If we start updating position before that first render, the playhead
+        // jumps ahead visually. By waiting (beat-aware delay), we ensure at least one clean render
+        // of the resume position before position starts advancing.
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: positionQueue)
+        let delayMs = Int(delaySeconds * 1000)
         timer.schedule(
-            deadline: .now(),
+            deadline: delayMs > 0 ? .now() + .milliseconds(delayMs) : .now(),
             repeating: .milliseconds(16),  // ~60 FPS
             leeway: .microseconds(500)
         )
         timer.setEventHandler { [weak self] in
-            // Dispatch to MainActor for UI updates
+            // CRITICAL FIX: Capture wall time NOW (on background queue) before dispatching to MainActor.
+            // If we calculate elapsed time on MainActor, and MainActor is blocked by resume work
+            // (starting audio engine, MIDI, etc.), the Task might not run for 100+ ms, causing
+            // elapsedSeconds to be stale and the playhead to jump forward.
+            let capturedWallTime = CACurrentMediaTime()
+            
+            // Dispatch to MainActor for UI updates with captured time
             Task { @MainActor in
-                self?.updatePosition()
+                self?.updatePosition(capturedWallTime: capturedWallTime)
             }
         }
         timer.resume()
@@ -410,8 +469,10 @@ class TransportController {
         positionTimer = nil
     }
     
-    private func updatePosition() {
-        guard transportState.isPlaying else { return }
+    private func updatePosition(capturedWallTime: TimeInterval) {
+        guard transportState.isPlaying else {
+            return
+        }
         guard let project = getProject() else { return }
         
         // Check if a cycle jump occurred - if so, skip this update
@@ -421,8 +482,9 @@ class TransportController {
             return
         }
         
-        // Calculate elapsed time since playback started
-        let elapsedSeconds = CACurrentMediaTime() - playbackStartWallTime
+        // Calculate elapsed time since playback started using captured wall time
+        // (captured on background queue when timer fired, not when this runs on MainActor)
+        let elapsedSeconds = capturedWallTime - playbackStartWallTime
         
         // Convert elapsed seconds to elapsed beats
         let beatsPerSecond = project.tempo / 60.0
@@ -430,6 +492,12 @@ class TransportController {
         
         // Current position = start position + elapsed beats
         let currentBeat = playbackStartBeat + elapsedBeats
+        
+        // First update after resume? Log it with detailed timing
+        if lastStartBeat != playbackStartBeat {
+            let position = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
+            lastStartBeat = playbackStartBeat
+        }
         
         currentPosition = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         
@@ -458,8 +526,10 @@ class TransportController {
         
         let currentBeat = currentPosition.beats
         
-        // Tighter epsilon for accurate detection
-        let beatEpsilon = 0.005
+        // CRITICAL FIX: Tighter epsilon for sub-millisecond accuracy
+        // At 120 BPM, 0.001 beats ≈ 0.5ms (imperceptible to human ear)
+        // Previous 0.005 beats ≈ 2.5ms could cause audible drift
+        let beatEpsilon = 0.001
         
         if currentBeat >= (cycleEndBeat - beatEpsilon) {
             lastCycleJumpTime = currentSystemTime
@@ -494,27 +564,32 @@ class TransportController {
         // Increment generation to invalidate any in-flight position updates
         cycleGeneration += 1
         
-        // Stop current playback
-        onStopPlayback()
+        // CRITICAL FIX: Update atomic timing state FIRST (before stopping/restarting)
+        // This ensures MIDI scheduler and metronome have correct timing reference
+        // when they receive the cycle jump notification
+        let jumpWallTime = CACurrentMediaTime()
+        updateAtomicTimingState(
+            startBeat: targetBeat,
+            wallTime: jumpWallTime,
+            tempo: project.tempo,
+            isPlaying: true
+        )
         
         // Update timing state
         playbackStartBeat = targetBeat
-        playbackStartWallTime = CACurrentMediaTime()
+        playbackStartWallTime = jumpWallTime
         
         // Update position immediately
         currentPosition = PlaybackPosition(beats: targetBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         onPositionChanged(currentPosition)
         
-        // Update atomic timing state for MIDI scheduler (wall-clock based)
-        updateAtomicTimingState(
-            startBeat: targetBeat,
-            wallTime: playbackStartWallTime,
-            tempo: project.tempo,
-            isPlaying: true
-        )
-        
-        // Notify for cycle jump handling (metronome, MIDI, etc.)
+        // CRITICAL FIX: Notify for cycle jump handling BEFORE stopping/restarting
+        // This allows MIDI scheduler to send note-offs and prepare for seamless jump
+        // Metronome can also pre-schedule clicks at the target position
         onCycleJump(targetBeat)
+        
+        // Stop current playback (will stop scheduled audio)
+        onStopPlayback()
         
         // Restart playback from the target beat
         onStartPlayback(targetBeat)

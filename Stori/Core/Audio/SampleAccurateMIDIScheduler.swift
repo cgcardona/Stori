@@ -220,6 +220,9 @@ struct MIDITimingReference {
     /// Host time (mach_absolute_time) when this reference was captured
     let hostTime: UInt64
     
+    /// Wall clock time when this reference was created
+    let createdAt: Date
+    
     /// Beat position at the reference point
     let beatPosition: Double
     
@@ -234,6 +237,14 @@ struct MIDITimingReference {
         (60.0 / tempo) * sampleRate
     }
     
+    /// Maximum age before timing reference is considered stale (seconds)
+    /// After this time, accumulated drift could cause scheduling errors
+    private static let maxReferenceAge: TimeInterval = 10.0
+    
+    /// Maximum reasonable elapsed samples before considering stale
+    /// This catches system sleep/wake scenarios where mach_absolute_time jumps
+    private static let maxReasonableElapsedSamples: Double = 10.0 * 48000.0 // 10 seconds at 48kHz
+    
     /// Convert mach_absolute_time to nanoseconds
     private static var timebaseInfo: mach_timebase_info_data_t = {
         var info = mach_timebase_info_data_t()
@@ -241,10 +252,52 @@ struct MIDITimingReference {
         return info
     }()
     
+    /// Check if this timing reference is stale and should be regenerated
+    /// Returns true if:
+    /// - Reference is older than maxReferenceAge
+    /// - System time appears to have jumped (sleep/wake)
+    /// - Elapsed samples calculation seems unreasonable
+    var isStale: Bool {
+        // Check wall clock age
+        let age = Date().timeIntervalSince(createdAt)
+        if age > Self.maxReferenceAge {
+            return true
+        }
+        
+        // Check for unreasonable elapsed time (system sleep/wake detection)
+        let currentHostTime = mach_absolute_time()
+        let elapsedNanos = (currentHostTime - hostTime) * UInt64(Self.timebaseInfo.numer) / UInt64(Self.timebaseInfo.denom)
+        let elapsedSamples = Double(elapsedNanos) / 1_000_000_000.0 * sampleRate
+        
+        // If elapsed samples is way higher than wall clock age would suggest,
+        // system time jumped (sleep/wake)
+        let expectedMaxSamples = age * sampleRate * 1.5  // 50% tolerance
+        if elapsedSamples > expectedMaxSamples {
+            return true
+        }
+        
+        // Sanity check for extreme values
+        if elapsedSamples > Self.maxReasonableElapsedSamples {
+            return true
+        }
+        
+        return false
+    }
+    
     /// Calculate the sample time for a given beat position
     /// - Parameter beat: The beat position to convert
     /// - Returns: The sample time (suitable for AUScheduleMIDIEventBlock)
+    /// WARNING: Returns AUEventSampleTimeImmediate if reference is stale
     func sampleTime(forBeat beat: Double) -> AUEventSampleTime {
+        // CRITICAL: If reference is stale, return immediate to avoid scheduling far in past
+        if isStale {
+            #if DEBUG
+            // Only log in debug to avoid spam in production
+            AppLogger.shared.warning("MIDI timing reference is stale - returning immediate", category: .audio)
+            #endif
+            return AUEventSampleTimeImmediate
+        }
+        
         let beatDelta = beat - beatPosition
         let sampleDelta = beatDelta * samplesPerBeat
         
@@ -271,6 +324,7 @@ struct MIDITimingReference {
     static func now(beat: Double, tempo: Double, sampleRate: Double) -> MIDITimingReference {
         MIDITimingReference(
             hostTime: mach_absolute_time(),
+            createdAt: Date(),
             beatPosition: beat,
             tempo: tempo,
             sampleRate: sampleRate
@@ -284,6 +338,7 @@ struct MIDITimingReference {
     static func now(beat: Double, context: AudioSchedulingContext) -> MIDITimingReference {
         MIDITimingReference(
             hostTime: mach_absolute_time(),
+            createdAt: Date(),
             beatPosition: beat,
             tempo: context.tempo,
             sampleRate: context.sampleRate
@@ -640,7 +695,23 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         
         os_unfair_lock_lock(&stateLock)
         
-        guard _isPlaying, let timing = timingReference else {
+        guard _isPlaying else {
+            os_unfair_lock_unlock(&stateLock)
+            return
+        }
+        
+        // CRITICAL: Check if timing reference is stale and regenerate if needed
+        if let timing = timingReference, timing.isStale {
+            // Reference is stale - regenerate it to prevent drift
+            timingReference = MIDITimingReference.now(
+                beat: currentBeat,
+                tempo: tempo,
+                sampleRate: sampleRate
+            )
+            AppLogger.shared.info("MIDI: Regenerated stale timing reference at beat \(currentBeat)", category: .audio)
+        }
+        
+        guard let timing = timingReference else {
             os_unfair_lock_unlock(&stateLock)
             return
         }

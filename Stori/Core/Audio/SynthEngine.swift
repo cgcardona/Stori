@@ -355,6 +355,11 @@ class SynthVoice {
         releaseStartTime = time
     }
     
+    /// Mark voice as inactive (for cleanup outside render path)
+    func markInactive() {
+        isActive = false
+    }
+    
     /// Check if voice should be deallocated
     func shouldDeallocate(at time: Float) -> Bool {
         guard isReleased else { return false }
@@ -454,6 +459,7 @@ class SynthVoice {
 // MARK: - SynthEngine
 
 /// Main synthesizer engine managing multiple polyphonic voices.
+/// Integrates with the main DAW audio graph via AVAudioSourceNode.
 class SynthEngine {
     
     // MARK: - Properties
@@ -474,34 +480,42 @@ class SynthEngine {
         return voices
     }
     
-    /// Audio engine components
-    private var audioEngine: AVAudioEngine?
-    private var sourceNode: AVAudioSourceNode?
-    private var mixerNode: AVAudioMixerNode?
+    /// The source node that generates synth audio - attach this to the main DAW engine
+    private(set) var sourceNode: AVAudioSourceNode?
     
+    /// Reference to the main DAW engine (weak to avoid retain cycle)
+    private weak var attachedEngine: AVAudioEngine?
+    
+    /// Audio format for the source node
     private let sampleRate: Double = 48000
     private var currentTime: Float = 0
-    private var isPlaying = false
+    
+    /// Whether the synth is attached to an engine and ready to produce audio
+    private(set) var isAttached = false
     
     // MARK: - Initialization
     
     init() {
-        // Audio engine setup is deferred until needed
+        // Source node is created lazily when attached to engine
     }
     
-    // MARK: - Audio Engine
+    // MARK: - Engine Integration
     
-    /// Start the audio engine
-    func start() throws {
-        guard !isPlaying else { return }
+    /// Attach the synth to the main DAW audio engine.
+    /// This creates the source node and attaches it to the engine.
+    /// The caller (AudioGraphManager) is responsible for connecting to the mixer.
+    /// - Parameters:
+    ///   - engine: The main DAW AVAudioEngine
+    ///   - connectToMixer: If true, connects directly to main mixer (for standalone use)
+    func attach(to engine: AVAudioEngine, connectToMixer: Bool = false) {
+        guard !isAttached else { return }
         
-        audioEngine = AVAudioEngine()
-        guard let engine = audioEngine else { return }
+        attachedEngine = engine
         
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
         
         // Create source node that renders synth voices
-        sourceNode = AVAudioSourceNode(format: format) { [weak self] _, timeStamp, frameCount, audioBufferList -> OSStatus in
+        sourceNode = AVAudioSourceNode(format: format) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             guard let self = self else { return noErr }
             
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -511,33 +525,37 @@ class SynthEngine {
                 memset(buffer.mData, 0, Int(buffer.mDataByteSize))
             }
             
-            // Render all active voices (directly, no async)
+            // Render all active voices
             self.renderVoices(into: ablPointer, frameCount: Int(frameCount))
             
             return noErr
         }
         
-        guard let sourceNode = sourceNode else { return }
+        guard let node = sourceNode else { return }
         
-        mixerNode = AVAudioMixerNode()
-        guard let mixer = mixerNode else { return }
+        engine.attach(node)
         
-        engine.attach(sourceNode)
-        engine.attach(mixer)
+        if connectToMixer {
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+        }
         
-        engine.connect(sourceNode, to: mixer, format: format)
-        engine.connect(mixer, to: engine.mainMixerNode, format: format)
-        
-        try engine.start()
-        isPlaying = true
-        
+        isAttached = true
     }
     
-    /// Stop the audio engine
-    func stop() {
-        audioEngine?.stop()
-        isPlaying = false
+    /// Detach from the audio engine
+    func detach() {
+        guard isAttached, let engine = attachedEngine, let node = sourceNode else { return }
+        
+        engine.detach(node)
+        sourceNode = nil
+        attachedEngine = nil
+        isAttached = false
         allNotesOff()
+    }
+    
+    /// Get the output node for audio graph connection
+    func getOutputNode() -> AVAudioNode? {
+        return sourceNode
     }
     
     // MARK: - Note Control
@@ -548,6 +566,9 @@ class SynthEngine {
         
         voicesLock.lock()
         defer { voicesLock.unlock() }
+        
+        // CLEANUP: Remove inactive voices before allocating new ones (outside render path)
+        voices.removeAll { !$0.isActive }
         
         // Voice stealing if at max polyphony
         if voices.count >= maxPolyphony {
@@ -619,8 +640,14 @@ class SynthEngine {
         // Update time
         currentTime += Float(frameCount) / Float(sampleRate)
         
-        // Remove finished voices
-        voices.removeAll { $0.shouldDeallocate(at: currentTime) }
+        // REAL-TIME SAFE: Mark voices for deallocation (no immediate removal/allocation)
+        // Instead of removeAll (allocates), we iterate and mark inactive voices
+        // They will be cleaned up later on main thread or in noteOn (outside render path)
+        for i in 0..<voices.count {
+            if voices[i].shouldDeallocate(at: currentTime) {
+                voices[i].markInactive()
+            }
+        }
         
         voicesLock.unlock()
     }

@@ -104,11 +104,16 @@ struct TimelinePlayhead: View {
     
     private let lineWidth: CGFloat = 2
     
+    // Track last logged position to avoid spam
+    @State private var lastLoggedBeat: Double = -1
+    @State private var lastLoggedX: CGFloat = -1
+    
     var body: some View {
         // Position from beats (no seconds)
-        let playheadX = CGFloat(audioEngine.currentPosition.beats) * pixelsPerBeat
+        let currentBeat = audioEngine.currentPosition.beats
+        let playheadX = CGFloat(currentBeat) * pixelsPerBeat
         
-        Rectangle()
+        return Rectangle()
             .fill(Color.red)
             .frame(width: lineWidth, height: height)
             .offset(x: playheadX - lineWidth / 2)  // Center the line at playheadX

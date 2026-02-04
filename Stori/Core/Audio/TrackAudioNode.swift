@@ -93,6 +93,15 @@ final class TrackAudioNode: @unchecked Sendable {
     // PERFORMANCE FIX: Cache loaded audio files to prevent beach ball during playback
     private var cachedAudioFiles: [URL: AVAudioFile] = [:]
     
+    /// Clear audio file cache (called during memory pressure)
+    func clearAudioFileCache() {
+        let cacheSize = cachedAudioFiles.count
+        cachedAudioFiles.removeAll()
+        if cacheSize > 0 {
+            AppLogger.shared.debug("TrackAudioNode[\(id)]: Cleared \(cacheSize) cached audio files", category: .audio)
+        }
+    }
+    
     // MARK: - Initialization
     init(
         id: UUID,
@@ -467,7 +476,17 @@ final class TrackAudioNode: @unchecked Sendable {
         
         // SECURITY (H-1): Validate header before passing to AVAudioFile
         guard AudioFileHeaderValidator.validateHeader(at: url) else {
-            throw NSError(domain: "TrackAudioNode", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid or unsupported audio file format"])
+            let error = NSError(domain: "TrackAudioNode", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid or unsupported audio file format"])
+            
+            // Track the error so users know why audio isn't playing
+            AudioEngineErrorTracker.shared.recordError(
+                severity: .error,
+                component: "TrackAudioNode[\(id)]",
+                message: "Invalid audio file: \(url.lastPathComponent)",
+                context: ["path": url.path]
+            )
+            
+            throw error
         }
         
         // PERFORMANCE FIX: Cache the audio file for later use in scheduleFromPosition
@@ -475,8 +494,19 @@ final class TrackAudioNode: @unchecked Sendable {
         if let cachedFile = cachedAudioFiles[url] {
             audioFileRef = cachedFile
         } else {
-            audioFileRef = try AVAudioFile(forReading: url)
-            cachedAudioFiles[url] = audioFileRef
+            do {
+                audioFileRef = try AVAudioFile(forReading: url)
+                cachedAudioFiles[url] = audioFileRef
+            } catch {
+                // Track file load failures
+                AudioEngineErrorTracker.shared.recordError(
+                    severity: .error,
+                    component: "TrackAudioNode[\(id)]",
+                    message: "Failed to load audio file: \(url.lastPathComponent)",
+                    error: error
+                )
+                throw error
+            }
         }
         
         // Note: We don't schedule here anymore since scheduleFromPosition handles it
@@ -487,9 +517,71 @@ final class TrackAudioNode: @unchecked Sendable {
     /// ARCHITECTURE: Beats-First - this is the preferred API.
     /// Conversion to seconds happens internally at the AVAudioEngine boundary.
     func scheduleFromBeat(_ startBeat: Double, audioRegions: [AudioRegion], tempo: Double, skipReset: Bool = false) throws {
+        // Validate format chain before scheduling
+        guard validateFormatChain() else {
+            let error = AudioEngineError.invalidTrackState(
+                trackId: id,
+                reason: "Format validation failed"
+            )
+            error.record()
+            throw error
+        }
+        
         // Convert beats to seconds at AVAudioEngine boundary
         let startTimeSeconds = startBeat * (60.0 / tempo)
         try scheduleFromPosition(startTimeSeconds, audioRegions: audioRegions, tempo: tempo, skipReset: skipReset)
+    }
+    
+    // MARK: - Format Validation
+    
+    /// Validates that the format chain is consistent and sample rate conversion is working.
+    /// Returns true if formats are valid for scheduling, false if there's a problem.
+    private func validateFormatChain() -> Bool {
+        // Check if player node has an engine
+        guard let engine = playerNode.engine else {
+            AudioEngineError.nodeNotAttached(nodeName: "playerNode").record()
+            return false
+        }
+        
+        // Get sample rates at each point in the chain
+        let hardwareRate = engine.outputNode.inputFormat(forBus: 0).sampleRate
+        let playerRate = playerNode.outputFormat(forBus: 0).sampleRate
+        
+        // Validate rates are positive
+        guard playerRate > 0, hardwareRate > 0 else {
+            AudioEngineError.invalidFormat(
+                reason: "Invalid sample rates (player=\(playerRate), hardware=\(hardwareRate))"
+            ).record()
+            return false
+        }
+        
+        // Check for extreme rate mismatches (might indicate broken converter)
+        let rateRatio = playerRate / hardwareRate
+        if rateRatio < 0.5 || rateRatio > 2.0 {
+            AudioEngineError.formatMismatch(
+                expected: hardwareRate,
+                actual: playerRate
+            ).record()
+            return false
+        }
+        
+        // Warn if rates don't match (indicates converter is in use)
+        if abs(playerRate - hardwareRate) > 1.0 {
+            AppLogger.shared.debug("TrackAudioNode: Sample rate conversion active (player=\(Int(playerRate))Hz, hardware=\(Int(hardwareRate))Hz)", category: .audio)
+        }
+        
+        // Verify player node has output connections
+        let outputConnections = engine.outputConnectionPoints(for: playerNode, outputBus: 0)
+        if outputConnections.isEmpty {
+            AudioEngineError.invalidNodeConnection(
+                from: "playerNode",
+                to: "downstream",
+                reason: "No output connections"
+            ).record()
+            return false
+        }
+        
+        return true
     }
     
     /// Schedule audio regions from a seconds position.
@@ -516,16 +608,50 @@ final class TrackAudioNode: @unchecked Sendable {
                 audioFile = cachedFile
             } else {
                 // SECURITY (H-1): Validate header before passing to AVAudioFile
-                guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else { continue }
-                let newFile = try AVAudioFile(forReading: region.audioFile.url)
-                cachedAudioFiles[region.audioFile.url] = newFile
-                audioFile = newFile
+                guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else {
+                    // Track validation failures so user knows why region isn't playing
+                    AudioEngineErrorTracker.shared.recordError(
+                        severity: .error,
+                        component: "TrackAudioNode[\(id)]",
+                        message: "Skipping region: Invalid audio file header",
+                        context: [
+                            "file": region.audioFile.url.lastPathComponent,
+                            "regionId": region.id.uuidString
+                        ]
+                    )
+                    continue
+                }
+                
+                do {
+                    let newFile = try AVAudioFile(forReading: region.audioFile.url)
+                    cachedAudioFiles[region.audioFile.url] = newFile
+                    audioFile = newFile
+                } catch {
+                    // Track file load failures
+                    AudioEngineErrorTracker.shared.recordError(
+                        severity: .error,
+                        component: "TrackAudioNode[\(id)]",
+                        message: "Failed to load audio file during scheduling",
+                        error: error,
+                        additionalContext: ["file": region.audioFile.url.lastPathComponent]
+                    )
+                    continue
+                }
             }
             let sr = audioFile.processingFormat.sampleRate
             let fileDuration = Double(audioFile.length) / sr
             
             // CRITICAL: Protect against empty audio files (0 duration)
             guard fileDuration > 0 else {
+                AudioEngineErrorTracker.shared.recordError(
+                    severity: .warning,
+                    component: "TrackAudioNode[\(id)]",
+                    message: "Skipping region: Audio file has zero duration",
+                    context: [
+                        "file": region.audioFile.url.lastPathComponent,
+                        "fileLength": String(audioFile.length)
+                    ]
+                )
                 continue
             }
 

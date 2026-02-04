@@ -27,6 +27,41 @@ final class ProjectLifecycleManager {
         case validating
         case ready
         case failed
+        
+        var isLoading: Bool {
+            switch self {
+            case .preparingEngine, .settingUpTracks, .restoringPlugins, .connectingInstruments, .validating:
+                return true
+            case .idle, .ready, .failed:
+                return false
+            }
+        }
+        
+        var progressPercentage: Double {
+            switch self {
+            case .idle: return 0
+            case .preparingEngine: return 0.1
+            case .settingUpTracks: return 0.3
+            case .restoringPlugins: return 0.5
+            case .connectingInstruments: return 0.7
+            case .validating: return 0.9
+            case .ready: return 1.0
+            case .failed: return 0
+            }
+        }
+        
+        var userFacingDescription: String {
+            switch self {
+            case .idle: return "Ready"
+            case .preparingEngine: return "Starting audio engine..."
+            case .settingUpTracks: return "Setting up tracks..."
+            case .restoringPlugins: return "Loading plugins..."
+            case .connectingInstruments: return "Connecting instruments..."
+            case .validating: return "Validating connections..."
+            case .ready: return "Ready"
+            case .failed: return "Load failed"
+            }
+        }
     }
     
     // MARK: - Properties
@@ -86,6 +121,9 @@ final class ProjectLifecycleManager {
     @ObservationIgnored
     var logDebug: ((String, String) -> Void)?
     
+    @ObservationIgnored
+    var onProjectLoaded: ((AudioProject) -> Void)?
+    
     // MARK: - Initialization
     
     init() {}
@@ -102,6 +140,17 @@ final class ProjectLifecycleManager {
     /// Synchronous entry point that kicks off async loading
     func loadProject(_ project: AudioProject) {
         logDebug?("⚡️ loadProject called for '\(project.name)' with \(project.tracks.count) tracks", "PROJECT")
+        
+        // Check if a load is already in progress
+        if loadingState.isLoading {
+            AppLogger.shared.warning("ProjectLifecycleManager: Load already in progress (state=\(loadingState)), cancelling previous load", category: .audio)
+            AudioEngineErrorTracker.shared.recordError(
+                severity: .warning,
+                component: "ProjectLoad",
+                message: "Previous project load cancelled by new load request",
+                context: ["currentState": loadingState.rawValue]
+            )
+        }
         
         // Mark graph as unstable during rebuild
         onSetGraphStable?(false)
@@ -131,14 +180,40 @@ final class ProjectLifecycleManager {
     /// RAII Pattern: isGraphStable is always restored on exit via defer
     @MainActor
     private func loadProjectAsync(_ project: AudioProject, generation: Int) async {
+        let loadStartTime = CACurrentMediaTime()
+        
         // RAII: Ensure isGraphStable is restored even on early returns
         var loadSucceeded = false
         defer {
+            let loadDuration = (CACurrentMediaTime() - loadStartTime) * 1000
+            
             if !loadSucceeded {
                 // Load was cancelled or failed - restore stable state to allow retry
                 onSetGraphStable?(true)
                 onSetGraphReady?(true)
                 logDebug?("⚠️ Project load did not complete - restoring stable state", "PROJECT")
+                
+                // Record performance of failed load
+                AudioPerformanceMonitor.shared.recordTiming(
+                    operation: "ProjectLoad",
+                    startTime: loadStartTime,
+                    context: [
+                        "success": "false",
+                        "state": loadingState.rawValue,
+                        "tracks": String(project.tracks.count)
+                    ]
+                )
+            } else {
+                // Record successful load timing
+                AudioPerformanceMonitor.shared.recordTiming(
+                    operation: "ProjectLoad",
+                    startTime: loadStartTime,
+                    context: [
+                        "success": "true",
+                        "tracks": String(project.tracks.count),
+                        "durationMs": String(format: "%.1f", loadDuration)
+                    ]
+                )
             }
         }
         
@@ -161,7 +236,16 @@ final class ProjectLifecycleManager {
         
         guard engine?.isRunning == true else {
             loadingState = .failed
-            AppLogger.shared.error("Project load failed: Engine could not start")
+            let errorMsg = "Project load failed: Engine could not start after \(engineAttempts) attempts"
+            AppLogger.shared.error(errorMsg, category: .audio)
+            
+            AudioEngineErrorTracker.shared.recordError(
+                severity: .critical,
+                component: "ProjectLoad",
+                message: errorMsg,
+                context: ["attempts": String(engineAttempts), "projectName": project.name]
+            )
+            
             return  // defer will restore stable state
         }
         
@@ -210,5 +294,19 @@ final class ProjectLifecycleManager {
         onSetGraphReady?(true)
         
         logDebug?("✅ State: \(loadingState.rawValue) - Graph is stable", "PROJECT")
+        
+        // Record successful load
+        AudioEngineErrorTracker.shared.recordError(
+            severity: .info,
+            component: "ProjectLoad",
+            message: "Project '\(project.name)' loaded successfully",
+            context: [
+                "tracks": String(project.tracks.count),
+                "duration": String(format: "%.2fs", Date().timeIntervalSince(currentProject?.createdAt ?? Date()))
+            ]
+        )
+        
+        // Notify that project finished loading
+        onProjectLoaded?(project)
     }
 }

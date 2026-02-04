@@ -40,20 +40,12 @@ struct TransportButton: View {
     
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isActive ? .white : (color == .red ? color.opacity(0.9) : .secondary))
+            iconView
                 .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(isActive ? color : Color.clear)
-                        .overlay(
-                            Circle()
-                                .stroke(isActive ? color : Color.secondary.opacity(0.3), lineWidth: 1)
-                        )
-                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .background(backgroundView)
         .scaleEffect(isActive ? 1.05 : 1.0)
         .animation(.easeInOut(duration: 0.1), value: isActive)
         // ACCESSIBILITY: Transport controls
@@ -63,6 +55,31 @@ struct TransportButton: View {
         .accessibilityIdentifier(accessibilityIdentifier ?? "")
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
         .when(color == .red) { $0.accessibilityAddTraits(.playsSound) }
+    }
+    
+    private var iconView: some View {
+        Image(systemName: icon)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(iconColor)
+    }
+    
+    private var iconColor: Color {
+        if isActive {
+            return .white
+        } else if color == .red {
+            return color.opacity(0.9)
+        } else {
+            return .secondary
+        }
+    }
+    
+    private var backgroundView: some View {
+        Circle()
+            .fill(isActive ? color : Color.clear)
+            .overlay(
+                Circle()
+                    .stroke(isActive ? color : Color.secondary.opacity(0.3), lineWidth: 1)
+            )
     }
 }
 

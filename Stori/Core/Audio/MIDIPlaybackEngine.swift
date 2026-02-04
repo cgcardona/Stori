@@ -311,7 +311,7 @@ extension MIDIPlaybackEngine {
         guard let block = midiBlock else {
             // No cached block means instrument isn't properly configured
             // This is a bug that should be fixed, not worked around
-            #if DEBUG
+            
             // Log once per unique trackId to avoid spam (use static set)
             struct MissingBlockTracker {
                 static var loggedTracks: Set<UUID> = []
@@ -327,9 +327,18 @@ extension MIDIPlaybackEngine {
             if !alreadyLogged {
                 DispatchQueue.global(qos: .utility).async {
                     AppLogger.shared.warning("MIDI block missing for track \(trackId) - instrument not configured", category: .audio)
+                    
+                    // Track in error system (off audio thread)
+                    Task { @MainActor in
+                        AudioEngineErrorTracker.shared.recordError(
+                            severity: .error,
+                            component: "MIDIPlayback",
+                            message: "MIDI block missing - instrument not configured",
+                            context: ["trackId": trackId.uuidString]
+                        )
+                    }
                 }
             }
-            #endif
             return
         }
         

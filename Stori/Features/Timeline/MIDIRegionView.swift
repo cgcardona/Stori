@@ -60,11 +60,11 @@ struct MIDIRegionView: View {
     // Legacy compatibility - conversion for code still using seconds-based positioning
     private var pixelsPerSecond: CGFloat { pixelsPerBeat / CGFloat(secondsPerBeat) }
     
-    // MARK: - Layout Constants
+    // MARK: - Layout Constants (unified with audio regions)
     
-    private let cornerRadius: CGFloat = 4
-    private let headerHeight: CGFloat = 18
-    private let borderWidth: CGFloat = 1.5
+    private let cornerRadius: CGFloat = RegionLayout.cornerRadius
+    private let headerHeight: CGFloat = RegionLayout.headerHeight
+    private let borderWidth: CGFloat = RegionLayout.borderWidth
     
     // MARK: - Computed Properties
     
@@ -179,18 +179,19 @@ struct MIDIRegionView: View {
                     .padding(.bottom, 2)
             }
             
-            // Hover highlight (pre-selection feedback)
-            if isHoveringRegion && !isSelected {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-            }
+            // Hover highlight (pre-selection feedback) - using shared component
+            RegionHoverHighlight(
+                isHovering: isHoveringRegion,
+                isSelected: isSelected,
+                cornerRadius: cornerRadius
+            )
             
-            // Selection border overlay - strokeBorder keeps within bounds
-            if isSelected {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(Color.blue, lineWidth: 2)
-                    .shadow(color: Color.blue.opacity(0.5), radius: 4)
-            }
+            // Selection border overlay - using shared component for consistency with audio regions
+            RegionSelectionBorder(
+                isSelected: isSelected,
+                cornerRadius: cornerRadius,
+                strokeWidth: RegionLayout.selectionStrokeWidth
+            )
             
             // Resize indicator overlay - shows during resize/loop operations
             resizeIndicatorOverlay
@@ -199,7 +200,16 @@ struct MIDIRegionView: View {
             resizeZonesOverlay
         }
         .frame(width: displayWidth, height: RegionLayout.regionHeight(for: trackHeight))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        // Unified shadow styling with audio regions
+        .shadow(
+            color: isSelected ? Color.blue.opacity(0.5) : Color.clear,
+            radius: 8,
+            x: 0,
+            y: 2
+        )
         .animation(nil, value: liveResizeWidth)  // [PHASE-7] No animation during drag for smooth tracking
+        .animation(.easeInOut(duration: 0.2), value: isSelected)  // Unified with audio region
         .animation(.easeInOut(duration: 0.1), value: isHoveringRegion)
         .contentShape(Rectangle())
         .onHover { hovering in
