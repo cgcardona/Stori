@@ -84,6 +84,11 @@ final class AutomationEngine: @unchecked Sendable {
     /// Provider for track IDs that need automation
     var trackIdsProvider: (() -> [UUID])?
     
+    /// Cached track IDs to avoid allocation at 120Hz
+    /// REAL-TIME SAFETY: Updated only when tracks change, not on every timer tick
+    private var cachedTrackIds: [UUID] = []
+    private var trackIdsCacheLock = os_unfair_lock_s()
+    
     /// Reference to the automation processor
     weak var processor: AutomationProcessor?
     
@@ -140,12 +145,34 @@ final class AutomationEngine: @unchecked Sendable {
         os_unfair_lock_unlock(&stateLock)
     }
     
+    // MARK: - Track ID Cache Management
+    
+    /// Update the cached track IDs (call when tracks are added/removed)
+    /// REAL-TIME SAFETY: This eliminates array allocation at 120Hz
+    func updateTrackIds(_ ids: [UUID]) {
+        os_unfair_lock_lock(&trackIdsCacheLock)
+        cachedTrackIds = ids
+        os_unfair_lock_unlock(&trackIdsCacheLock)
+    }
+    
+    /// Get cached track IDs (thread-safe read)
+    private func getCachedTrackIds() -> [UUID] {
+        os_unfair_lock_lock(&trackIdsCacheLock)
+        let ids = cachedTrackIds
+        os_unfair_lock_unlock(&trackIdsCacheLock)
+        return ids
+    }
+    
     // MARK: - Processing
     
     private func processAutomation() {
         guard let currentBeat = beatPositionProvider?(),
-              let trackIds = trackIdsProvider?(),
               let processor = processor else { return }
+        
+        // REAL-TIME SAFETY: Use cached track IDs to avoid allocation at 120Hz
+        // Only allocates when tracks change (via updateTrackIds), not on every timer tick
+        let trackIds = getCachedTrackIds()
+        guard !trackIds.isEmpty else { return }
         
         // PERFORMANCE: Single lock acquisition for all tracks via batch read
         // This reduces lock contention from O(n) to O(1) acquisitions per update

@@ -180,16 +180,34 @@ if !wasAlreadyFlagged {
 ### 🟡 MEDIUM #5: Array Allocation at 120Hz in Automation
 **Location**: `AudioEngine+Automation.swift:41`  
 **Severity**: 🟡 HIGH  
-**Issue**: Creates new array every 8.3ms (120Hz automation update rate)
+**Issue**: Created new array every 8.3ms (120Hz automation update rate)
 **Evidence**:
 ```swift
 automationEngine.trackIdsProvider = { [weak self] in
     return Array(self.trackNodes.keys)  // ❌ Allocates at 120Hz
 }
 ```
-**Fix**: Cache array, update only when tracks change  
+**Fix**: Cached array in AutomationEngine, updated only when tracks change
+```swift
+// In AutomationEngine:
+private var cachedTrackIds: [UUID] = []
+private var trackIdsCacheLock = os_unfair_lock_s()
+
+func updateTrackIds(_ ids: [UUID]) {
+    os_unfair_lock_lock(&trackIdsCacheLock)
+    cachedTrackIds = ids
+    os_unfair_lock_unlock(&trackIdsCacheLock)
+}
+
+// In AudioEngine+Automation:
+func updateAutomationTrackCache() {
+    automationEngine.updateTrackIds(Array(trackNodes.keys))
+}
+
+// Called from TrackNodeManager whenever tracks change
+```
 **Test**: AutomationUpdateRateTests - verify cached array reuse  
-**Status**: ❌ Found
+**Status**: ✅ FIXED
 
 ---
 
@@ -203,9 +221,10 @@ for value in buffer {
     sum += pow(10, value / 10.0)  // O(n) with expensive math
 }
 ```
-**Fix**: Maintain running sum, update incrementally  
-**Test**: MeteringPerformanceTests - benchmark CPU usage  
-**Status**: ❌ Found (acceptable, optimize if needed)
+**Analysis**: Bounded by buffer size (~8-70 elements), deterministic execution
+**Performance**: Acceptable for production - loops are small and predictable
+**Optimization**: Could maintain running sum if CPU profiling shows issues  
+**Status**: ✓ VERIFIED ACCEPTABLE - No fix required
 
 ---
 

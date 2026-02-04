@@ -457,6 +457,7 @@ class AudioEngine: AudioEngineContext {
         trackNodeManager.onSafeDisconnectTrackNode = { [weak self] trackNode in self?.safeDisconnectTrackNode(trackNode) }
         trackNodeManager.onLoadAudioRegion = { [weak self] region, trackNode in self?.loadAudioRegion(region, trackNode: trackNode) }
         trackNodeManager.onPerformBatchOperation = { [weak self] work in self?.performBatchGraphOperation(work) }
+        trackNodeManager.onUpdateAutomationTrackCache = { [weak self] in self?.updateAutomationTrackCache() }
         trackNodeManager.mixer = mixer
         // Note: installedMetronome and mixerController are set after they're initialized
         
