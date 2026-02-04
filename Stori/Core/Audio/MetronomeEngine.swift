@@ -87,6 +87,8 @@ class MetronomeEngine {
     private weak var avAudioEngine: AVAudioEngine?
     @ObservationIgnored
     private weak var dawAudioEngine: AudioEngine?
+    @ObservationIgnored
+    private weak var transportController: TransportController?
     
     // MARK: - Scheduling State (ignored for observation)
     
@@ -307,8 +309,15 @@ class MetronomeEngine {
            let playerTime = player.playerTime(forNodeTime: renderTime) {
             transportStartSampleTime = playerTime.sampleTime
             
-            // Compute the next beat boundary
-            let currentBeatPosition = dawAudioEngine?.currentPosition.beats ?? 0
+            // Compute the next beat boundary using thread-safe atomic position
+            let currentBeatPosition: Double
+            if let transport = transportController {
+                currentBeatPosition = transport.atomicBeatPosition
+            } else {
+                // Fallback: MainActor-isolated read (NOT safe from audio thread!)
+                currentBeatPosition = dawAudioEngine?.currentPosition.beats ?? 0
+            }
+            
             nextClickSampleTime = computeNextBeatSampleTime(
                 from: playerTime.sampleTime,
                 currentBeat: currentBeatPosition
@@ -380,7 +389,14 @@ class MetronomeEngine {
         }
         
         // Get current beat position from the DAW
-        let currentBeats = dawEngine.currentPosition.beats
+        // Get current beat position from single source of truth
+        let currentBeats: Double
+        if let transport = transportController {
+            currentBeats = transport.atomicBeatPosition
+        } else {
+            // Fallback: MainActor-isolated read (NOT safe from audio thread!)
+            currentBeats = dawEngine.currentPosition.beats
+        }
         
         // Calculate which beat index we're on (floor to get the beat we're currently in)
         let currentBeatIndex = Int(floor(currentBeats))

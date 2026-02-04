@@ -62,9 +62,16 @@ class MIDIPlaybackEngine {
     @ObservationIgnored
     private var sampleRate: Double = 48000.0
     
+    /// Thread-safe current position in beats
+    /// CRITICAL: Use atomic accessor from TransportController, not MainActor-isolated AudioEngine property
     @ObservationIgnored
     private var currentPositionBeats: Double {
-        audioEngine?.currentPosition.beats ?? 0
+        // Prefer atomic accessor for thread-safe, jitter-free position
+        if let transport = transportController {
+            return transport.atomicBeatPosition
+        }
+        // Fallback: MainActor-isolated read (NOT safe from audio thread!)
+        return audioEngine?.currentPosition.beats ?? 0
     }
     
     // MARK: - Cycle Awareness
