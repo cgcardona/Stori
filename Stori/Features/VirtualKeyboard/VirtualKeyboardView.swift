@@ -19,6 +19,7 @@
 import SwiftUI
 import Combine
 import Observation
+import AVFoundation
 
 // MARK: - Virtual Keyboard View
 
@@ -483,13 +484,14 @@ class VirtualKeyboardState {
     var velocity: UInt8 = 100
     var sustainEnabled: Bool = false
     var pressedNotes: Set<UInt8> = []
-    var isSynthReady: Bool = false
-    
-    /// Fallback synth used when no track is selected
-    @ObservationIgnored private var fallbackSynth: SynthEngine?
     
     /// Access to shared instrument manager
     @ObservationIgnored private var instrumentManager: InstrumentManager { InstrumentManager.shared }
+    
+    /// Whether a track instrument is available
+    var isSynthReady: Bool {
+        instrumentManager.hasActiveInstrument
+    }
     
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var keyUpMonitor: Any?
@@ -503,7 +505,7 @@ class VirtualKeyboardState {
     // Black key offsets from C (in semitones)  
     private let blackKeyOffsets: [Int] = [1, 3, 6, 8, 10, 13, 15]
     
-    /// Whether we're routing to a track instrument (true) or fallback synth (false)
+    /// Whether we're routing to a track instrument
     var isRoutingToTrack: Bool {
         instrumentManager.hasActiveInstrument
     }
@@ -555,20 +557,7 @@ class VirtualKeyboardState {
     }
     
     init() {
-        Task {
-            await setupFallbackSynth()
-        }
-    }
-    
-    private func setupFallbackSynth() async {
-        // Only create fallback synth - it will be used when no track is selected
-        fallbackSynth = SynthEngine()
-        do {
-            try fallbackSynth?.start()
-            isSynthReady = true
-        } catch {
-            isSynthReady = false
-        }
+        // Virtual keyboard routes through InstrumentManager
     }
     
     func startListening() {
@@ -680,24 +669,16 @@ class VirtualKeyboardState {
     
     // MARK: - Note Routing
     
-    /// Send note on - routes to track instrument or fallback synth
+    /// Send note on - routes to active track instrument
     private func sendNoteOn(_ pitch: UInt8) {
-        if instrumentManager.hasActiveInstrument {
-            // Route through InstrumentManager to selected track
-            instrumentManager.noteOn(pitch: pitch, velocity: velocity)
-        } else {
-            // Use fallback synth
-            fallbackSynth?.noteOn(pitch: pitch, velocity: velocity)
-        }
+        guard instrumentManager.hasActiveInstrument else { return }
+        instrumentManager.noteOn(pitch: pitch, velocity: velocity)
     }
     
-    /// Send note off - routes to track instrument or fallback synth
+    /// Send note off - routes to active track instrument
     private func sendNoteOff(_ pitch: UInt8) {
-        if instrumentManager.hasActiveInstrument {
-            instrumentManager.noteOff(pitch: pitch)
-        } else {
-            fallbackSynth?.noteOff(pitch: pitch)
-        }
+        guard instrumentManager.hasActiveInstrument else { return }
+        instrumentManager.noteOff(pitch: pitch)
     }
     
     func noteOn(_ pitch: UInt8) {

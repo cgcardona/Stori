@@ -121,6 +121,9 @@ final class ProjectLifecycleManager {
     @ObservationIgnored
     var logDebug: ((String, String) -> Void)?
     
+    @ObservationIgnored
+    var onProjectLoaded: ((AudioProject) -> Void)?
+    
     // MARK: - Initialization
     
     init() {}
@@ -302,5 +305,8 @@ final class ProjectLifecycleManager {
                 "duration": String(format: "%.2fs", Date().timeIntervalSince(currentProject?.createdAt ?? Date()))
             ]
         )
+        
+        // Notify that project finished loading
+        onProjectLoaded?(project)
     }
 }
