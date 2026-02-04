@@ -370,10 +370,17 @@ extension AudioEngine {
     
     // MARK: - Source Node Resolution
     
-    /// Gets the source node for a track (sampler for MIDI, timePitch for audio)
+    /// Gets the source node for a track (synth/sampler for MIDI, timePitch for audio)
     func getSourceNodeInternal(for trackId: UUID, trackNode: TrackAudioNode) -> AVAudioNode? {
         // Use InstrumentManager as single source of truth for instruments
         if let instrument = InstrumentManager.shared.getInstrument(for: trackId) {
+            // Check for synth instrument
+            if let synthEngine = instrument.synthEngine,
+               let sourceNode = synthEngine.sourceNode,
+               sourceNode.engine === engine {
+                return sourceNode
+            }
+            
             // Check for sampler-based instrument
             if let samplerEngine = instrument.samplerEngine,
                samplerEngine.sampler.engine === engine {

@@ -4,7 +4,7 @@
 
 A professional DAW for macOS — create, record, mix, and produce music with 128 instruments, professional effects, and intuitive editing tools. Built for the creative renaissance: AI-powered generation, Web3 ownership, and agent-driven workflows coming soon.
 
-![Stori DAW](https://tellurstori.com/assets/screenshots/hero-main-daw.png)
+![Stori DAW](https://stori.audio/assets/screenshots/hero-main-daw.png)
 
 ## Features
 
@@ -38,7 +38,7 @@ A professional DAW for macOS — create, record, mix, and produce music with 128
 
 ### Option 1: Download DMG (Recommended)
 
-1. Visit [tellurstori.com](https://tellurstori.com)
+1. Visit [stori.audio](https://stori.audio)
 2. Download `Stori-0.1.4.dmg`
 3. Open the DMG and drag Stori to Applications
 4. Launch Stori from Applications or Spotlight
@@ -121,11 +121,11 @@ MIT License — see [LICENSE.md](LICENSE.md)
 
 ## Links
 
-- **Website:** [tellurstori.com](https://tellurstori.com)
+- **Website:** [stori.audio](https://stori.audio)
 - **GitHub:** [github.com/cgcardona/Stori](https://github.com/cgcardona/Stori)
 - **Releases:** [Download Latest](https://github.com/cgcardona/Stori/releases)
-- **Documentation:** [tellurstori.com/docs.html](https://tellurstori.com/docs.html)
-- **Twitter:** [@tellurstori](https://twitter.com/tellurstori)
+- **Documentation:** [stori.audio/docs.html](https://stori.audio/docs.html)
+- **Twitter:** [@stori_music](https://twitter.com/stori_music)
 
 ---
 

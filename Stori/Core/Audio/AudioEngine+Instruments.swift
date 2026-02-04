@@ -85,28 +85,32 @@ extension AudioEngine {
             // For now, we'll create instruments directly from track data
         }
         
-        for track in project.tracks where track.isMIDITrack {
-            
-            // Get or create instrument for this MIDI track
-            // Use track-based overload to avoid projectManager dependency
-            if let instrument = InstrumentManager.shared.getOrCreateInstrument(for: track) {
+        // BATCH MODE: Suspend rate limiting for bulk instrument creation
+        // This allows importing 15+ track MIDI files without hitting rate limits
+        performBatchGraphOperation {
+            for track in project.tracks where track.isMIDITrack {
                 
-                // Ensure sampler exists and is attached to engine
-                if instrument.samplerEngine?.sampler == nil {
-                    if instrument.pendingSamplerSetup {
-                        instrument.completeSamplerSetup(with: engine)
-                    } else {
-                        instrument.ensureSamplerExists(with: engine)
+                // Get or create instrument for this MIDI track
+                // Use track-based overload to avoid projectManager dependency
+                if let instrument = InstrumentManager.shared.getOrCreateInstrument(for: track) {
+                    
+                    // Ensure sampler exists and is attached to engine
+                    if instrument.samplerEngine?.sampler == nil {
+                        if instrument.pendingSamplerSetup {
+                            instrument.completeSamplerSetup(with: engine)
+                        } else {
+                            instrument.ensureSamplerExists(with: engine)
+                        }
                     }
-                }
-                
-                // Attach sampler to engine if needed
-                if let sampler = instrument.samplerEngine?.sampler {
-                    if sampler.engine == nil {
-                        engine.attach(sampler)
+                    
+                    // Attach sampler to engine if needed
+                    if let sampler = instrument.samplerEngine?.sampler {
+                        if sampler.engine == nil {
+                            engine.attach(sampler)
+                        }
+                        // Use centralized rebuild for all connections
+                        rebuildTrackGraphInternal(trackId: track.id)
                     }
-                    // Use centralized rebuild for all connections
-                    rebuildTrackGraphInternal(trackId: track.id)
                 }
             }
         }

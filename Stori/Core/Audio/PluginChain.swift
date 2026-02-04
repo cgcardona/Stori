@@ -127,6 +127,114 @@ class PluginChain {
         return true
     }
     
+    // MARK: - State Validation
+    
+    /// Validates that the current state matches actual engine attachment state
+    /// Returns true if state is consistent, false if desync detected
+    func validateState() -> Bool {
+        switch state {
+        case .uninstalled:
+            // Should have no engine reference and no mixers
+            if engine != nil {
+                AppLogger.shared.warning("PluginChain state=uninstalled but engine != nil", category: .audio)
+                return false
+            }
+            if _inputMixer != nil || _outputMixer != nil {
+                AppLogger.shared.warning("PluginChain state=uninstalled but mixers exist", category: .audio)
+                return false
+            }
+            return true
+            
+        case .installed:
+            // Should have engine reference but mixers not attached
+            guard let engine = engine else {
+                AppLogger.shared.warning("PluginChain state=installed but engine == nil", category: .audio)
+                return false
+            }
+            
+            // Mixers should either not exist or not be attached
+            if let inputMixer = _inputMixer, inputMixer.engine != nil {
+                AppLogger.shared.warning("PluginChain state=installed but inputMixer is attached", category: .audio)
+                return false
+            }
+            if let outputMixer = _outputMixer, outputMixer.engine != nil {
+                AppLogger.shared.warning("PluginChain state=installed but outputMixer is attached", category: .audio)
+                return false
+            }
+            
+            // Verify engine is valid
+            if !engine.attachedNodes.contains(engine.outputNode) {
+                AppLogger.shared.error("PluginChain engine reference is invalid (outputNode not attached)", category: .audio)
+                return false
+            }
+            
+            return true
+            
+        case .realized:
+            // Should have engine, mixers exist and attached
+            guard let engine = engine else {
+                AppLogger.shared.error("PluginChain state=realized but engine == nil", category: .audio)
+                return false
+            }
+            
+            guard let inputMixer = _inputMixer else {
+                AppLogger.shared.error("PluginChain state=realized but inputMixer == nil", category: .audio)
+                return false
+            }
+            
+            guard let outputMixer = _outputMixer else {
+                AppLogger.shared.error("PluginChain state=realized but outputMixer == nil", category: .audio)
+                return false
+            }
+            
+            // Verify mixers are attached to the correct engine
+            if inputMixer.engine !== engine {
+                AppLogger.shared.error("PluginChain inputMixer attached to wrong engine", category: .audio)
+                return false
+            }
+            
+            if outputMixer.engine !== engine {
+                AppLogger.shared.error("PluginChain outputMixer attached to wrong engine", category: .audio)
+                return false
+            }
+            
+            // Verify mixers are in engine's attached nodes
+            if !engine.attachedNodes.contains(inputMixer) {
+                AppLogger.shared.error("PluginChain inputMixer not in engine's attachedNodes", category: .audio)
+                return false
+            }
+            
+            if !engine.attachedNodes.contains(outputMixer) {
+                AppLogger.shared.error("PluginChain outputMixer not in engine's attachedNodes", category: .audio)
+                return false
+            }
+            
+            return true
+        }
+    }
+    
+    /// Attempt to reconcile state with actual engine attachment state
+    /// Call this when validateState() returns false
+    func reconcileStateWithEngine() {
+        AppLogger.shared.warning("PluginChain: Attempting state reconciliation", category: .audio)
+        
+        // Determine actual state based on engine attachment
+        let actualState: ChainState
+        
+        if engine == nil {
+            actualState = .uninstalled
+        } else if _inputMixer?.engine != nil && _outputMixer?.engine != nil {
+            actualState = .realized
+        } else {
+            actualState = .installed
+        }
+        
+        if actualState != state {
+            AppLogger.shared.warning("PluginChain: Reconciling state \(state) -> \(actualState)", category: .audio)
+            state = actualState
+        }
+    }
+    
     // MARK: - Audio Nodes (Lazy - Only Created When Needed)
     
     /// Input mixer node - only created when first plugin is inserted
@@ -206,13 +314,32 @@ class PluginChain {
     /// Returns true if newly realized, false if already realized.
     @discardableResult
     func realize() -> Bool {
+        // Validate current state before attempting realization
+        if !validateState() {
+            AppLogger.shared.warning("PluginChain: State validation failed before realize(), attempting reconciliation", category: .audio)
+            reconcileStateWithEngine()
+        }
+        
         guard let engine = self.engine else {
+            AppLogger.shared.error("PluginChain: Cannot realize - no engine reference", category: .audio)
+            return false
+        }
+        
+        // Verify engine is running (critical for attach operations)
+        guard engine.isRunning else {
+            AppLogger.shared.error("PluginChain: Cannot realize - engine is not running", category: .audio)
             return false
         }
         
         // Already realized?
         if state == .realized {
-            return false
+            // Validate it's actually realized
+            if validateState() {
+                return false
+            } else {
+                AppLogger.shared.warning("PluginChain: State was 'realized' but validation failed, forcing recreation", category: .audio)
+                // Fall through to recreate
+            }
         }
         
         // Create mixers if they don't exist
@@ -223,12 +350,31 @@ class PluginChain {
             _outputMixer = AVAudioMixerNode()
         }
         
-        // Attach to engine
-        if _inputMixer?.engine == nil {
-            engine.attach(_inputMixer!)
+        // Attach to engine (safely check if already attached)
+        if let inputMixer = _inputMixer {
+            if inputMixer.engine == nil {
+                engine.attach(inputMixer)
+            } else if inputMixer.engine !== engine {
+                // Attached to wrong engine - detach and reattach
+                AppLogger.shared.warning("PluginChain: inputMixer attached to wrong engine, fixing", category: .audio)
+                if let wrongEngine = inputMixer.engine {
+                    wrongEngine.detach(inputMixer)
+                }
+                engine.attach(inputMixer)
+            }
         }
-        if _outputMixer?.engine == nil {
-            engine.attach(_outputMixer!)
+        
+        if let outputMixer = _outputMixer {
+            if outputMixer.engine == nil {
+                engine.attach(outputMixer)
+            } else if outputMixer.engine !== engine {
+                // Attached to wrong engine - detach and reattach
+                AppLogger.shared.warning("PluginChain: outputMixer attached to wrong engine, fixing", category: .audio)
+                if let wrongEngine = outputMixer.engine {
+                    wrongEngine.detach(outputMixer)
+                }
+                engine.attach(outputMixer)
+            }
         }
         
         // Use the engine's graph format (hardware-derived) for all connections
@@ -243,10 +389,23 @@ class PluginChain {
             connectionFormat = AVAudioFormat(standardFormatWithSampleRate: fallbackRate, channels: 2)!
             AppLogger.shared.warning("PluginChain: chainFormat was nil, using derived rate \(fallbackRate)", category: .audio)
         }
-        engine.connect(_inputMixer!, to: _outputMixer!, format: connectionFormat)
+        
+        // Connect mixers
+        do {
+            engine.connect(_inputMixer!, to: _outputMixer!, format: connectionFormat)
+        } catch {
+            AppLogger.shared.error("PluginChain: Failed to connect mixers: \(error.localizedDescription)", category: .audio)
+            return false
+        }
         
         // Transition: installed → realized
         transition(to: .realized)
+        
+        // Final validation
+        if !validateState() {
+            AppLogger.shared.error("PluginChain: State validation failed after realize()", category: .audio)
+            return false
+        }
         
         return true
     }

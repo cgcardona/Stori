@@ -61,6 +61,10 @@ final class TrackNodeManager {
     @ObservationIgnored
     var onLoadAudioRegion: ((AudioRegion, TrackAudioNode) -> Void)?
     
+    /// Callback to perform batch graph operations (suspends rate limiting)
+    @ObservationIgnored
+    var onPerformBatchOperation: ((@escaping () -> Void) -> Void)?
+    
     /// Reference to metronome for reconnection after setup
     @ObservationIgnored
     weak var installedMetronome: MetronomeEngine?
@@ -111,10 +115,14 @@ final class TrackNodeManager {
         
         logDebug("Created \(trackNodes.count) track nodes", category: "PROJECT")
         
-        // Use centralized rebuild for all track connections
-        // This handles both tracks with and without sends
-        for track in project.tracks {
-            onRebuildTrackGraph?(track.id)
+        // BATCH MODE: Use batch operation for bulk track connection setup
+        // This prevents rate limiting when loading projects with many tracks
+        onPerformBatchOperation? { [weak self] in
+            // Use centralized rebuild for all track connections
+            // This handles both tracks with and without sends
+            for track in project.tracks {
+                self?.onRebuildTrackGraph?(track.id)
+            }
         }
         
         // CRITICAL FIX: Reconnect metronome after track connections
