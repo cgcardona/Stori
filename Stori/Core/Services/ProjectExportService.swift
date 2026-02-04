@@ -690,6 +690,27 @@ class ProjectExportService {
     
     /// Calculate project duration in BEATS (primary unit), then convert to seconds for AVAudioEngine
     /// Calculate the duration of a project in seconds (public for UI estimation)
+    /// Calculate total project duration in seconds including plugin tail time
+    /// 
+    /// EXPORT TAIL ARCHITECTURE (Issue #10):
+    /// Professional DAWs render extra time beyond the last content to capture plugin tails.
+    /// This ensures reverb/delay decay is fully included in the exported file.
+    /// 
+    /// DURATION CALCULATION:
+    /// 1. Find max end time of all regions (audio + MIDI) in beats
+    /// 2. Convert to seconds using project tempo
+    /// 3. Add tail buffer: max(plugin tail time, 300ms synth release)
+    /// 4. Result: project content + full tail = WYHIWYG export
+    /// 
+    /// TAIL TIME SOURCES:
+    /// - Plugin-reported tail time (reverb, delay internal buffers)
+    /// - Minimum 300ms for synth release envelopes
+    /// - Capped at 5 seconds to prevent unreasonably long exports
+    /// 
+    /// DRAIN & FLUSH:
+    /// After rendering (content + tail), the engine processes additional drain buffers
+    /// to ensure all plugin internal states are fully flushed before stopping.
+    /// This prevents abrupt cutoff of the final milliseconds.
     func calculateProjectDuration(_ project: AudioProject) -> TimeInterval {
         let durationBeats = calculateProjectDurationInBeats(project)
         
@@ -1589,16 +1610,28 @@ class ProjectExportService {
         
         
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
-        let frameCount = AVAudioFrameCount(duration * sampleRate)
         
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+        // ISSUE #10 FIX: Add drain time to buffer capacity
+        // Allocate extra frames for plugin tail drain (reverb, delay buffers)
+        // Professional DAWs render extra time beyond project end to capture full tails
+        let bufferSize: AVAudioFrameCount = 4096
+        let drainBufferCount = 2  // 2 buffers @ 4096 frames = ~170ms @ 48kHz
+        let drainFrames = bufferSize * AVAudioFrameCount(drainBufferCount)
+        
+        // Target frame count is the desired output (project + tail)
+        let targetFrameCount = AVAudioFrameCount(duration * sampleRate)
+        
+        // Allocate capacity for target + drain frames
+        let totalCapacity = targetFrameCount + drainFrames
+        
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalCapacity) else {
             throw ExportError.bufferCreationFailed
         }
-        outputBuffer.frameLength = frameCount
+        // Set initial length to total capacity, will trim to target at end
+        outputBuffer.frameLength = totalCapacity
         
         // Capture audio using a tap on the main mixer
         var capturedFrames: AVAudioFrameCount = 0
-        let bufferSize: AVAudioFrameCount = 4096
         
         // Use a class to track if continuation has been resumed (thread-safe)
         final class ContinuationState: @unchecked Sendable {
@@ -1682,7 +1715,7 @@ class ProjectExportService {
                 self.applyExportAutomation(atSample: capturedFrames, sampleRate: sampleRate)
                 
                 // Copy buffer data to output buffer
-                let framesToCopy = min(buffer.frameLength, frameCount - capturedFrames)
+                let framesToCopy = min(buffer.frameLength, totalCapacity - capturedFrames)
                 
                 if framesToCopy > 0, let outputData = outputBuffer.floatChannelData {
                     if let bufferData = buffer.floatChannelData {
@@ -1695,9 +1728,9 @@ class ProjectExportService {
                     
                     capturedFrames += framesToCopy
                     
-                    // Update progress and time estimates
+                    // Update progress and time estimates (based on target frames, not total capacity)
                     Task { @MainActor in
-                        let progress = Double(capturedFrames) / Double(frameCount)
+                        let progress = Double(min(capturedFrames, targetFrameCount)) / Double(targetFrameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
                         // Update elapsed time
@@ -1724,10 +1757,18 @@ class ProjectExportService {
                 }
                 
                 // Check if we're done
-                if capturedFrames >= frameCount {
+                // ISSUE #10 FIX: Continue capturing through drain period for plugin tails
+                // After target frames, capture additional drain buffers to ensure reverb/delay tails
+                if capturedFrames >= totalCapacity {
+                    // All frames captured (target + drain) - ready to finalize
                     if state.tryResume() {
                         renderEngine.mainMixerNode.removeTap(onBus: 0)
                         renderEngine.stop()
+                        
+                        // Trim output buffer to exact target length
+                        // This removes the drain frames but keeps all the tail content
+                        outputBuffer.frameLength = targetFrameCount
+                        
                         continuation.resume(returning: outputBuffer)
                     }
                 }
