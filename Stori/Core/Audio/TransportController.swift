@@ -419,12 +419,13 @@ class TransportController {
         positionUpdateGeneration = cycleGeneration
         
         // Create high-priority timer that's immune to main thread blocking.
-        // Fire immediately first, then every 16ms. We capture wall time on the background queue
-        // before dispatching to MainActor, so the elapsed time calculation is accurate even if
-        // the main thread is busy.
+        // CRITICAL: Start timer after 16ms (one frame) instead of immediately.
+        // This gives SwiftUI a chance to render the resume position cleanly before
+        // the position starts advancing. Without this delay, the resume render can be
+        // batched/dropped with subsequent position updates, causing a visual jump.
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: positionQueue)
         timer.schedule(
-            deadline: .now(),  // Fire immediately for smooth resume
+            deadline: .now() + .milliseconds(16),  // Wait one frame before first fire
             repeating: .milliseconds(16),  // ~60 FPS
             leeway: .microseconds(500)
         )
