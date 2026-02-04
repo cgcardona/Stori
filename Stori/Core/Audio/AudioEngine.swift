@@ -1470,11 +1470,22 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Transport Controls (Delegated to TransportController)
     
     func play() {
-        // Validate engine health before starting playback (only if monitor is initialized)
+        // TEMP DEBUG: Log health check details
         if let healthMonitor = healthMonitor {
-            if !healthMonitor.quickValidate() {
+            let quickCheck = healthMonitor.quickValidate()
+            print("🔍 PLAY() called - quickValidate: \(quickCheck)")
+            
+            if !quickCheck {
+                print("⚠️ Quick validate FAILED - running full validation")
                 let result = healthMonitor.validateState()
+                print("⚠️ Full validation result: isValid=\(result.isValid), issues=\(result.issues.count)")
+                
                 if !result.isValid {
+                    print("❌ BLOCKING PLAYBACK - Health check failed")
+                    for issue in result.issues {
+                        print("   - [\(issue.severity)] \(issue.component): \(issue.description)")
+                    }
+                    
                     errorTracker.recordError(
                         severity: .critical,
                         component: "AudioEngine",
@@ -1492,9 +1503,15 @@ class AudioEngine: AudioEngineContext {
                     debugPlaybackState()
                     return
                 }
+                print("✅ Full validation passed - allowing playback")
+            } else {
+                print("✅ Quick validate PASSED - allowing playback")
             }
+        } else {
+            print("⚠️ Health monitor not initialized - allowing playback")
         }
         
+        print("▶️ Calling transportController.play()")
         transportController.play()
         
         // Debug: Print playback state after starting
