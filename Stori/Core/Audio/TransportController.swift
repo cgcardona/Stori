@@ -543,8 +543,10 @@ class TransportController {
         
         let currentBeat = currentPosition.beats
         
-        // Tighter epsilon for accurate detection
-        let beatEpsilon = 0.005
+        // CRITICAL FIX: Tighter epsilon for sub-millisecond accuracy
+        // At 120 BPM, 0.001 beats ≈ 0.5ms (imperceptible to human ear)
+        // Previous 0.005 beats ≈ 2.5ms could cause audible drift
+        let beatEpsilon = 0.001
         
         if currentBeat >= (cycleEndBeat - beatEpsilon) {
             lastCycleJumpTime = currentSystemTime
@@ -579,27 +581,32 @@ class TransportController {
         // Increment generation to invalidate any in-flight position updates
         cycleGeneration += 1
         
-        // Stop current playback
-        onStopPlayback()
+        // CRITICAL FIX: Update atomic timing state FIRST (before stopping/restarting)
+        // This ensures MIDI scheduler and metronome have correct timing reference
+        // when they receive the cycle jump notification
+        let jumpWallTime = CACurrentMediaTime()
+        updateAtomicTimingState(
+            startBeat: targetBeat,
+            wallTime: jumpWallTime,
+            tempo: project.tempo,
+            isPlaying: true
+        )
         
         // Update timing state
         playbackStartBeat = targetBeat
-        playbackStartWallTime = CACurrentMediaTime()
+        playbackStartWallTime = jumpWallTime
         
         // Update position immediately
         currentPosition = PlaybackPosition(beats: targetBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         onPositionChanged(currentPosition)
         
-        // Update atomic timing state for MIDI scheduler (wall-clock based)
-        updateAtomicTimingState(
-            startBeat: targetBeat,
-            wallTime: playbackStartWallTime,
-            tempo: project.tempo,
-            isPlaying: true
-        )
-        
-        // Notify for cycle jump handling (metronome, MIDI, etc.)
+        // CRITICAL FIX: Notify for cycle jump handling BEFORE stopping/restarting
+        // This allows MIDI scheduler to send note-offs and prepare for seamless jump
+        // Metronome can also pre-schedule clicks at the target position
         onCycleJump(targetBeat)
+        
+        // Stop current playback (will stop scheduled audio)
+        onStopPlayback()
         
         // Restart playback from the target beat
         onStartPlayback(targetBeat)
