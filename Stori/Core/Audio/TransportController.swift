@@ -65,6 +65,10 @@ class TransportController {
     
     /// Thread-safe read of current beat position (for MIDI scheduler)
     /// Calculates position from wall-clock delta for maximum accuracy
+    /// Thread-safe read of current beat position (for MIDI scheduler, metronome, recording)
+    /// CRITICAL: This is accessed from audio threads - must be real-time safe!
+    /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    /// NOTE: This calculation MUST match calculateCurrentBeat() to maintain consistency
     nonisolated var atomicBeatPosition: Double {
         os_unfair_lock_lock(&beatPositionLock)
         defer { os_unfair_lock_unlock(&beatPositionLock) }
@@ -74,6 +78,7 @@ class TransportController {
         }
         
         // Calculate position from wall-clock delta (avoids timer jitter)
+        // FORMULA: Same as calculateCurrentBeat() - DO NOT DIVERGE!
         let elapsedSeconds = CACurrentMediaTime() - _atomicPlaybackStartWallTime
         let beatsPerSecond = _atomicTempo / 60.0
         return _atomicPlaybackStartBeat + (elapsedSeconds * beatsPerSecond)
@@ -451,23 +456,24 @@ class TransportController {
             return
         }
         
-        // Calculate elapsed time since playback started using captured wall time
-        // (captured on background queue when timer fired, not when this runs on MainActor)
-        let elapsedSeconds = capturedWallTime - playbackStartWallTime
-        
-        // Convert elapsed seconds to elapsed beats
-        let beatsPerSecond = project.tempo / 60.0
-        let elapsedBeats = elapsedSeconds * beatsPerSecond
-        
-        // Current position = start position + elapsed beats
-        let currentBeat = playbackStartBeat + elapsedBeats
+        // CRITICAL FIX: Use atomic position calculation (single source of truth)
+        // This ensures timer-based position matches MIDI scheduler's position exactly
+        // Previous approach duplicated calculation logic → potential for divergence
+        let currentBeat = calculateCurrentBeat(
+            startBeat: playbackStartBeat,
+            startWallTime: playbackStartWallTime,
+            currentWallTime: capturedWallTime,
+            tempo: project.tempo
+        )
         
         // First update after resume? Log it
         if lastStartBeat != playbackStartBeat {
+            let elapsedSeconds = capturedWallTime - playbackStartWallTime
+            let elapsedBeats = currentBeat - playbackStartBeat
             print("⏱️  FIRST UPDATE: startBeat=\(playbackStartBeat), elapsed=\(elapsedSeconds)s (\(elapsedBeats) beats), currentBeat=\(currentBeat)")
             lastStartBeat = playbackStartBeat
         }
-        
+
         currentPosition = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         
         // Update atomic state for MIDI scheduler
@@ -477,6 +483,15 @@ class TransportController {
         
         // Check for cycle loop
         checkCycleLoop()
+    }
+    
+    /// Calculate current beat position from wall-clock time (shared calculation logic)
+    /// This is the SINGLE SOURCE OF TRUTH for beat position calculation
+    private func calculateCurrentBeat(startBeat: Double, startWallTime: TimeInterval, currentWallTime: TimeInterval, tempo: Double) -> Double {
+        let elapsedSeconds = currentWallTime - startWallTime
+        let beatsPerSecond = tempo / 60.0
+        let elapsedBeats = elapsedSeconds * beatsPerSecond
+        return startBeat + elapsedBeats
     }
     
     private func checkCycleLoop() {
