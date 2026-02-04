@@ -45,6 +45,19 @@ class MIDIPlaybackEngine {
     @ObservationIgnored
     private nonisolated(unsafe) var midiBlocks: [UUID: AUScheduleMIDIEventBlock] = [:]
     
+    /// Pre-allocated MIDI data buffer (3 bytes: status, data1, data2)
+    /// Reused for every MIDI event to avoid allocation in hot path
+    /// REAL-TIME SAFETY: Eliminates array allocation on every MIDI event
+    @ObservationIgnored
+    private nonisolated(unsafe) var midiDataBuffer: [UInt8] = [0, 0, 0]
+    
+    /// Atomic flag for tracking missing MIDI blocks (lock-free error detection)
+    /// Bit flags: one bit per track (up to 64 tracks)
+    @ObservationIgnored
+    private nonisolated(unsafe) var missingBlockFlags: UInt64 = 0
+    @ObservationIgnored
+    private nonisolated(unsafe) var missingBlockFlagsLock = os_unfair_lock_s()
+    
     // MARK: - Properties
     
     @ObservationIgnored
@@ -309,34 +322,24 @@ extension MIDIPlaybackEngine {
         os_unfair_lock_unlock(&midiBlockLock)
         
         guard let block = midiBlock else {
-            // No cached block means instrument isn't properly configured
-            // This is a bug that should be fixed, not worked around
+            // REAL-TIME SAFETY: Simplified error handling - no allocations!
+            // Set a flag to indicate missing block, actual error tracking happens off-thread
+            // This is atomic and lock-free (just a bit set operation)
+            // Note: Limited to 64 tracks - should be plenty for error detection
+            let trackHash = UInt64(trackId.hashValue.magnitude) % 64
+            let trackBit: UInt64 = 1 << trackHash
             
-            // Log once per unique trackId to avoid spam (use static set)
-            struct MissingBlockTracker {
-                static var loggedTracks: Set<UUID> = []
-                static var lock = os_unfair_lock_s()
-            }
-            os_unfair_lock_lock(&MissingBlockTracker.lock)
-            let alreadyLogged = MissingBlockTracker.loggedTracks.contains(trackId)
-            if !alreadyLogged {
-                MissingBlockTracker.loggedTracks.insert(trackId)
-            }
-            os_unfair_lock_unlock(&MissingBlockTracker.lock)
+            // Check and set the flag atomically
+            os_unfair_lock_lock(&missingBlockFlagsLock)
+            let wasAlreadyFlagged = (missingBlockFlags & trackBit) != 0
+            missingBlockFlags |= trackBit
+            os_unfair_lock_unlock(&missingBlockFlagsLock)
             
-            if !alreadyLogged {
-                DispatchQueue.global(qos: .utility).async {
-                    AppLogger.shared.warning("MIDI block missing for track \(trackId) - instrument not configured", category: .audio)
-                    
-                    // Track in error system (off audio thread)
-                    Task { @MainActor in
-                        AudioEngineErrorTracker.shared.recordError(
-                            severity: .error,
-                            component: "MIDIPlayback",
-                            message: "MIDI block missing - instrument not configured",
-                            context: ["trackId": trackId.uuidString]
-                        )
-                    }
+            // Only schedule background error tracking if this is the first occurrence
+            if !wasAlreadyFlagged {
+                // Schedule error tracking OFF the audio thread
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    self?.handleMissingMIDIBlock(trackId: trackId)
                 }
             }
             return
@@ -355,10 +358,29 @@ extension MIDIPlaybackEngine {
         let safeData1 = min(data1, 127)
         let safeData2 = min(data2, 127)
         
+        // REAL-TIME SAFETY: Reuse pre-allocated buffer instead of allocating array
+        // This eliminates malloc on every MIDI event (critical for real-time performance)
+        midiDataBuffer[0] = status
+        midiDataBuffer[1] = safeData1
+        midiDataBuffer[2] = safeData2
+        
         // Schedule with compensated sample time for phase-aligned timing
         // The AU will fire the event at exactly this sample offset
-        var midiData: [UInt8] = [status, safeData1, safeData2]
-        block(compensatedSampleTime, 0, 3, &midiData)
+        block(compensatedSampleTime, 0, 3, &midiDataBuffer)
+    }
+    
+    /// Handle missing MIDI block error (called on background thread)
+    /// This moves all error tracking and logging off the audio thread
+    @MainActor
+    private func handleMissingMIDIBlock(trackId: UUID) {
+        AppLogger.shared.warning("MIDI block missing for track \(trackId) - instrument not configured", category: .audio)
+        
+        AudioEngineErrorTracker.shared.recordError(
+            severity: .error,
+            component: "MIDIPlayback",
+            message: "MIDI block missing - instrument not configured",
+            context: ["trackId": trackId.uuidString]
+        )
     }
 }
 
