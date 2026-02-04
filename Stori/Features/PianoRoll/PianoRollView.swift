@@ -145,26 +145,19 @@ struct PianoRollView: View {
                         // Keyboard (synced with grid's vertical scroll via offset)
                         // FIX: Canvas is now VIEWPORT-sized, draws in scrolled coordinates
                         // This prevents the huge offscreen texture that caused initial paint failures
-                        pianoKeyboard
-                            .frame(width: keyboardWidth, height: availableHeight)
-                        .contentShape(Rectangle())  // Constrain hit-testing to visible area only
-                        .gesture(
-                            DragGesture(minimumDistance: 1)  // Require slight movement to avoid accidental triggers
-                                .onChanged { value in
-                                    // Calculate pitch from visible Y position (accounting for scroll)
-                                    let pitch = keyboardPitchAt(visibleY: value.location.y)
-                                    if pitch >= minPitch && pitch <= maxPitch {
-                                        onPreviewNote?(UInt8(pitch))
-                                    }
-                                }
+                        // Wrap in ScrollView to capture scroll wheel events
+                        PianoKeyboardScrollWrapper(
+                            keyboard: AnyView(pianoKeyboard),
+                            keyboardWidth: keyboardWidth,
+                            availableHeight: availableHeight,
+                            verticalScrollOffset: $verticalScrollOffset,
+                            gridHeight: gridHeight,
+                            onPreviewNote: onPreviewNote,
+                            keyboardPitchAt: keyboardPitchAt(visibleY:),
+                            minPitch: minPitch,
+                            maxPitch: maxPitch
                         )
-                        .onTapGesture { location in
-                            // Handle taps on keyboard for note preview (accounting for scroll)
-                            let pitch = keyboardPitchAt(visibleY: location.y)
-                            if pitch >= minPitch && pitch <= maxPitch {
-                                onPreviewNote?(UInt8(pitch))
-                            }
-                        }
+                        .frame(width: keyboardWidth, height: availableHeight)
                         
                         // MIDI CC Automation lane labels (when visible)
                         if showAutomationLanes {
@@ -253,10 +246,6 @@ struct PianoRollView: View {
                                                     
                                                     // Transparent spacer to maintain scroll content height
                                                     Color.clear
-                                                        .frame(width: gridWidth, height: gridHeight)
-                                                    
-                                                    // Vertical grid lines - same pattern as playhead
-                                                    verticalGridOverlay
                                                         .frame(width: gridWidth, height: gridHeight)
                                                     
                                                     notesOverlay
@@ -806,11 +795,15 @@ struct PianoRollView: View {
     private var noteGrid: some View {
         let rowH = scaledNoteHeight
         let scrollOffset = verticalScrollOffset
+        let hScrollOffset = horizontalScrollOffset
         let scaleHighlight = showScaleHighlight
         let scale = currentScale
         let root = scaleRoot
+        let zoom = horizontalZoom
+        let pxPerBeat = scaledPixelsPerBeat
         
         return Canvas { context, size in
+            // HORIZONTAL ROWS (pitch lanes)
             // Calculate visible rows based on viewport and scroll offset
             let buffer = 2  // Small buffer for smooth edges
             let firstRow = max(0, Int(floor(scrollOffset / rowH)) - buffer)
@@ -854,23 +847,14 @@ struct PianoRollView: View {
                 let strokeColor = isC ? Color.blue.opacity(0.4) : Color.gray.opacity(0.1)
                 context.stroke(linePath, with: .color(strokeColor), lineWidth: lineWidth)
             }
-        }
-        // FIX: Removed .drawingGroup() - with viewport-sized canvas, we don't need offscreen rasterization
-    }
-    
-    // MARK: - Vertical Grid Overlay
-    
-    /// Vertical grid lines - same Rectangle+offset pattern as playhead
-    private var verticalGridOverlay: some View {
-        // PERF: Use Canvas instead of 1500+ Rectangle views - massive performance improvement
-        Canvas { context, size in
+            
+            // VERTICAL GRID LINES (beat markers)
             // Determine opacity for each tier based on zoom
-            let eighthOpacity: Double = horizontalZoom >= 0.75 ? 0.15 : 0.0
-            let sixteenthOpacity: Double = horizontalZoom >= 1.5 ? 0.08 : 0.0
+            let eighthOpacity: Double = zoom >= 0.75 ? 0.15 : 0.0
+            let sixteenthOpacity: Double = zoom >= 1.5 ? 0.08 : 0.0
             
             let beatsPerBar: CGFloat = 4.0
-            let pxPerBar = scaledPixelsPerBeat * beatsPerBar
-            let pxPerBeat = scaledPixelsPerBeat
+            let pxPerBar = pxPerBeat * beatsPerBar
             
             // Pre-calculate colors
             let barColor = Color.white.opacity(0.35)
@@ -878,14 +862,15 @@ struct PianoRollView: View {
             let eighthColor = Color.white.opacity(eighthOpacity)
             let sixteenthColor = Color.white.opacity(sixteenthOpacity)
             
-            // Draw all grid lines in a single pass
-            let numBars = max(1, Int(ceil(size.width / pxPerBar)) + 1)
+            // Calculate visible bars based on horizontal scroll
+            let firstBar = max(0, Int(floor(hScrollOffset / pxPerBar)))
+            let lastBar = Int(ceil((hScrollOffset + size.width) / pxPerBar)) + 1
             
-            for barIndex in 0..<numBars {
-                let barX = round(CGFloat(barIndex) * pxPerBar)  // Pixel-align for crisp rendering
+            for barIndex in firstBar..<lastBar {
+                let barX = round(CGFloat(barIndex) * pxPerBar - hScrollOffset)
                 
                 // Bar line (strongest)
-                if barX < size.width {
+                if barX >= 0 && barX < size.width {
                     let barPath = Path { path in
                         path.move(to: CGPoint(x: barX, y: 0))
                         path.addLine(to: CGPoint(x: barX, y: size.height))
@@ -896,7 +881,7 @@ struct PianoRollView: View {
                 // Beat lines within this bar (1, 2, 3)
                 for beat in 1..<4 {
                     let beatX = round(barX + CGFloat(beat) * pxPerBeat)
-                    if beatX < size.width {
+                    if beatX >= 0 && beatX < size.width {
                         let beatPath = Path { path in
                             path.move(to: CGPoint(x: beatX, y: 0))
                             path.addLine(to: CGPoint(x: beatX, y: size.height))
@@ -909,7 +894,7 @@ struct PianoRollView: View {
                 if eighthOpacity > 0 {
                     for eighthOffset in [0.5, 1.5, 2.5, 3.5] {
                         let eighthX = round(barX + CGFloat(eighthOffset) * pxPerBeat)
-                        if eighthX > barX && eighthX < size.width {
+                        if eighthX >= 0 && eighthX < size.width {
                             let eighthPath = Path { path in
                                 path.move(to: CGPoint(x: eighthX, y: 0))
                                 path.addLine(to: CGPoint(x: eighthX, y: size.height))
@@ -923,7 +908,7 @@ struct PianoRollView: View {
                 if sixteenthOpacity > 0 {
                     for sixteenthOffset in [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75] {
                         let sixteenthX = round(barX + CGFloat(sixteenthOffset) * pxPerBeat)
-                        if sixteenthX > barX && sixteenthX < size.width {
+                        if sixteenthX >= 0 && sixteenthX < size.width {
                             let sixteenthPath = Path { path in
                                 path.move(to: CGPoint(x: sixteenthX, y: 0))
                                 path.addLine(to: CGPoint(x: sixteenthX, y: size.height))
@@ -934,7 +919,7 @@ struct PianoRollView: View {
                 }
             }
         }
-        .allowsHitTesting(false)  // Don't intercept mouse events
+        // FIX: Removed .drawingGroup() - with viewport-sized canvas, we don't need offscreen rasterization
     }
     
     // MARK: - Measure Ruler
@@ -2533,5 +2518,88 @@ struct MIDICCAutomationLane: View {
             )
             region.controllerEvents.append(event)
         }
+    }
+}
+
+// MARK: - Piano Keyboard Scroll Wrapper
+
+/// Wrapper for piano keyboard that handles both click/drag gestures and scroll wheel events
+private struct PianoKeyboardScrollWrapper: NSViewRepresentable {
+    let keyboard: AnyView
+    let keyboardWidth: CGFloat
+    let availableHeight: CGFloat
+    @Binding var verticalScrollOffset: CGFloat
+    let gridHeight: CGFloat
+    let onPreviewNote: ((UInt8) -> Void)?
+    let keyboardPitchAt: (CGFloat) -> Int
+    let minPitch: Int
+    let maxPitch: Int
+    
+    func makeNSView(context: Context) -> NSScrollableKeyboardView {
+        let view = NSScrollableKeyboardView()
+        view.onScroll = { deltaY in
+            let maxOffset = max(0, gridHeight - availableHeight)
+            let newOffset = max(0, min(verticalScrollOffset - deltaY, maxOffset))
+            DispatchQueue.main.async {
+                verticalScrollOffset = newOffset
+            }
+        }
+        
+        // Add hosting view for SwiftUI keyboard
+        let hostingView = NSHostingView(rootView: keyboard)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingView)
+        
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        
+        // Store callbacks for mouse handling
+        view.onMouseDown = { location in
+            let pitch = keyboardPitchAt(location.y)
+            if pitch >= minPitch && pitch <= maxPitch {
+                onPreviewNote?(UInt8(pitch))
+            }
+        }
+        
+        view.onMouseDragged = { location in
+            let pitch = keyboardPitchAt(location.y)
+            if pitch >= minPitch && pitch <= maxPitch {
+                onPreviewNote?(UInt8(pitch))
+            }
+        }
+        
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSScrollableKeyboardView, context: Context) {
+        // Update hosting view with new keyboard
+        if let hostingView = nsView.subviews.first as? NSHostingView<AnyView> {
+            hostingView.rootView = keyboard
+        }
+    }
+}
+
+private class NSScrollableKeyboardView: NSView {
+    var onScroll: ((CGFloat) -> Void)?
+    var onMouseDown: ((NSPoint) -> Void)?
+    var onMouseDragged: ((NSPoint) -> Void)?
+    
+    override func scrollWheel(with event: NSEvent) {
+        let deltaY = event.scrollingDeltaY
+        onScroll?(deltaY)  // Direct delta (natural scrolling)
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        onMouseDown?(location)
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        onMouseDragged?(location)
     }
 }
