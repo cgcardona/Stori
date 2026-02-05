@@ -225,14 +225,74 @@ final class TrackAudioNode: @unchecked Sendable {
         panNode.pan = smoothedValue
     }
     
-    /// Reset smoothed values (call when transport stops/starts)
-    func resetSmoothing() {
+    /// Reset smoothed values to match automation at current playhead position
+    ///
+    /// BUG FIX (Issue #48): Previously initialized smoothed values from current mixer
+    /// settings, which could be stale from previous playback. Now initializes from
+    /// automation curve at the specified beat position.
+    ///
+    /// CRITICAL PROBLEM (before fix):
+    /// - Smoothed values persisted across play/stop cycles
+    /// - Volume automation starts at 1.0, but smoothed state was 0.0 from previous session
+    /// - Result: Audible ramp up over ~50ms instead of starting at 1.0
+    /// - Very noticeable on transient-heavy material (drums, percussion)
+    ///
+    /// SOLUTION:
+    /// Initialize smoothed values from the automation curve at the playhead position.
+    /// If no automation data exists, use current mixer settings as fallback.
+    ///
+    /// PROFESSIONAL STANDARD:
+    /// Logic Pro, Pro Tools, and Cubase all initialize automation from the curve
+    /// at the playhead position, ensuring instant-correct values on playback start.
+    ///
+    /// - Parameter startBeat: Beat position where playback is starting (for automation lookup)
+    /// - Parameter automationLanes: Automation data to initialize from (optional)
+    func resetSmoothing(atBeat startBeat: Double = 0, automationLanes: [AutomationLane] = []) {
         os_unfair_lock_lock(&automationLock)
-        _smoothedVolume = volume
-        _smoothedPan = pan
-        _smoothedEqLow = 0.0
-        _smoothedEqMid = 0.0
-        _smoothedEqHigh = 0.0
+        
+        // BUG FIX (Issue #48): Initialize from automation curve at playhead position
+        // If automation data exists at this beat, use it. Otherwise, use current mixer values.
+        
+        // Volume: Check automation, fallback to current mixer value
+        if let volumeLane = automationLanes.first(where: { $0.parameter == .volume }),
+           let automationValue = volumeLane.valueAt(beat: startBeat) {
+            _smoothedVolume = automationValue
+        } else {
+            _smoothedVolume = volume
+        }
+        
+        // Pan: Check automation, fallback to current mixer value
+        if let panLane = automationLanes.first(where: { $0.parameter == .pan }),
+           let automationValue = panLane.valueAt(beat: startBeat) {
+            _smoothedPan = automationValue
+        } else {
+            _smoothedPan = pan
+        }
+        
+        // EQ Low: Check automation, fallback to 0.5 (0dB)
+        if let eqLowLane = automationLanes.first(where: { $0.parameter == .eqLow }),
+           let automationValue = eqLowLane.valueAt(beat: startBeat) {
+            _smoothedEqLow = automationValue
+        } else {
+            _smoothedEqLow = 0.5  // 0dB default
+        }
+        
+        // EQ Mid: Check automation, fallback to 0.5 (0dB)
+        if let eqMidLane = automationLanes.first(where: { $0.parameter == .eqMid }),
+           let automationValue = eqMidLane.valueAt(beat: startBeat) {
+            _smoothedEqMid = automationValue
+        } else {
+            _smoothedEqMid = 0.5  // 0dB default
+        }
+        
+        // EQ High: Check automation, fallback to 0.5 (0dB)
+        if let eqHighLane = automationLanes.first(where: { $0.parameter == .eqHigh }),
+           let automationValue = eqHighLane.valueAt(beat: startBeat) {
+            _smoothedEqHigh = automationValue
+        } else {
+            _smoothedEqHigh = 0.5  // 0dB default
+        }
+        
         os_unfair_lock_unlock(&automationLock)
     }
     

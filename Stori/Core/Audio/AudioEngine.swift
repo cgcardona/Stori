@@ -1665,9 +1665,18 @@ class AudioEngine: AudioEngineContext {
         
         // Start/stop automation engine based on transport state
         if state.isPlaying {
-            // Reset smoothing values for all tracks before starting
+            // BUG FIX (Issue #48): Reset smoothing values for all tracks before starting
+            // Initialize from automation curves at current playhead position
+            let currentBeat = transportController?.positionBeats ?? 0
+            
             for (_, trackNode) in trackNodes {
-                trackNode.resetSmoothing()
+                // Find the track's automation lanes
+                if let track = currentProject?.tracks.first(where: { $0.id == trackNode.trackId }) {
+                    trackNode.resetSmoothing(atBeat: currentBeat, automationLanes: track.automationLanes)
+                } else {
+                    // Fallback: reset without automation data
+                    trackNode.resetSmoothing(atBeat: currentBeat, automationLanes: [])
+                }
             }
             automationEngine.start()
         } else {
