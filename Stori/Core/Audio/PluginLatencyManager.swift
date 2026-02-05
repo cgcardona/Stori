@@ -276,32 +276,6 @@ class PluginLatencyManager {
     }
 }
 
-// MARK: - TrackAudioNode Extension for PDC
-
-extension TrackAudioNode {
-    
-    /// Apply delay compensation to this track
-    /// Note: This creates a simple sample delay by adjusting scheduling offsets
-    /// For a more sophisticated implementation, an actual delay node would be inserted
-    func applyCompensationDelay(samples: UInt32) {
-        // Store the compensation value for use during scheduling
-        // This is applied during scheduleFromPosition by adding to the delay
-        compensationDelaySamples = samples
-    }
-    
-    /// Compensation delay in samples (stored in a private extension property)
-    private static var compensationDelayKey: UInt8 = 0
-    
-    var compensationDelaySamples: UInt32 {
-        get {
-            objc_getAssociatedObject(self, &Self.compensationDelayKey) as? UInt32 ?? 0
-        }
-        set {
-            objc_setAssociatedObject(self, &Self.compensationDelayKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-    }
-}
-
 // MARK: - AudioEngine PDC Integration
 // Note: The updateDelayCompensation() method is implemented directly in AudioEngine.swift
 // because it needs access to the private trackNodes dictionary.
