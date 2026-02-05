@@ -1671,7 +1671,7 @@ class AudioEngine: AudioEngineContext {
             
             for (_, trackNode) in trackNodes {
                 // Find the track's automation lanes
-                if let track = currentProject?.tracks.first(where: { $0.id == trackNode.trackId }) {
+                if let track = currentProject?.tracks.first(where: { $0.id == trackNode.id }) {
                     trackNode.resetSmoothing(atBeat: currentBeat, automationLanes: track.automationLanes)
                 } else {
                     // Fallback: reset without automation data
