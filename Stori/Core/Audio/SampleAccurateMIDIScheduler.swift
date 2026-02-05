@@ -701,21 +701,75 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
     }
     
     /// Update timing reference when tempo changes
+    ///
+    /// BUG FIX (Issue #53): When tempo changes during playback, already-scheduled events
+    /// in the AU MIDI queue may fire at incorrect sample times (calculated with old tempo).
+    ///
+    /// CRITICAL PROBLEM:
+    /// - Events are scheduled up to 150ms ahead via `scheduleParameterBlock`
+    /// - Once in the AU queue, they can't be cancelled without resetting the AU
+    /// - Old timing reference makes future events calculate wrong sample times
+    ///
+    /// SOLUTION:
+    /// 1. Stop all active notes (prevents hanging notes during tempo transition)
+    /// 2. Clear scheduled event tracking (prevents double-scheduling)
+    /// 3. Create new timing reference with updated tempo
+    /// 4. Reschedule the lookahead window from current position
+    ///
+    /// EXAMPLE:
+    /// - Tempo changes from 120 to 140 BPM at beat 4
+    /// - Events at beats 4.5, 5.0, 5.5 were already scheduled with old tempo
+    /// - Those events would fire at wrong sample times (too slow)
+    /// - This fix clears them and reschedules with new tempo
+    ///
+    /// PROFESSIONAL STANDARD:
+    /// Logic Pro, Pro Tools, and Cubase all handle tempo changes by invalidating
+    /// the lookahead buffer and rescheduling from the current position.
     func updateTempo(_ newTempo: Double) {
         guard let currentBeat = currentBeatProvider?() else { return }
         
         os_unfair_lock_lock(&stateLock)
+        
+        let wasPlaying = _isPlaying
         tempo = newTempo
         
+        // BUG FIX: Release all active notes before tempo change
+        // This prevents notes from hanging during tempo transition
+        let notesToRelease = activeNotes
+        activeNotes.removeAll()
+        
+        // BUG FIX: Clear scheduled event tracking and reset index so we reschedule from current position
+        // Events scheduled with old tempo should not prevent rescheduling
+        scheduledEventIndices.removeAll()
+        nextEventIndex = scheduledEvents.firstIndex { $0.beat >= currentBeat } ?? scheduledEvents.count
+        
         // Create new timing reference with updated tempo
-        if _isPlaying {
+        if wasPlaying {
             timingReference = MIDITimingReference.now(
                 beat: currentBeat,
                 tempo: newTempo,
                 sampleRate: sampleRate
             )
         }
+        
         os_unfair_lock_unlock(&stateLock)
+        
+        // BUG FIX: Send note-offs for all active notes
+        // This clears the AU's MIDI state before rescheduling
+        if let handler = sampleAccurateMIDIHandler {
+            for (pitch, trackId) in notesToRelease {
+                // Send all-notes-off (CC 123) to clear AU MIDI queue
+                handler(0xB0, 123, 0, trackId, AUEventSampleTimeImmediate)
+                // Send explicit note-off for each active note
+                handler(0x80, pitch, 0, trackId, AUEventSampleTimeImmediate)
+            }
+        }
+        
+        // BUG FIX: Reschedule lookahead window from current position
+        // This ensures upcoming events use the new tempo's sample times
+        if wasPlaying {
+            processScheduledEvents()
+        }
     }
     
     /// Update timing reference when audio device sample rate changes
