@@ -20,7 +20,10 @@ final class MeteringServiceTests: XCTestCase {
     
     override func setUp() async throws {
         try await super.setUp()
-        metering = MeteringService()
+        metering = MeteringService(
+            trackNodes: { [:] },  // Empty track nodes
+            masterVolume: { 0.8 }  // Default master volume
+        )
     }
     
     override func tearDown() async throws {
@@ -235,9 +238,9 @@ final class MeteringServiceTests: XCTestCase {
     
     func testMultipleMeteringServiceInstances() {
         // Create multiple instances to test independence
-        let service1 = MeteringService()
-        let service2 = MeteringService()
-        let service3 = MeteringService()
+        let service1 = MeteringService(trackNodes: { [:] }, masterVolume: { 0.8 })
+        let service2 = MeteringService(trackNodes: { [:] }, masterVolume: { 0.8 })
+        let service3 = MeteringService(trackNodes: { [:] }, masterVolume: { 0.8 })
         
         _ = service1.masterLevelLeft
         _ = service2.masterLevelRight
@@ -248,7 +251,7 @@ final class MeteringServiceTests: XCTestCase {
     
     func testMeteringServiceCleanup() {
         for _ in 0..<100 {
-            let tempService = MeteringService()
+            let tempService = MeteringService(trackNodes: { [:] }, masterVolume: { 0.8 })
             _ = tempService.masterLevelLeft
             _ = tempService.masterPeakRight
         }
@@ -329,7 +332,7 @@ final class MeteringServiceTests: XCTestCase {
     
     func testMeteringServiceLifecycle() {
         // Complete lifecycle: create, read, cleanup
-        let service = MeteringService()
+        let service = MeteringService(trackNodes: { [:] }, masterVolume: { 0.8 })
         
         // Read all properties
         _ = service.masterLevelLeft

@@ -19,6 +19,36 @@ final class PluginChainTests: XCTestCase {
     private var engine: AVAudioEngine!
     private var format: AVAudioFormat!
     
+    // MARK: - Test Helpers
+    
+    /// Create a mock PluginDescriptor for testing
+    private func makeTestDescriptor(
+        name: String = "Test Plugin",
+        manufacturer: String = "Test Manufacturer",
+        category: PluginDescriptor.PluginCategory = .effect
+    ) -> PluginDescriptor {
+        return PluginDescriptor(
+            id: UUID(),
+            name: name,
+            manufacturer: manufacturer,
+            version: "1.0.0",
+            category: category,
+            componentDescription: AudioComponentDescriptionCodable(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: 0x74737470, // 'tstp'
+                componentManufacturer: 0x74737461, // 'tsta'
+                componentFlags: 0,
+                componentFlagsMask: 0
+            ),
+            auType: .aufx,
+            supportsPresets: true,
+            hasCustomUI: false,
+            inputChannels: 2,
+            outputChannels: 2,
+            latencySamples: 0
+        )
+    }
+    
     // MARK: - Setup/Teardown
     
     override func setUp() async throws {
@@ -26,6 +56,13 @@ final class PluginChainTests: XCTestCase {
         chain = PluginChain(maxSlots: 8)
         engine = AVAudioEngine()
         format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+        
+        // Attach a test node before starting to avoid "freed pointer" errors
+        // realize() requires engine to be running
+        let testMixer = AVAudioMixerNode()
+        engine.attach(testMixer)
+        engine.connect(testMixer, to: engine.outputNode, format: format)
+        try engine.start()
     }
     
     override func tearDown() async throws {
@@ -134,13 +171,7 @@ final class PluginChainTests: XCTestCase {
     // MARK: - Plugin Insertion Tests
     
     func testStorePluginInEmptySlot() {
-        let descriptor = PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        )
+        let descriptor = makeTestDescriptor(name: "Test Plugin", manufacturer: "Test")
         let plugin = PluginInstance(descriptor: descriptor)
         
         chain.storePlugin(plugin, atSlot: 0)
@@ -150,20 +181,8 @@ final class PluginChainTests: XCTestCase {
     }
     
     func testStoreMultiplePlugins() {
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
         
         chain.storePlugin(plugin1, atSlot: 0)
         chain.storePlugin(plugin2, atSlot: 1)
@@ -173,20 +192,8 @@ final class PluginChainTests: XCTestCase {
     }
     
     func testStorePluginOverwritesExisting() {
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
         
         chain.storePlugin(plugin1, atSlot: 2)
         XCTAssertEqual(chain.slots[2]?.id, plugin1.id)
@@ -199,13 +206,7 @@ final class PluginChainTests: XCTestCase {
         var plugins: [PluginInstance] = []
         
         for i in 0..<chain.maxSlots {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             plugins.append(plugin)
             chain.storePlugin(plugin, atSlot: i)
         }
@@ -219,13 +220,7 @@ final class PluginChainTests: XCTestCase {
     // MARK: - Plugin Removal Tests
     
     func testRemovePlugin() {
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         
         chain.storePlugin(plugin, atSlot: 3)
         XCTAssertNotNil(chain.slots[3])
@@ -242,27 +237,9 @@ final class PluginChainTests: XCTestCase {
     }
     
     func testRemoveOneOfMultiplePlugins() {
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
-        let plugin3 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 3",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin3",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
+        let plugin3 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 3", manufacturer: "Test"))
         
         chain.storePlugin(plugin1, atSlot: 0)
         chain.storePlugin(plugin2, atSlot: 1)
@@ -290,13 +267,7 @@ final class PluginChainTests: XCTestCase {
     }
     
     func testChainBypassWithPlugins() {
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         
         chain.storePlugin(plugin, atSlot: 0)
         
@@ -397,13 +368,7 @@ final class PluginChainTests: XCTestCase {
         chain.realize()
         
         // Add a plugin
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         chain.storePlugin(plugin, atSlot: 0)
         
         // Rebuild connections
@@ -418,13 +383,7 @@ final class PluginChainTests: XCTestCase {
         
         // Add multiple plugins
         for i in 0..<3 {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             chain.storePlugin(plugin, atSlot: i)
         }
         
@@ -437,13 +396,7 @@ final class PluginChainTests: XCTestCase {
     // MARK: - Slot Boundary Tests
     
     func testStorePluginValidSlots() {
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         
         // Test all valid slots
         for slot in 0..<chain.maxSlots {
@@ -455,13 +408,7 @@ final class PluginChainTests: XCTestCase {
     func testRemovePluginValidSlots() {
         // Fill all slots
         for i in 0..<chain.maxSlots {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             chain.storePlugin(plugin, atSlot: i)
         }
         
@@ -478,13 +425,7 @@ final class PluginChainTests: XCTestCase {
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<chain.maxSlots {
                 group.addTask { @MainActor in
-                    let plugin = PluginInstance(descriptor: PluginDescriptor(
-                        name: "Plugin \(i)",
-                        manufacturer: "Test",
-                        type: .effect,
-                        identifier: "com.test.plugin\(i)",
-                        version: "1.0.0"
-                    ))
+                    let plugin = PluginInstance(descriptor: self.makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
                     self.chain.storePlugin(plugin, atSlot: i)
                 }
             }
@@ -504,13 +445,7 @@ final class PluginChainTests: XCTestCase {
     func testConcurrentPluginRemoval() async {
         // Fill slots
         for i in 0..<chain.maxSlots {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             chain.storePlugin(plugin, atSlot: i)
         }
         
@@ -555,13 +490,7 @@ final class PluginChainTests: XCTestCase {
     
     func testPluginInsertionPerformance() {
         let plugins = (0..<chain.maxSlots).map { i in
-            PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
         }
         
         measure {
@@ -578,13 +507,7 @@ final class PluginChainTests: XCTestCase {
     func testPluginRemovalPerformance() {
         // Fill slots
         for i in 0..<chain.maxSlots {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             chain.storePlugin(plugin, atSlot: i)
         }
         
@@ -595,13 +518,7 @@ final class PluginChainTests: XCTestCase {
             
             // Refill for next iteration
             for i in 0..<chain.maxSlots {
-                let plugin = PluginInstance(descriptor: PluginDescriptor(
-                    name: "Plugin \(i)",
-                    manufacturer: "Test",
-                    type: .effect,
-                    identifier: "com.test.plugin\(i)",
-                    version: "1.0.0"
-                ))
+                let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
                 chain.storePlugin(plugin, atSlot: i)
             }
         }
@@ -637,13 +554,7 @@ final class PluginChainTests: XCTestCase {
             
             // Add plugins
             for i in 0..<4 {
-                let plugin = PluginInstance(descriptor: PluginDescriptor(
-                    name: "Plugin \(i)",
-                    manufacturer: "Test",
-                    type: .effect,
-                    identifier: "com.test.plugin\(i)",
-                    version: "1.0.0"
-                ))
+                let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
                 tempChain.storePlugin(plugin, atSlot: i)
             }
             
@@ -656,13 +567,7 @@ final class PluginChainTests: XCTestCase {
     func testPluginReferencesCleared() {
         // Add plugins
         for i in 0..<chain.maxSlots {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             chain.storePlugin(plugin, atSlot: i)
         }
         
@@ -693,13 +598,7 @@ final class PluginChainTests: XCTestCase {
     func testSingleSlotChain() {
         let smallChain = PluginChain(maxSlots: 1)
         
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin", manufacturer: "Test"))
         
         smallChain.storePlugin(plugin, atSlot: 0)
         XCTAssertNotNil(smallChain.slots[0])
@@ -715,13 +614,7 @@ final class PluginChainTests: XCTestCase {
         
         // Fill all slots
         for i in 0..<32 {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             largeChain.storePlugin(plugin, atSlot: i)
         }
         
@@ -736,20 +629,8 @@ final class PluginChainTests: XCTestCase {
     
     func testChainWithSparsePlugins() {
         // Add plugins to non-contiguous slots
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
         
         chain.storePlugin(plugin1, atSlot: 0)
         chain.storePlugin(plugin2, atSlot: 5)
@@ -774,13 +655,7 @@ final class PluginChainTests: XCTestCase {
         
         // Add plugins
         for i in 0..<3 {
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             chain.storePlugin(plugin, atSlot: i)
         }
         

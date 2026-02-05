@@ -250,14 +250,20 @@ final class TrackNodeManagerTests: XCTestCase {
         let node1 = manager.createTrackNode(for: track)
         manager.storeTrackNode(node1, for: track.id)
         
-        // Create second node with same ID
+        // Create second node for same track
         let node2 = manager.createTrackNode(for: track)
         manager.storeTrackNode(node2, for: track.id)
         
-        // Should retrieve second node
+        // Both nodes have the same ID (track.id) by design
+        // TrackAudioNode.id == track.id (track nodes are keyed by track ID)
+        XCTAssertEqual(node1.id, track.id)
+        XCTAssertEqual(node2.id, track.id)
+        
+        // Should retrieve the second node (overwrite semantics)
         let retrievedNode = manager.getTrackNode(for: track.id)
-        XCTAssertEqual(retrievedNode?.id, node2.id)
-        XCTAssertNotEqual(retrievedNode?.id, node1.id)
+        XCTAssertNotNil(retrievedNode)
+        // Verify it's node2 by checking object identity
+        XCTAssertTrue(retrievedNode === node2, "Should retrieve the second (overwritten) node")
     }
     
     // MARK: - Automation Cache Update Tests (CRITICAL - Recent Enhancement)
@@ -482,12 +488,14 @@ final class TrackNodeManagerTests: XCTestCase {
             let tempMixer = AVAudioMixerNode()
             tempEngine.attach(tempMixer)
             
+            // Connect mixer to output to avoid AVFoundation errors
+            let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+            tempEngine.connect(tempMixer, to: tempEngine.outputNode, format: format)
+            
             let tempManager = TrackNodeManager()
             tempManager.engine = tempEngine
             tempManager.mixer = tempMixer
-            tempManager.getGraphFormat = { [weak tempEngine] in
-                tempEngine?.mainMixerNode.outputFormat(forBus: 0)
-            }
+            tempManager.getGraphFormat = { format }
             
             let track = AudioTrack(name: "Temp Track", trackType: .audio, color: .blue)
             tempManager.ensureTrackNodeExists(for: track)

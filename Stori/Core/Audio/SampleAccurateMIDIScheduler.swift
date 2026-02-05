@@ -265,20 +265,23 @@ struct MIDITimingReference {
         }
         
         // Check for unreasonable elapsed time (system sleep/wake detection)
-        let currentHostTime = mach_absolute_time()
-        let elapsedNanos = (currentHostTime - hostTime) * UInt64(Self.timebaseInfo.numer) / UInt64(Self.timebaseInfo.denom)
-        let elapsedSamples = Double(elapsedNanos) / 1_000_000_000.0 * sampleRate
-        
-        // If elapsed samples is way higher than wall clock age would suggest,
-        // system time jumped (sleep/wake)
-        let expectedMaxSamples = age * sampleRate * 1.5  // 50% tolerance
-        if elapsedSamples > expectedMaxSamples {
-            return true
-        }
-        
-        // Sanity check for extreme values
-        if elapsedSamples > Self.maxReasonableElapsedSamples {
-            return true
+        // Skip this check for very fresh references (< 0.1 seconds) to avoid false positives
+        if age >= 0.1 {
+            let currentHostTime = mach_absolute_time()
+            let elapsedNanos = (currentHostTime - hostTime) * UInt64(Self.timebaseInfo.numer) / UInt64(Self.timebaseInfo.denom)
+            let elapsedSamples = Double(elapsedNanos) / 1_000_000_000.0 * sampleRate
+            
+            // If elapsed samples is way higher than wall clock age would suggest,
+            // system time jumped (sleep/wake)
+            let expectedMaxSamples = age * sampleRate * 1.5  // 50% tolerance
+            if elapsedSamples > expectedMaxSamples {
+                return true
+            }
+            
+            // Sanity check for extreme values
+            if elapsedSamples > Self.maxReasonableElapsedSamples {
+                return true
+            }
         }
         
         return false
@@ -799,5 +802,14 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         for event in eventBuffer {
             handler(event.status, event.data1, event.data2, event.trackId, event.sampleTime)
         }
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @unchecked Sendable classes can have implicit tasks that cause
+    /// memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }

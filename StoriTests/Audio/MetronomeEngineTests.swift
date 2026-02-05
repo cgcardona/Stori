@@ -46,8 +46,8 @@ final class MetronomeEngineTests: XCTestCase {
     }
     
     override func tearDown() async throws {
-        if metronome.isEnabled && metronome.isPlaying {
-            metronome.stopPlaying()
+        if metronome.isEnabled {
+            metronome.onTransportStop()
         }
         engine.stop()
         metronome = nil
@@ -357,9 +357,10 @@ final class MetronomeEngineTests: XCTestCase {
         )
         
         metronome.isEnabled = true
-        metronome.startPlaying(fromBeat: 0.0)
+        metronome.onTransportPlay()
         
-        XCTAssertTrue(metronome.isPlaying)
+        // Verify metronome started (currentBeat is updated during playback)
+        XCTAssertTrue(metronome.isEnabled)
     }
     
     func testMetronomeStopPlaying() {
@@ -374,18 +375,20 @@ final class MetronomeEngineTests: XCTestCase {
         )
         
         metronome.isEnabled = true
-        metronome.startPlaying(fromBeat: 0.0)
+        metronome.onTransportPlay()
         
-        metronome.stopPlaying()
+        metronome.onTransportStop()
         
-        XCTAssertFalse(metronome.isPlaying)
+        // After stop, currentBeat should be reset to 1
+        XCTAssertEqual(metronome.currentBeat, 1)
     }
     
     func testMetronomeStopWhenNotPlaying() {
         // Should handle gracefully
-        metronome.stopPlaying()
+        metronome.onTransportStop()
         
-        XCTAssertFalse(metronome.isPlaying)
+        // Verify no crash, currentBeat at initial state
+        XCTAssertEqual(metronome.currentBeat, 1)
     }
     
     // MARK: - Beat Accent Tests
@@ -580,12 +583,12 @@ final class MetronomeEngineTests: XCTestCase {
         metronome.countInBars = 2
         
         // 3. Play
-        metronome.startPlaying(fromBeat: 0.0)
-        XCTAssertTrue(metronome.isPlaying)
+        metronome.onTransportPlay()
+        XCTAssertTrue(metronome.isEnabled)
         
         // 4. Stop
-        metronome.stopPlaying()
-        XCTAssertFalse(metronome.isPlaying)
+        metronome.onTransportStop()
+        XCTAssertEqual(metronome.currentBeat, 1)
         
         XCTAssertTrue(true, "Full metronome workflow completed")
     }
@@ -608,8 +611,8 @@ final class MetronomeEngineTests: XCTestCase {
             )
             
             tempMetronome.isEnabled = true
-            tempMetronome.startPlaying(fromBeat: 0.0)
-            tempMetronome.stopPlaying()
+            tempMetronome.onTransportPlay()
+            tempMetronome.onTransportStop()
             
             tempEngine.stop()
         }

@@ -18,20 +18,42 @@ final class PluginInstanceTests: XCTestCase {
     private var instance: PluginInstance!
     private var descriptor: PluginDescriptor!
     
+    // MARK: - Test Helpers
+    
+    /// Create a mock PluginDescriptor for testing
+    private func makeTestDescriptor(
+        name: String = "Test Plugin",
+        manufacturer: String = "Test Manufacturer",
+        category: PluginDescriptor.PluginCategory = .effect
+    ) -> PluginDescriptor {
+        return PluginDescriptor(
+            id: UUID(),
+            name: name,
+            manufacturer: manufacturer,
+            version: "1.0.0",
+            category: category,
+            componentDescription: AudioComponentDescriptionCodable(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: 0x74737470, // 'tstp'
+                componentManufacturer: 0x74737461, // 'tsta'
+                componentFlags: 0,
+                componentFlagsMask: 0
+            ),
+            auType: .aufx,
+            supportsPresets: true,
+            hasCustomUI: false,
+            inputChannels: 2,
+            outputChannels: 2,
+            latencySamples: 0
+        )
+    }
+    
     // MARK: - Setup/Teardown
     
     override func setUp() async throws {
         try await super.setUp()
         
-        // Create a mock descriptor for testing
-        descriptor = PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test Manufacturer",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        )
-        
+        descriptor = makeTestDescriptor()
         instance = PluginInstance(descriptor: descriptor)
     }
     
@@ -65,7 +87,7 @@ final class PluginInstanceTests: XCTestCase {
     func testPluginInstanceStoresDescriptor() {
         XCTAssertEqual(instance.descriptor.name, descriptor.name)
         XCTAssertEqual(instance.descriptor.manufacturer, descriptor.manufacturer)
-        XCTAssertEqual(instance.descriptor.type, descriptor.type)
+        XCTAssertEqual(instance.descriptor.category, descriptor.category)
     }
     
     // MARK: - Loading Tests (Note: Most require real Audio Units)
@@ -176,19 +198,11 @@ final class PluginInstanceTests: XCTestCase {
     func testPluginInstanceRestoreState() async {
         let testData = Data([0x00, 0x01, 0x02, 0x03])
         
+        // Use async version to avoid deadlock (restoreStateSync deadlocks on @MainActor tests)
         let success = await instance.restoreState(from: testData)
         
         // Without loaded AU, should return false
-        XCTAssertFalse(success || success, "Restore state handled gracefully")
-    }
-    
-    func testPluginInstanceRestoreStateSync() {
-        let testData = Data([0x00, 0x01, 0x02, 0x03])
-        
-        let success = instance.restoreStateSync(from: testData)
-        
-        // Without loaded AU, should return false
-        XCTAssertFalse(success || success, "Restore state sync handled gracefully")
+        XCTAssertFalse(success, "Restore state handled gracefully when AU not loaded")
     }
     
     // MARK: - Configuration Tests
@@ -197,7 +211,7 @@ final class PluginInstanceTests: XCTestCase {
         let config = instance.createConfiguration(atSlot: 0)
         
         XCTAssertEqual(config.slotIndex, 0)
-        XCTAssertEqual(config.descriptor.name, descriptor.name)
+        XCTAssertEqual(config.pluginName, descriptor.name)
         XCTAssertEqual(config.isBypassed, instance.isBypassed)
     }
     
@@ -205,7 +219,7 @@ final class PluginInstanceTests: XCTestCase {
         let config = await instance.createConfigurationAsync(atSlot: 1)
         
         XCTAssertEqual(config.slotIndex, 1)
-        XCTAssertEqual(config.descriptor.name, descriptor.name)
+        XCTAssertEqual(config.pluginName, descriptor.name)
     }
     
     func testPluginInstanceConfigurationCapturesState() {
@@ -351,11 +365,24 @@ final class PluginInstanceManagerTests: XCTestCase {
         try await super.setUp()
         manager = PluginInstanceManager()
         descriptor = PluginDescriptor(
+            id: UUID(),
             name: "Test Plugin",
             manufacturer: "Test Manufacturer",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
+            version: "1.0.0",
+            category: .effect,
+            componentDescription: AudioComponentDescriptionCodable(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: 0x74737470,
+                componentManufacturer: 0x74737461,
+                componentFlags: 0,
+                componentFlagsMask: 0
+            ),
+            auType: .aufx,
+            supportsPresets: true,
+            hasCustomUI: false,
+            inputChannels: 2,
+            outputChannels: 2,
+            latencySamples: 0
         )
     }
     

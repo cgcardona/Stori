@@ -109,6 +109,9 @@ class MetronomeEngine {
     private var fillTimer: DispatchSourceTimer?
     
     @ObservationIgnored
+    private var beatFlashTask: Task<Void, Never>?
+    
+    @ObservationIgnored
     private let lookaheadSeconds: Double = 0.5
     
     @ObservationIgnored
@@ -346,6 +349,10 @@ class MetronomeEngine {
         isPlaying = false
         beatFlash = false
         
+        // Cancel beat flash task
+        beatFlashTask?.cancel()
+        beatFlashTask = nil
+        
         // Stop the fill timer
         fillTimer?.cancel()
         fillTimer = nil
@@ -448,7 +455,11 @@ class MetronomeEngine {
     private func triggerBeatFlash() {
         beatFlash = true
         
-        Task {
+        // Cancel any existing flash task to prevent memory issues on deinit
+        beatFlashTask?.cancel()
+        
+        // Store the task so we can cancel it during cleanup
+        beatFlashTask = Task {
             try? await Task.sleep(nanoseconds: 80_000_000)  // 80ms
             await MainActor.run {
                 self.beatFlash = false
@@ -521,5 +532,18 @@ class MetronomeEngine {
     
     func toggle() {
         isEnabled.toggle()
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Task holding self reference during @MainActor class cleanup
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        beatFlashTask?.cancel()
+        fillTimer?.cancel()
     }
 }

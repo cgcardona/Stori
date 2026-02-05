@@ -18,6 +18,36 @@ final class PluginLatencyManagerTests: XCTestCase {
     private var manager: PluginLatencyManager!
     private let testSampleRate: Double = 48000.0
     
+    // MARK: - Test Helpers
+    
+    /// Create a mock PluginDescriptor for testing
+    private func makeTestDescriptor(
+        name: String = "Test Plugin",
+        manufacturer: String = "Test Manufacturer",
+        latencySamples: Int = 0
+    ) -> PluginDescriptor {
+        return PluginDescriptor(
+            id: UUID(),
+            name: name,
+            manufacturer: manufacturer,
+            version: "1.0.0",
+            category: .effect,
+            componentDescription: AudioComponentDescriptionCodable(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: 0x74737470,
+                componentManufacturer: 0x74737461,
+                componentFlags: 0,
+                componentFlagsMask: 0
+            ),
+            auType: .aufx,
+            supportsPresets: true,
+            hasCustomUI: false,
+            inputChannels: 2,
+            outputChannels: 2,
+            latencySamples: latencySamples
+        )
+    }
+    
     // MARK: - Setup/Teardown
     
     override func setUp() async throws {
@@ -100,13 +130,7 @@ final class PluginLatencyManagerTests: XCTestCase {
     // MARK: - Plugin Latency Calculation Tests
     
     func testGetPluginLatencyWithoutAU() {
-        let descriptor = PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        )
+        let descriptor = makeTestDescriptor(name: "Test Plugin", manufacturer: "Test")
         let plugin = PluginInstance(descriptor: descriptor)
         
         let latency = manager.getPluginLatency(plugin)
@@ -133,13 +157,7 @@ final class PluginLatencyManagerTests: XCTestCase {
     
     func testCalculateTrackLatencyWithSinglePlugin() {
         let trackId = UUID()
-        let descriptor = PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        )
+        let descriptor = makeTestDescriptor(name: "Test Plugin", manufacturer: "Test")
         let plugin = PluginInstance(descriptor: descriptor)
         let plugins = [plugin]
         
@@ -152,27 +170,9 @@ final class PluginLatencyManagerTests: XCTestCase {
     func testCalculateTrackLatencyWithMultiplePlugins() {
         let trackId = UUID()
         
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
-        let plugin3 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 3",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin3",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
+        let plugin3 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 3", manufacturer: "Test"))
         
         let plugins = [plugin1, plugin2, plugin3]
         
@@ -197,13 +197,7 @@ final class PluginLatencyManagerTests: XCTestCase {
     
     func testCalculateCompensationWithSingleTrack() {
         let trackId = UUID()
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         
         let trackPlugins = [trackId: [plugin]]
         
@@ -221,20 +215,8 @@ final class PluginLatencyManagerTests: XCTestCase {
         let track2Id = UUID()
         let track3Id = UUID()
         
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
         
         let trackPlugins = [
             track1Id: [plugin1],
@@ -253,20 +235,8 @@ final class PluginLatencyManagerTests: XCTestCase {
         let track2Id = UUID()  // 1 plugin
         let track3Id = UUID()  // 2 plugins
         
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
         
         let trackPlugins = [
             track1Id: [],
@@ -373,13 +343,7 @@ final class PluginLatencyManagerTests: XCTestCase {
         let track2Id = UUID()
         let track3Id = UUID()
         
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         
         _ = manager.calculateTrackLatency(trackId: track1Id, plugins: [plugin])
         _ = manager.calculateTrackLatency(trackId: track2Id, plugins: [plugin])
@@ -402,13 +366,7 @@ final class PluginLatencyManagerTests: XCTestCase {
         let track1Id = UUID()
         let track2Id = UUID()
         
-        let plugin = PluginInstance(descriptor: PluginDescriptor(
-            name: "Test Plugin",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin",
-            version: "1.0.0"
-        ))
+        let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Test Plugin", manufacturer: "Test"))
         
         let trackPlugins = [
             track1Id: [plugin],
@@ -447,27 +405,9 @@ final class PluginLatencyManagerTests: XCTestCase {
         let guitarTrackId = UUID()
         let drumTrackId = UUID()
         
-        let reverb = PluginInstance(descriptor: PluginDescriptor(
-            name: "Reverb",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.reverb",
-            version: "1.0.0"
-        ))
-        let compressor = PluginInstance(descriptor: PluginDescriptor(
-            name: "Compressor",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.compressor",
-            version: "1.0.0"
-        ))
-        let ampSim = PluginInstance(descriptor: PluginDescriptor(
-            name: "Amp Simulator",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.ampsim",
-            version: "1.0.0"
-        ))
+        let reverb = PluginInstance(descriptor: makeTestDescriptor(name: "Reverb", manufacturer: "Test"))
+        let compressor = PluginInstance(descriptor: makeTestDescriptor(name: "Compressor", manufacturer: "Test"))
+        let ampSim = PluginInstance(descriptor: makeTestDescriptor(name: "Amp Simulator", manufacturer: "Test"))
         
         let trackPlugins = [
             vocalTrackId: [reverb, compressor],
@@ -498,13 +438,7 @@ final class PluginLatencyManagerTests: XCTestCase {
             // Random number of plugins (0-4)
             let pluginCount = i % 5
             for j in 0..<pluginCount {
-                let plugin = PluginInstance(descriptor: PluginDescriptor(
-                    name: "Plugin \(i)-\(j)",
-                    manufacturer: "Test",
-                    type: .effect,
-                    identifier: "com.test.plugin\(i)\(j)",
-                    version: "1.0.0"
-                ))
+                let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)-\(j)", manufacturer: "Test"))
                 plugins.append(plugin)
             }
             
@@ -522,13 +456,7 @@ final class PluginLatencyManagerTests: XCTestCase {
         let trackId = UUID()
         
         let plugins = (0..<8).map { i in
-            PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
         }
         
         measure {
@@ -546,13 +474,7 @@ final class PluginLatencyManagerTests: XCTestCase {
             let trackId = UUID()
             let pluginCount = i % 5
             let plugins = (0..<pluginCount).map { j in
-                PluginInstance(descriptor: PluginDescriptor(
-                    name: "Plugin \(i)-\(j)",
-                    manufacturer: "Test",
-                    type: .effect,
-                    identifier: "com.test.plugin\(i)\(j)",
-                    version: "1.0.0"
-                ))
+                PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)-\(j)", manufacturer: "Test"))
             }
             trackPlugins[trackId] = plugins
         }
@@ -570,13 +492,7 @@ final class PluginLatencyManagerTests: XCTestCase {
             let trackId = UUID()
             trackIds.append(trackId)
             
-            let plugin = PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
             
             _ = manager.calculateTrackLatency(trackId: trackId, plugins: [plugin])
         }
@@ -589,13 +505,7 @@ final class PluginLatencyManagerTests: XCTestCase {
             // Re-add for next iteration
             for i in 0..<100 {
                 let trackId = trackIds[i]
-                let plugin = PluginInstance(descriptor: PluginDescriptor(
-                    name: "Plugin \(i)",
-                    manufacturer: "Test",
-                    type: .effect,
-                    identifier: "com.test.plugin\(i)",
-                    version: "1.0.0"
-                ))
+                let plugin = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
                 _ = manager.calculateTrackLatency(trackId: trackId, plugins: [plugin])
             }
         }
@@ -633,13 +543,7 @@ final class PluginLatencyManagerTests: XCTestCase {
         
         // 32 plugins on one track
         let plugins = (0..<32).map { i in
-            PluginInstance(descriptor: PluginDescriptor(
-                name: "Plugin \(i)",
-                manufacturer: "Test",
-                type: .effect,
-                identifier: "com.test.plugin\(i)",
-                version: "1.0.0"
-            ))
+            PluginInstance(descriptor: makeTestDescriptor(name: "Plugin \(i)", manufacturer: "Test"))
         }
         
         let info = manager.calculateTrackLatency(trackId: trackId, plugins: plugins)
@@ -684,20 +588,8 @@ final class PluginLatencyManagerTests: XCTestCase {
         let track1Id = UUID()
         let track2Id = UUID()
         
-        let plugin1 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 1",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin1",
-            version: "1.0.0"
-        ))
-        let plugin2 = PluginInstance(descriptor: PluginDescriptor(
-            name: "Plugin 2",
-            manufacturer: "Test",
-            type: .effect,
-            identifier: "com.test.plugin2",
-            version: "1.0.0"
-        ))
+        let plugin1 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 1", manufacturer: "Test"))
+        let plugin2 = PluginInstance(descriptor: makeTestDescriptor(name: "Plugin 2", manufacturer: "Test"))
         
         // 3. Calculate compensation
         let trackPlugins = [

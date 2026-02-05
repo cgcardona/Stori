@@ -61,15 +61,15 @@ final class ExportPlaybackParityTests: XCTestCase {
         var project = createTestProject()
         var track = project.tracks[0]
         
-        // Add volume automation: 1.0 → 0.5 over 4 beats
-        track.automationLanes.append(AutomationLane(
+        // Track already has a default volume automation lane - replace it
+        track.automationLanes[0] = AutomationLane(
             parameter: .volume,
             points: [
                 AutomationPoint(beat: 0, value: 1.0, curve: .linear),
                 AutomationPoint(beat: 4, value: 0.5, curve: .linear)
             ],
             initialValue: 1.0
-        ))
+        )
         
         // Add EQ automation: 0.5 → 1.0 over 4 beats (0.5 = 0dB, 1.0 = +12dB)
         track.automationLanes.append(AutomationLane(
@@ -84,6 +84,12 @@ final class ExportPlaybackParityTests: XCTestCase {
         track.automationMode = .read  // Enable automation playback
         project.tracks[0] = track
         testProject = project
+        
+        // Debug: Print lanes to diagnose
+        print("DEBUG: Lane count = \(track.automationLanes.count)")
+        for (i, lane) in track.automationLanes.enumerated() {
+            print("  Lane \(i): \(lane.parameter) (\(lane.points.count) points)")
+        }
         
         // The actual automation application is tested indirectly through export
         // applyExportAutomation is called during renderProjectAudio
