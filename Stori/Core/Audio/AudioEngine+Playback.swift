@@ -21,6 +21,34 @@ extension AudioEngine {
     
     // MARK: - Playback Implementation
     
+    /// Prepare all plugin chains for playback to prevent first-note latency (BUG FIX Issue #54)
+    /// Must be called before startPlaybackInternal() to ensure AU render resources are allocated
+    private func preparePluginsForPlayback() {
+        var preparedCount = 0
+        var failedCount = 0
+        
+        for (trackId, trackNode) in trackNodes {
+            let pluginChain = trackNode.pluginChain
+            
+            // Only prepare chains with active plugins
+            guard pluginChain.hasActivePlugins else {
+                continue
+            }
+            
+            let prepared = pluginChain.prepareForPlayback()
+            if prepared {
+                preparedCount += 1
+            } else {
+                failedCount += 1
+                logDebug("⚠️ preparePluginsForPlayback: Failed to prepare plugins for track=\(trackId)", category: "PLAYBACK")
+            }
+        }
+        
+        if preparedCount > 0 || failedCount > 0 {
+            logDebug("preparePluginsForPlayback: Prepared \(preparedCount) plugin chains, \(failedCount) failed", category: "PLAYBACK")
+        }
+    }
+    
     func startPlaybackInternal() {
         guard let project = currentProject else {
             logDebug("⚠️ startPlayback: No current project", category: "PLAYBACK")
@@ -31,6 +59,11 @@ extension AudioEngine {
         let tempo = project.tempo
         
         logDebug("startPlayback: \(project.tracks.count) tracks, startBeat: \(startBeat), tempo: \(tempo)", category: "PLAYBACK")
+        
+        // BUG FIX (Issue #54): Prepare all plugin chains before playback to prevent first-note latency
+        // This ensures Audio Unit render resources are allocated before the first audio callback,
+        // preventing 10-100ms delays on the first note (especially with heavy synth plugins)
+        preparePluginsForPlayback()
         
         // SEAMLESS CYCLE LOOPS: Update PlaybackSchedulingCoordinator with cycle state
         // This enables pre-scheduling of multiple cycle iterations for gap-free looping
