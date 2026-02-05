@@ -921,16 +921,48 @@ final class TrackAudioNode: @unchecked Sendable {
     ///   - cycleStartBeat: Cycle region start in beats
     ///   - cycleEndBeat: Cycle region end in beats
     ///   - iterationsAhead: Number of cycle iterations to pre-schedule (default: 2)
+    /// Schedule audio for cycle-aware playback (pre-schedules multiple iterations)
+    ///
+    /// BUG FIX (Issue #47): Added `preservePlayback` parameter to support seamless
+    /// cycle loop jumps without clearing already-scheduled audio buffers.
+    ///
+    /// SEAMLESS CYCLE LOOP ARCHITECTURE:
+    /// When cycle mode is enabled, we pre-schedule multiple iterations ahead.
+    /// This means audio for beats 5-8 might already be scheduled while playing beats 1-4.
+    ///
+    /// PARAMETERS:
+    /// - fromBeat: Starting beat position
+    /// - audioRegions: Regions to schedule
+    /// - tempo: Project tempo for beat→time conversion
+    /// - cycleStartBeat: Cycle region start
+    /// - cycleEndBeat: Cycle region end
+    /// - iterationsAhead: How many future iterations to pre-schedule (default 2)
+    /// - preservePlayback: If true, don't stop/reset player node (for seamless jumps)
+    ///
+    /// WHEN TO USE preservePlayback=true:
+    /// - Cycle loop jumps where audio is already pre-scheduled
+    /// - Player node is already playing and has future iterations queued
+    /// - We want to avoid any gap or discontinuity
+    ///
+    /// WHEN TO USE preservePlayback=false (default):
+    /// - Starting fresh playback
+    /// - Seeking to a new position (not a cycle jump)
+    /// - Need to clear old buffers and schedule new audio
     func scheduleCycleAware(
         fromBeat startBeat: Double,
         audioRegions: [AudioRegion],
         tempo: Double,
         cycleStartBeat: Double,
         cycleEndBeat: Double,
-        iterationsAhead: Int = 2
+        iterationsAhead: Int = 2,
+        preservePlayback: Bool = false
     ) throws {
-        playerNode.stop()
-        playerNode.reset()
+        // BUG FIX (Issue #47): Only stop/reset if NOT preserving playback
+        // This allows seamless cycle jumps without clearing pre-scheduled audio
+        if !preservePlayback {
+            playerNode.stop()
+            playerNode.reset()
+        }
         
         let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
         guard playerSampleRate > 0 else { return }
@@ -992,7 +1024,9 @@ final class TrackAudioNode: @unchecked Sendable {
             }
         }
         
-        if scheduledSomething {
+        // BUG FIX (Issue #47): Only start playback if we actually scheduled something
+        // AND we're not preserving existing playback
+        if scheduledSomething && !preservePlayback {
             playerNode.play()
         }
     }

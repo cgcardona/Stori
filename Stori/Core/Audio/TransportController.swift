@@ -582,6 +582,36 @@ class TransportController {
     
     /// Jump to a beat position while transport is running (for cycle loops)
     /// Uses generation counter to avoid race conditions with position timer.
+    /// Jump to a specific beat position during playback (thread-safe)
+    /// 
+    /// BUG FIX (Issue #47): Cycle loop jumps now use seamless pre-scheduled audio
+    /// instead of stop/start sequence which caused audible gaps.
+    /// 
+    /// CRITICAL PROBLEM (before fix):
+    /// - Stop playback → clears all scheduled audio buffers
+    /// - Restart playback → schedules new audio from scratch
+    /// - Gap of silence during the stop/start transition
+    /// - Audible click or discontinuity at loop boundary
+    /// 
+    /// SOLUTION:
+    /// For cycle jumps, we rely on pre-scheduled iterations that are already
+    /// queued in the AVAudioPlayerNode. We only update timing state and position,
+    /// but DON'T stop/restart the player nodes.
+    /// 
+    /// PROFESSIONAL STANDARD:
+    /// - Logic Pro: Pre-schedules 2-3 cycle iterations ahead
+    /// - Pro Tools: Uses "loop cache" to avoid gaps
+    /// - Ableton Live: Seamless looping with pre-scheduled blocks
+    /// 
+    /// SEAMLESS CYCLE LOOP ARCHITECTURE:
+    /// 1. Audio tracks pre-schedule 2 iterations ahead (scheduleCycleAware)
+    /// 2. On cycle jump, player nodes are ALREADY playing future iterations
+    /// 3. We only update timing state to reflect the new position
+    /// 4. No stop/start → no gap → seamless loop
+    /// 
+    /// NON-CYCLE JUMPS:
+    /// For regular seeks (not cycle jumps), we still need stop/start because
+    /// the pre-scheduled audio is for the wrong position.
     func transportSafeJump(toBeat targetBeat: Double) {
         guard transportState.isPlaying else { return }
         guard let project = getProject() else { return }
@@ -613,11 +643,26 @@ class TransportController {
         // Metronome can also pre-schedule clicks at the target position
         onCycleJump(targetBeat)
         
-        // Stop current playback (will stop scheduled audio)
-        onStopPlayback()
+        // BUG FIX (Issue #47): For cycle jumps, DON'T stop/restart audio
+        // Audio tracks have already pre-scheduled multiple iterations ahead.
+        // Stopping would clear these buffers and cause an audible gap.
+        // 
+        // The pre-scheduled audio is already playing, we just updated the timing
+        // state above so position tracking reflects the new location.
+        // 
+        // MIDI and metronome were notified via onCycleJump above and can handle
+        // the jump independently (they don't use pre-scheduled buffers).
+        //
+        // NOTE: This assumes we're jumping to the cycle start beat. For jumps
+        // to arbitrary positions (non-cycle), we would need stop/restart.
+        let isCycleJump = isCycleEnabled && abs(targetBeat - cycleStartBeat) < 0.001
         
-        // Restart playback from the target beat
-        onStartPlayback(targetBeat)
+        if !isCycleJump {
+            // Not a cycle jump - need to stop and reschedule for new position
+            onStopPlayback()
+            onStartPlayback(targetBeat)
+        }
+        // else: Cycle jump - audio already pre-scheduled, no action needed
         
         // Update the position timer's generation to match
         positionUpdateGeneration = cycleGeneration
