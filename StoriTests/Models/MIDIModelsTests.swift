@@ -191,6 +191,16 @@ final class MIDIModelsTests: XCTestCase {
         XCTAssertEqual(result, 2.0, accuracy: 0.00001, "Requested end at next note start is allowed (boundary)")
     }
 
+    func testMaxEndBeatForResizeRequestedBeforeNoteStartReturnsRequested() {
+        // Requested end before resizing note start (e.g. drag left past start); no next same-pitch → return requested.
+        // Caller (PianoRollView) enforces minimum duration so note does not invert.
+        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let allNotes = [note]
+        let requestedEndBeat = 0.5
+        let result = MIDINote.maxEndBeatForResize(resizingNote: note, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(result, 0.5, accuracy: 0.00001, "No next same-pitch: return requested; caller enforces min duration")
+    }
+
     // MARK: - MIDIRegion Tests
     
     func testMIDIRegionInitialization() {
