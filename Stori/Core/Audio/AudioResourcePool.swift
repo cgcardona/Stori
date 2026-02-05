@@ -123,6 +123,7 @@ final class AudioResourcePool {
             let pooledBuffer = availableBuffers.remove(at: index)
             borrowedBuffers.insert(ObjectIdentifier(pooledBuffer.buffer))
             
+            // Reusing a buffer - increment both allocations (total borrows) and reuses
             stats.totalAllocations += 1
             stats.totalReuses += 1
             stats.peakBorrowed = max(stats.peakBorrowed, borrowedBuffers.count)
@@ -138,8 +139,9 @@ final class AudioResourcePool {
         }
         
         // Calculate approximate memory size
+        // Note: mBytesPerFrame already accounts for all channels
         let bytesPerFrame = format.streamDescription.pointee.mBytesPerFrame
-        let memorySize = Int(bytesPerFrame) * Int(frameCapacity) * Int(channelCount)
+        let memorySize = Int(bytesPerFrame) * Int(frameCapacity)
         
         totalMemoryBytes += memorySize
         borrowedBuffers.insert(ObjectIdentifier(buffer))
@@ -171,9 +173,10 @@ final class AudioResourcePool {
         // If pool is full, don't keep it
         if availableBuffers.count >= Self.maxPoolSize {
             // Calculate memory size and subtract from total
+            // Note: mBytesPerFrame already accounts for all channels
             let format = buffer.format
             let bytesPerFrame = format.streamDescription.pointee.mBytesPerFrame
-            let memorySize = Int(bytesPerFrame) * Int(buffer.frameCapacity) * Int(format.channelCount)
+            let memorySize = Int(bytesPerFrame) * Int(buffer.frameCapacity)
             totalMemoryBytes -= memorySize
             return
         }
