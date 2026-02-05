@@ -738,9 +738,10 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         let notesToRelease = activeNotes
         activeNotes.removeAll()
         
-        // BUG FIX: Clear scheduled event tracking
+        // BUG FIX: Clear scheduled event tracking and reset index so we reschedule from current position
         // Events scheduled with old tempo should not prevent rescheduling
         scheduledEventIndices.removeAll()
+        nextEventIndex = scheduledEvents.firstIndex { $0.beat >= currentBeat } ?? scheduledEvents.count
         
         // Create new timing reference with updated tempo
         if wasPlaying {
