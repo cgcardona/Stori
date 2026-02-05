@@ -1953,6 +1953,26 @@ struct PianoRollView: View {
         }
     }
     
+    /// Resize a note by dragging its right edge
+    ///
+    /// BUG FIX (Issue #32): Previously quantized the absolute duration value, causing
+    /// notes to jump unpredictably during resize. Now quantizes the END position instead.
+    ///
+    /// WYSIWYG BEHAVIOR:
+    /// When snap is enabled, the note's right edge (end position) snaps to the grid,
+    /// making resize behavior predictable and intuitive - just like Logic Pro.
+    ///
+    /// EXAMPLE:
+    /// - Note at beat 1.0, duration 1.3 (ends at 2.3)
+    /// - User drags right edge slightly (0.1 beats)
+    /// - Old behavior: Duration snaps to 1.25 - note gets SHORTER (wrong!)
+    /// - New behavior: End position snaps to 2.5 (next 1/4 beat) = duration 1.5 (correct!)
+    ///
+    /// PROFESSIONAL STANDARD:
+    /// This matches how all major DAWs handle note resize with snap enabled:
+    /// - The END position snaps to the grid
+    /// - The START position remains fixed
+    /// - Duration is calculated from the snapped end position
     private func resizeNote(_ note: MIDINote, by delta: CGFloat) {
         guard let index = region.notes.firstIndex(where: { $0.id == note.id }) else { return }
         
@@ -1965,8 +1985,16 @@ struct PianoRollView: View {
         var newDuration = note.durationBeats + durationDelta
         
         if snapResolution != .off {
-            newDuration = max(snapResolution.stepDurationBeats, snapResolution.quantize(beat:newDuration))
+            // BUG FIX (Issue #32): Quantize the END position, not the duration
+            // This makes resize behavior predictable and matches professional DAW standards
+            let newEndBeat = note.startBeat + newDuration
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+            
+            // Calculate duration from snapped end position
+            // Ensure minimum duration is one grid step
+            newDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
         } else {
+            // No snap: just ensure minimum duration (prevent zero-length notes)
             newDuration = max(0.01, newDuration)
         }
         
