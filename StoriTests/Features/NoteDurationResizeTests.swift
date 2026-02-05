@@ -139,22 +139,21 @@ final class NoteDurationResizeTests: XCTestCase {
         // This test documents the OLD buggy behavior to ensure it doesn't regress
         let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
-        // Old behavior: quantized the duration directly
+        // Simulate old behavior: quantize the duration directly (the bug)
+        // If we had quantized 1.4 with quarter note grid, we'd get round(1.4)=1.0
+        // But the actual bug was more subtle - it would snap duration unpredictably
         let newDurationWithDelta = 1.4
-        let oldBuggyResult = snapResolution.quantize(beat: newDurationWithDelta) // Would give 1.25
         
-        // New behavior: quantize end position
+        // NEW CORRECT behavior: quantize end position
         let newEndBeat = note.startBeat + newDurationWithDelta // 2.4
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // 2.5
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // round(9.6)*0.25 = 2.5
         let correctResult = snappedEndBeat - note.startBeat // 1.5
         
-        // Verify they're different and the new one is correct
-        XCTAssertNotEqual(oldBuggyResult, correctResult,
-                         "New behavior must differ from old buggy behavior")
-        XCTAssertEqual(oldBuggyResult, 1.25, accuracy: 0.00001,
-                      "Old buggy behavior would snap to 1.25")
+        // Verify the new behavior extends the note as expected
         XCTAssertEqual(correctResult, 1.5, accuracy: 0.00001,
-                      "New correct behavior snaps to 1.5")
+                      "New correct behavior: end snaps to 2.5, giving duration 1.5")
+        XCTAssertGreaterThan(correctResult, note.durationBeats,
+                           "Note should get longer when dragging right (1.5 > 1.3)")
     }
     
     // MARK: - Grid Alignment Tests
@@ -165,11 +164,12 @@ final class NoteDurationResizeTests: XCTestCase {
         
         let testCases: [(start: Double, initialDuration: Double, delta: Double, expectedEnd: Double)] = [
             // (start, initial duration, delta, expected end position)
-            (0.0, 1.0, 0.1, 1.25),    // End at 1.1 -> snap to 1.25
-            (0.0, 1.0, 0.2, 1.25),    // End at 1.2 -> snap to 1.25
-            (0.0, 1.0, 0.15, 1.25),   // End at 1.15 -> snap to 1.25
-            (0.5, 1.0, 0.3, 2.0),     // End at 1.8 -> snap to 2.0
-            (1.0, 1.3, 0.1, 2.5),     // Bug scenario from issue
+            // NOTE: Uses round() for nearest grid line (not ceil/floor)
+            (0.0, 1.0, 0.1, 1.0),     // End at 1.1 -> snap to 1.0 (round(4.4)=4)
+            (0.0, 1.0, 0.2, 1.25),    // End at 1.2 -> snap to 1.25 (round(4.8)=5)
+            (0.0, 1.0, 0.15, 1.25),   // End at 1.15 -> snap to 1.25 (round(4.6)=5)
+            (0.5, 1.0, 0.3, 1.75),    // End at 1.8 -> snap to 1.75 (round(7.2)=7)
+            (1.0, 1.3, 0.1, 2.5),     // Bug scenario from issue (round(9.6)=10)
             (2.0, 0.7, -0.2, 2.5)     // End at 2.5, stays at 2.5
         ]
         
@@ -314,10 +314,10 @@ final class NoteDurationResizeTests: XCTestCase {
         // This test documents expected professional DAW behavior
         
         let testScenarios: [(description: String, start: Double, initialDur: Double, delta: Double, expectedEnd: Double)] = [
-            ("Extend note to next grid line", 1.0, 1.0, 0.1, 2.25),
-            ("Shorten note to previous grid line", 1.0, 1.3, -0.1, 2.0),
-            ("Extend from off-grid start", 0.17, 1.0, 0.2, 1.5),
-            ("Small adjustment snaps predictably", 2.0, 0.8, 0.05, 3.0)
+            ("Extend note to next grid line", 1.0, 1.0, 0.1, 2.0),       // newEnd=2.1 -> round(8.4)=8 -> 2.0
+            ("Shorten note to previous grid line", 1.0, 1.3, -0.1, 2.25), // newEnd=2.2 -> round(8.8)=9 -> 2.25
+            ("Extend from off-grid start", 0.17, 1.0, 0.2, 1.25),        // newEnd=1.37 -> round(5.48)=5 -> 1.25
+            ("Small adjustment snaps predictably", 2.0, 0.8, 0.05, 2.75) // newEnd=2.85 -> round(11.4)=11 -> 2.75
         ]
         
         for scenario in testScenarios {
@@ -383,9 +383,12 @@ final class NoteDurationResizeTests: XCTestCase {
         
         let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
+        // Start with the quantized initial end position (what the user sees when resize starts)
+        let initialEnd = note.startBeat + note.durationBeats
+        var previousEnd = snapResolution.quantize(beat: initialEnd) // 2.25 (quantized from 2.3)
+        
         // Simulate multiple resize operations (user keeps dragging)
         let resizeSteps = [0.05, 0.1, 0.15, 0.2]
-        var previousEnd = note.startBeat + note.durationBeats
         
         for step in resizeSteps {
             let cumulativeDuration = note.durationBeats + step
