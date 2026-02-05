@@ -6,10 +6,12 @@
 //
 
 import XCTest
+import AVFoundation
 @testable import Stori
 
 /// Comprehensive tests for audio track plugin delay compensation
 /// BUG FIX: Issue #49 - Audio tracks were not applying PDC despite having the scheduling logic
+@MainActor
 final class AudioTrackPDCTests: XCTestCase {
     
     // MARK: - Core PDC Application Tests
@@ -291,6 +293,7 @@ final class AudioTrackPDCTests: XCTestCase {
 
 /// Factory for creating test audio nodes
 private enum TestAudioNodeFactory {
+    @MainActor
     static func createTrackNode() -> TrackAudioNode {
         let audioEngine = AVAudioEngine()
         let playerNode = AVAudioPlayerNode()
@@ -306,16 +309,20 @@ private enum TestAudioNodeFactory {
         audioEngine.attach(eqNode)
         audioEngine.attach(timePitchUnit)
         
-        // Create plugin chain
-        let pluginChain = PluginChain(maxSlots: 8)
+        // Create plugin chain (PluginChain is @MainActor)
+        let pluginChain = PluginChain(id: UUID(), maxSlots: 8)
+        let graphFormat = audioEngine.mainMixerNode.outputFormat(forBus: 0)
+        pluginChain.install(in: audioEngine, format: graphFormat)
+        audioEngine.attach(pluginChain.inputMixer)
+        audioEngine.attach(pluginChain.outputMixer)
         
-        // Connect basic signal path
-        audioEngine.connect(playerNode, to: timePitchUnit, format: nil)
-        audioEngine.connect(timePitchUnit, to: pluginChain.inputNode, format: nil)
-        audioEngine.connect(pluginChain.outputNode, to: volumeNode, format: nil)
-        audioEngine.connect(volumeNode, to: panNode, format: nil)
-        audioEngine.connect(panNode, to: eqNode, format: nil)
-        audioEngine.connect(eqNode, to: audioEngine.mainMixerNode, format: nil)
+        // Connect basic signal path: player → timePitch → chain input → chain output → volume → pan → eq → mainMixer
+        audioEngine.connect(playerNode, to: timePitchUnit, format: graphFormat)
+        audioEngine.connect(timePitchUnit, to: pluginChain.inputMixer, format: graphFormat)
+        audioEngine.connect(pluginChain.outputMixer, to: volumeNode, format: graphFormat)
+        audioEngine.connect(volumeNode, to: panNode, format: graphFormat)
+        audioEngine.connect(panNode, to: eqNode, format: graphFormat)
+        audioEngine.connect(eqNode, to: audioEngine.mainMixerNode, format: graphFormat)
         
         return TrackAudioNode(
             id: UUID(),
