@@ -547,7 +547,7 @@ class AudioEngine: AudioEngineContext {
         projectLifecycleManager.onSetTransportStopped = { [weak self] in self?.transportState = .stopped }
         projectLifecycleManager.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
         projectLifecycleManager.onProjectLoaded = { [weak self] project in
-            print("\n🎉 PROJECT LOADED: '\(project.name)'")
+            // print("\n🎉 PROJECT LOADED: '\(project.name)'")  // DEBUG: Disabled for production
         }
         
         // Initialize device configuration manager
@@ -822,7 +822,7 @@ class AudioEngine: AudioEngineContext {
         // Log sample rate diagnostic info on startup
         dumpSampleRateInfo()
         
-        print("\n🚀 AUDIO ENGINE INITIALIZED")
+        // print("\n🚀 AUDIO ENGINE INITIALIZED")  // DEBUG: Disabled for production
     }
     
     private func setupMasterMeterTap() {
@@ -905,7 +905,7 @@ class AudioEngine: AudioEngineContext {
             self?.detectClipping(in: buffer, location: "MASTER OUTPUT (post-limiter)")
         }
         
-        print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")
+        // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
     }
     
     /// Detect and log clipping in an audio buffer

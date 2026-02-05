@@ -253,13 +253,14 @@ class TransportController {
             playbackStartWallTime = CACurrentMediaTime() + delaySeconds
             playbackStartBeat = resumeBeat
             
-            print("🎵 PLAY FROM PAUSE (RESUME):")
-            print("    resumeBeat: \(String(format: "%.6f", resumeBeat))")
-            print("    delayBeats: \(delayBeats) beats")
-            print("    delaySeconds: \(String(format: "%.6f", delaySeconds))s @ \(project.tempo) BPM")
-            print("    wallTime: \(String(format: "%.6f", playbackStartWallTime)) (adjusted +\(String(format: "%.3f", delaySeconds))s)")
-            print("    tempo: \(project.tempo) BPM")
-            print("    position: \(currentPosition.displayStringDefault)")
+            // DEBUG: Resume timing logs disabled for production
+            // print("🎵 PLAY FROM PAUSE (RESUME):")
+            // print("    resumeBeat: \(String(format: "%.6f", resumeBeat))")
+            // print("    delayBeats: \(delayBeats) beats")
+            // print("    delaySeconds: \(String(format: "%.6f", delaySeconds))s @ \(project.tempo) BPM")
+            // print("    wallTime: \(String(format: "%.6f", playbackStartWallTime)) (adjusted +\(String(format: "%.3f", delaySeconds))s)")
+            // print("    tempo: \(project.tempo) BPM")
+            // print("    position: \(currentPosition.displayStringDefault)")
             transportState = .playing
             onTransportStateChanged(.playing)
             
@@ -319,7 +320,7 @@ class TransportController {
     }
     
     func stop() {
-        print("⏹️  STOP: Resetting position to beat 0")
+        // print("⏹️  STOP: Resetting position to beat 0")  // DEBUG: Disabled for production
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -332,7 +333,7 @@ class TransportController {
         if let project = getProject() {
             currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
             onPositionChanged(currentPosition)
-            print("    position: \(currentPosition.displayStringDefault)")
+            // print("    position: \(currentPosition.displayStringDefault)")  // DEBUG: Disabled for production
         }
         
         // Update atomic state
