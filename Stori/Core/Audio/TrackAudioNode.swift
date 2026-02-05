@@ -254,41 +254,37 @@ final class TrackAudioNode: @unchecked Sendable {
         // If automation data exists at this beat, use it. Otherwise, use current mixer values.
         
         // Volume: Check automation, fallback to current mixer value
-        if let volumeLane = automationLanes.first(where: { $0.parameter == .volume }),
-           let automationValue = volumeLane.valueAt(beat: startBeat) {
-            _smoothedVolume = automationValue
+        if let volumeLane = automationLanes.first(where: { $0.parameter == .volume }) {
+            _smoothedVolume = volumeLane.value(atBeat: startBeat)
         } else {
             _smoothedVolume = volume
         }
         
         // Pan: Check automation, fallback to current mixer value
-        if let panLane = automationLanes.first(where: { $0.parameter == .pan }),
-           let automationValue = panLane.valueAt(beat: startBeat) {
-            _smoothedPan = automationValue
+        if let panLane = automationLanes.first(where: { $0.parameter == .pan }) {
+            // Automation stores pan 0–1; convert to -1..+1 for smoothed pan
+            _smoothedPan = panLane.value(atBeat: startBeat) * 2 - 1
         } else {
             _smoothedPan = pan
         }
         
         // EQ Low: Check automation, fallback to 0.5 (0dB)
-        if let eqLowLane = automationLanes.first(where: { $0.parameter == .eqLow }),
-           let automationValue = eqLowLane.valueAt(beat: startBeat) {
-            _smoothedEqLow = automationValue
+        if let eqLowLane = automationLanes.first(where: { $0.parameter == .eqLow }) {
+            _smoothedEqLow = eqLowLane.value(atBeat: startBeat)
         } else {
             _smoothedEqLow = 0.5  // 0dB default
         }
         
         // EQ Mid: Check automation, fallback to 0.5 (0dB)
-        if let eqMidLane = automationLanes.first(where: { $0.parameter == .eqMid }),
-           let automationValue = eqMidLane.valueAt(beat: startBeat) {
-            _smoothedEqMid = automationValue
+        if let eqMidLane = automationLanes.first(where: { $0.parameter == .eqMid }) {
+            _smoothedEqMid = eqMidLane.value(atBeat: startBeat)
         } else {
             _smoothedEqMid = 0.5  // 0dB default
         }
         
         // EQ High: Check automation, fallback to 0.5 (0dB)
-        if let eqHighLane = automationLanes.first(where: { $0.parameter == .eqHigh }),
-           let automationValue = eqHighLane.valueAt(beat: startBeat) {
-            _smoothedEqHigh = automationValue
+        if let eqHighLane = automationLanes.first(where: { $0.parameter == .eqHigh }) {
+            _smoothedEqHigh = eqHighLane.value(atBeat: startBeat)
         } else {
             _smoothedEqHigh = 0.5  // 0dB default
         }
