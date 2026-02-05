@@ -811,4 +811,57 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertTrue(engine.isGraphStable, "Engine graph should remain stable after removing middle track")
         XCTAssertTrue(engine.sharedAVAudioEngine.isRunning)
     }
+
+    /// Regression test for Issue #81: Removing a track that has bus sends must not corrupt the graph.
+    /// Exercises removeAllSendsForTrack before teardown so pan/volume are disconnected from bus mixers.
+    func testTrackDeletionWithBusSends() async throws {
+        var project = AudioProject(name: "Bus Send Test", tempo: 120.0)
+        let trackA = AudioTrack(name: "A", trackType: .audio, color: .blue)
+        let trackB = AudioTrack(name: "B", trackType: .audio, color: .red)
+        project.addTrack(trackA)
+        project.addTrack(trackB)
+        let bus = MixerBus(name: "Reverb")
+        project.buses.append(bus)
+
+        engine.loadProject(project)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(engine.currentProject?.tracks.count, 2)
+        engine.setupTrackSend(trackA.id, to: bus.id, level: 0.5)
+
+        engine.removeTrack(trackId: trackA.id)
+
+        let remaining = engine.currentProject?.tracks ?? []
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertTrue(remaining.contains(where: { $0.id == trackB.id }))
+        XCTAssertFalse(remaining.contains(where: { $0.id == trackA.id }))
+        XCTAssertTrue(engine.isGraphStable, "Engine graph should remain stable after removing track with bus sends")
+        XCTAssertTrue(engine.sharedAVAudioEngine.isRunning)
+    }
+
+    /// Removing one track must not remove another track's bus sends.
+    /// removeAllSendsForTrack is per-track; other tracks' sends must remain.
+    func testRemoveTrackWithBusSendsLeavesOtherTrackSendsIntact() async throws {
+        var project = AudioProject(name: "Two Sends Test", tempo: 120.0)
+        let trackA = AudioTrack(name: "A", trackType: .audio, color: .blue)
+        let trackB = AudioTrack(name: "B", trackType: .audio, color: .red)
+        project.addTrack(trackA)
+        project.addTrack(trackB)
+        let bus = MixerBus(name: "Reverb")
+        project.buses.append(bus)
+
+        engine.loadProject(project)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        engine.setupTrackSend(trackA.id, to: bus.id, level: 0.5)
+        engine.setupTrackSend(trackB.id, to: bus.id, level: 0.3)
+
+        engine.removeTrack(trackId: trackA.id)
+
+        let remaining = engine.currentProject?.tracks ?? []
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.id, trackB.id)
+        XCTAssertTrue(engine.isGraphStable, "Graph must remain stable after removing track with bus sends")
+        XCTAssertTrue(engine.sharedAVAudioEngine.isRunning)
+    }
 }
