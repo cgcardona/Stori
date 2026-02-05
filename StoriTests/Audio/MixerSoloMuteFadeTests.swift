@@ -34,7 +34,9 @@
 
 import XCTest
 @testable import Stori
+import AVFoundation
 
+@MainActor
 final class MixerSoloMuteFadeTests: XCTestCase {
     
     // MARK: - Test Configuration
@@ -510,20 +512,17 @@ final class MixerSoloMuteFadeTests: XCTestCase {
         // Create plugin chain (minimal setup)
         let pluginChain = PluginChain(id: UUID(), maxSlots: 8)
         
-        // Attach nodes to engine
+        // Attach nodes to engine (match TrackAudioNodeTests: no plugin chain in graph)
         engine.attach(playerNode)
         engine.attach(volumeNode)
         engine.attach(panNode)
         engine.attach(eqNode)
         engine.attach(timePitchUnit)
-        engine.attach(pluginChain.inputNode)
-        engine.attach(pluginChain.outputNode)
         
-        // Connect signal chain
+        // Connect signal chain: player → timePitch → volume → pan → eq → mainMixer
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         engine.connect(playerNode, to: timePitchUnit, format: format)
-        engine.connect(timePitchUnit, to: pluginChain.inputNode, format: format)
-        engine.connect(pluginChain.outputNode, to: volumeNode, format: format)
+        engine.connect(timePitchUnit, to: volumeNode, format: format)
         engine.connect(volumeNode, to: panNode, format: format)
         engine.connect(panNode, to: eqNode, format: format)
         engine.connect(eqNode, to: engine.mainMixerNode, format: format)
