@@ -402,4 +402,92 @@ final class NoteDurationResizeTests: XCTestCase {
             previousEnd = snappedEndBeat
         }
     }
+    
+    // MARK: - Same-Pitch Overlap Prevention (Issue #79)
+    
+    /// GitHub Issue #79: Note duration resize must not create overlapping notes on the same pitch.
+    /// Resizing the first note past the second note's start causes invalid MIDI (Note On before Note Off).
+    func testNoteResizeNoOverlap() {
+        // 1. Create notes at beat 1 (duration 0.5) and beat 2 on same pitch (C3)
+        let first = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, velocity: 100, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        
+        // 2. Try to resize first note to end at beat 2.5 (requested duration 1.5)
+        let requestedEndBeat = 2.5
+        let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        let allowedDuration = cappedEndBeat - first.startBeat
+        
+        // 3. Assert: duration limited to beat 2 (first note ends at 2.0, duration 1.0)
+        XCTAssertEqual(cappedEndBeat, 2.0, accuracy: 0.00001)
+        XCTAssertEqual(allowedDuration, 1.0, accuracy: 0.00001,
+                       "Note duration must be limited to next same-pitch note's start")
+    }
+    
+    func testNoteResizeNoOverlapWithSnap() {
+        // Same scenario with snap: requested end 2.5 snaps to 2.5; collision still caps to 2.0
+        let first = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, velocity: 100, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        
+        let newDuration = 1.5
+        let newEndBeat = first.startBeat + newDuration  // 2.5
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)  // 2.5
+        let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: snappedEndBeat)
+        let finalDuration = max(snapResolution.stepDurationBeats, cappedEndBeat - first.startBeat)
+        
+        XCTAssertEqual(cappedEndBeat, 2.0, accuracy: 0.00001)
+        XCTAssertEqual(finalDuration, 1.0, accuracy: 0.00001,
+                       "With snap, resize is still capped by same-pitch collision")
+    }
+    
+    func testNoteResizeDifferentPitchCanExtendPast() {
+        // Different pitch: no collision; resize can extend freely
+        let first = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 64, velocity: 100, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        
+        let requestedEndBeat = 2.5
+        let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(cappedEndBeat, 2.5, accuracy: 0.00001,
+                       "Different pitch: no overlap constraint")
+    }
+    
+    func testOverlappingNotesPreventedResizeCapped() {
+        // Create overlapping notes scenario: first note would extend into second (same pitch)
+        let first = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        
+        // Simulate user dragging right edge to 3.0
+        let requestedEndBeat = 3.0
+        let maxEndBeat = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        let maxDuration = maxEndBeat - first.startBeat
+        
+        XCTAssertEqual(maxEndBeat, 2.0, accuracy: 0.00001)
+        XCTAssertEqual(maxDuration, 1.0, accuracy: 0.00001)
+        // After applying this cap, first note ends at 2.0, second starts at 2.0 -> no overlap
+        XCTAssertLessThanOrEqual(maxEndBeat, second.startBeat,
+                                 "Resize must not allow first note to extend past second note's start")
+    }
+    
+    func testBugScenarioFromIssue79() {
+        // Exact steps from Issue #79: two consecutive notes same pitch (C3 at 1 and 2)
+        let first = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, velocity: 100, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        
+        // User drags to extend first note's duration past beat 2
+        let requestedEndBeat = 2.5
+        let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        
+        // Expected: limit to beat 2 (Option A from issue - collision prevention)
+        XCTAssertEqual(cappedEndBeat, 2.0, accuracy: 0.00001,
+                       "Resize must be limited to next note's start (Issue #79)")
+        
+        // Verify no overlap: first note end <= second note start
+        let firstEnd = cappedEndBeat
+        XCTAssertEqual(firstEnd, second.startBeat, accuracy: 0.00001,
+                       "First note should end exactly where second begins (no overlap)")
+    }
 }
