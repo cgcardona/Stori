@@ -138,16 +138,12 @@ struct SynthesizerSheet: View {
     /// Access shared instrument manager for track routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
     
-    /// Fallback synth for when no track is selected
-    @State private var fallbackSynth: SynthEngine?
+    /// Audio engine (passed for consistency, not used for preview)
+    var audioEngine: AudioEngine
     
-    /// Current synth engine (from track or fallback)
+    /// Current synth engine from active track only
     private var activeSynth: SynthEngine? {
-        if let instrument = instrumentManager.activeInstrument,
-           let synth = instrument.synthEngine {
-            return synth
-        }
-        return fallbackSynth
+        instrumentManager.activeInstrument?.synthEngine
     }
     
     var body: some View {
@@ -161,17 +157,23 @@ struct SynthesizerSheet: View {
             if let synth = activeSynth {
                 SynthesizerView(engine: synth)
             } else {
-                ProgressView("Loading Synthesizer...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 16) {
+                    Image(systemName: "waveform.path.ecg.rectangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("No Synthesizer Selected")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("Select a MIDI track with a synth instrument to edit its parameters.")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 500)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(width: 800, height: 700)
-        .task {
-            await setupFallbackSynth()
-        }
-        .onDisappear {
-            fallbackSynth?.stop()
-        }
     }
     
     private var synthHeader: some View {
@@ -208,16 +210,6 @@ struct SynthesizerSheet: View {
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor))
-    }
-    
-    @MainActor
-    private func setupFallbackSynth() async {
-        let engine = SynthEngine()
-        do {
-            try engine.start()
-            fallbackSynth = engine
-        } catch {
-        }
     }
 }
 
@@ -259,11 +251,11 @@ struct PianoRollPanelContent: View {
         durationBeats: 8.0
     )
     
-    /// For auto-releasing preview notes
-    @State private var previewNoteTask: Task<Void, Never>?
+    /// For auto-releasing preview notes (one task per pitch for polyphonic preview)
+    @State private var previewNoteTasks: [UInt8: Task<Void, Never>] = [:]
     
-    /// Currently playing preview pitch (for proper note-off when switching)
-    @State private var currentPreviewPitch: UInt8? = nil
+    /// Currently playing preview pitches (for proper note-off - supports chords)
+    @State private var currentPreviewPitches: Set<UInt8> = []
     
     /// The region binding to use for PianoRollView
     private var regionBinding: Binding<MIDIRegion> {
@@ -361,32 +353,25 @@ struct PianoRollPanelContent: View {
             }
         }
         .onDisappear {
-            // Stop any playing preview note to prevent stuck notes
-            if let pitch = currentPreviewPitch {
-                stopPreviewNote(pitch)
-            }
-            previewNoteTask?.cancel()
+            // Stop all playing preview notes to prevent stuck notes
+            stopCurrentPreview()
             previewSampler.stop()
         }
     }
     
     /// Preview a note using the track's instrument (or fallback sampler in demo mode)
     private func previewNote(_ pitch: UInt8) {
-        // Cancel any pending auto-release
-        previewNoteTask?.cancel()
+        // Cancel any existing auto-release task for this specific pitch
+        previewNoteTasks[pitch]?.cancel()
         
-        // Stop the previous note immediately to prevent stuck notes
-        if let previousPitch = currentPreviewPitch, previousPitch != pitch {
-            stopPreviewNote(previousPitch)
-        }
-        
-        currentPreviewPitch = pitch
+        // Add to active preview set (supports polyphonic preview)
+        currentPreviewPitches.insert(pitch)
         
         // Use track instrument if available, otherwise use fallback sampler
         if let trackId = trackId, let instrument = instrumentManager.getInstrument(for: trackId) {
             // Play through the track's actual instrument (synth or sampler)
             instrument.noteOn(pitch: pitch, velocity: 100)
-            previewNoteTask = Task {
+            previewNoteTasks[pitch] = Task {
                 try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
                 await MainActor.run {
                     stopPreviewNote(pitch)
@@ -395,7 +380,7 @@ struct PianoRollPanelContent: View {
         } else {
             // Demo mode: use fallback acoustic piano sampler
             previewSampler.noteOn(pitch: pitch, velocity: 100)
-            previewNoteTask = Task {
+            previewNoteTasks[pitch] = Task {
                 try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for piano decay
                 await MainActor.run {
                     stopPreviewNote(pitch)
@@ -412,20 +397,28 @@ struct PianoRollPanelContent: View {
             previewSampler.noteOff(pitch: pitch)
         }
         
-        // Clear current preview if this was it
-        if currentPreviewPitch == pitch {
-            currentPreviewPitch = nil
-        }
+        // Remove from active set and clean up task
+        currentPreviewPitches.remove(pitch)
+        previewNoteTasks[pitch] = nil
     }
     
-    /// Stop the currently playing preview note (called when drag ends)
+    /// Stop all currently playing preview notes (called when drag ends)
     private func stopCurrentPreview() {
-        previewNoteTask?.cancel()
-        previewNoteTask = nil
-        
-        if let pitch = currentPreviewPitch {
-            stopPreviewNote(pitch)
+        // Cancel all auto-release tasks
+        for task in previewNoteTasks.values {
+            task.cancel()
         }
+        previewNoteTasks.removeAll()
+        
+        // Stop all active preview notes
+        for pitch in currentPreviewPitches {
+            if let trackId = trackId, let instrument = instrumentManager.getInstrument(for: trackId) {
+                instrument.noteOff(pitch: pitch)
+            } else {
+                previewSampler.noteOff(pitch: pitch)
+            }
+        }
+        currentPreviewPitches.removeAll()
     }
     
     /// Sync editableRegion from the midiRegion binding or auto-load from track
@@ -510,16 +503,12 @@ struct SynthesizerPanelContent: View {
     /// Access shared instrument manager for track routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
     
-    /// Fallback synth for when no track is selected
-    @State private var fallbackSynth: SynthEngine?
+    /// Audio engine (passed for future use, not used for preview synths)
+    var audioEngine: AudioEngine
     
-    /// Current synth engine (from track or fallback)
+    /// Current synth engine from the active track only
     private var activeSynth: SynthEngine? {
-        if let instrument = instrumentManager.activeInstrument,
-           let synth = instrument.synthEngine {
-            return synth
-        }
-        return fallbackSynth
+        instrumentManager.activeInstrument?.synthEngine
     }
     
     var body: some View {
@@ -536,22 +525,22 @@ struct SynthesizerPanelContent: View {
                         SynthesizerView(engine: synth)
                     }
                 } else {
-                    VStack {
-                        ProgressView()
-                        Text("Loading Synthesizer...")
+                    VStack(spacing: 12) {
+                        Image(systemName: "waveform.path.ecg.rectangle")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("Select a MIDI track with a synthesizer")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Text("Create a MIDI track and assign a synth instrument to edit its parameters here.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 400)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-        }
-        .task {
-            await setupFallbackSynth()
-        }
-        .onDisappear {
-            // Only stop fallback synth - track instruments are managed by InstrumentManager
-            fallbackSynth?.stop()
         }
     }
     
@@ -598,16 +587,6 @@ struct SynthesizerPanelContent: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-    }
-    
-    @MainActor
-    private func setupFallbackSynth() async {
-        let engine = SynthEngine()
-        do {
-            try engine.start()
-            fallbackSynth = engine
-        } catch {
-        }
     }
 }
 

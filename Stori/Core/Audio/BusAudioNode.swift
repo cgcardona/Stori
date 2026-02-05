@@ -187,21 +187,13 @@ class BusAudioNode {
     
     func stopLevelMonitoring() {
         if inputTapInstalled {
-            do {
-                inputMixer.removeTap(onBus: 0)
-                inputTapInstalled = false
-            } catch {
-                inputTapInstalled = false // Reset flag anyway
-            }
+            inputMixer.removeTap(onBus: 0)
+            inputTapInstalled = false
         }
         
         if outputTapInstalled {
-            do {
-                outputMixer.removeTap(onBus: 0)
-                outputTapInstalled = false
-            } catch {
-                outputTapInstalled = false // Reset flag anyway
-            }
+            outputMixer.removeTap(onBus: 0)
+            outputTapInstalled = false
         }
     }
     

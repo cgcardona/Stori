@@ -350,7 +350,8 @@ private struct RulerPlayhead: View {
     
     var body: some View {
         // Position from beats (no seconds)
-        let playheadX = CGFloat(audioEngine.currentPosition.beats) * pixelsPerBeat
+        let currentBeat = audioEngine.currentPosition.beats
+        let playheadX = CGFloat(currentBeat) * pixelsPerBeat
         
         // Use Canvas for precise pixel-perfect positioning
         Canvas { context, size in

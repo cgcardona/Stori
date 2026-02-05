@@ -107,7 +107,7 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     let mixer = AVAudioMixerNode()
     @ObservationIgnored
-    private let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo
+    internal let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo (internal for export parity)
     @ObservationIgnored
     private let masterLimiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
         componentType: kAudioUnitType_Effect,
@@ -262,7 +262,7 @@ class AudioEngine: AudioEngineContext {
         }
         
         // Install the metronome nodes
-        metronome.install(into: engine, dawMixer: mixer, audioEngine: self)
+        metronome.install(into: engine, dawMixer: mixer, audioEngine: self, transportController: transportController)
         installedMetronome = metronome
         
         // Restart if it was running
@@ -456,6 +456,8 @@ class AudioEngine: AudioEngineContext {
         trackNodeManager.onRebuildTrackGraph = { [weak self] trackId in self?.rebuildTrackGraph(trackId: trackId) }
         trackNodeManager.onSafeDisconnectTrackNode = { [weak self] trackNode in self?.safeDisconnectTrackNode(trackNode) }
         trackNodeManager.onLoadAudioRegion = { [weak self] region, trackNode in self?.loadAudioRegion(region, trackNode: trackNode) }
+        trackNodeManager.onPerformBatchOperation = { [weak self] work in self?.performBatchGraphOperation(work) }
+        trackNodeManager.onUpdateAutomationTrackCache = { [weak self] in self?.updateAutomationTrackCache() }
         trackNodeManager.mixer = mixer
         // Note: installedMetronome and mixerController are set after they're initialized
         
@@ -544,6 +546,9 @@ class AudioEngine: AudioEngineContext {
         projectLifecycleManager.onSetGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
         projectLifecycleManager.onSetTransportStopped = { [weak self] in self?.transportState = .stopped }
         projectLifecycleManager.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
+        projectLifecycleManager.onProjectLoaded = { [weak self] project in
+            // print("\n🎉 PROJECT LOADED: '\(project.name)'")  // DEBUG: Disabled for production
+        }
         
         // Initialize device configuration manager
         deviceConfigManager = DeviceConfigurationManager()
@@ -791,6 +796,12 @@ class AudioEngine: AudioEngineContext {
         
         // Set default master volume to match published property
         mixer.outputVolume = Float(masterVolume)
+        
+        // Install clipping detection taps (DEBUG only)
+        // DISABLED: Taps themselves can cause clicks during tests
+        // #if DEBUG
+        // installClippingDetectionTaps()
+        // #endif
        
         // Start the engine
         startAudioEngine()
@@ -810,6 +821,8 @@ class AudioEngine: AudioEngineContext {
         
         // Log sample rate diagnostic info on startup
         dumpSampleRateInfo()
+        
+        // print("\n🚀 AUDIO ENGINE INITIALIZED")  // DEBUG: Disabled for production
     }
     
     private func setupMasterMeterTap() {
@@ -880,6 +893,47 @@ class AudioEngine: AudioEngineContext {
         AppLogger.shared.debug("Master limiter configured for safe headroom", category: .audio)
     }
     
+    /// Install audio taps to detect clipping at various points in the signal chain (DEBUG only)
+    private func installClippingDetectionTaps() {
+        // Tap after mixer (before EQ/limiter)
+        mixer.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
+            self?.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
+        }
+        
+        // Tap after limiter (final output)
+        masterLimiter.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
+            self?.detectClipping(in: buffer, location: "MASTER OUTPUT (post-limiter)")
+        }
+        
+        // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
+    }
+    
+    /// Detect and log clipping in an audio buffer
+    private func detectClipping(in buffer: AVAudioPCMBuffer, location: String) {
+        guard let channelData = buffer.floatChannelData else { return }
+        
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        
+        var maxSample: Float = 0
+        var clippedFrames = 0
+        
+        for channel in 0..<channelCount {
+            for frame in 0..<frameCount {
+                let sample = abs(channelData[channel][frame])
+                maxSample = max(maxSample, sample)
+                
+                if sample > 0.99 {  // Near clipping threshold
+                    clippedFrames += 1
+                }
+            }
+        }
+        
+        if clippedFrames > 0 || maxSample > 0.95 {
+            print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
+        }
+    }
+    
     // MARK: - Engine Start Recovery
     
     /// Current retry attempt for engine start (for exponential backoff)
@@ -914,20 +968,18 @@ class AudioEngine: AudioEngineContext {
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
                 // Validate engine health after start (only if monitor is initialized)
-                guard let healthMonitor = healthMonitor else {
-                    // Health monitor not yet initialized - this is OK during AudioEngine init
-                    return
-                }
-                let healthResult = healthMonitor.validateState()
-                if !healthResult.isValid {
-                    AppLogger.shared.warning("Engine started but health check found issues", category: .audio)
-                    for issue in healthResult.criticalIssues {
-                        AppLogger.shared.error(issue.logMessage, category: .audio)
-                        errorTracker.recordError(
-                            severity: .error,
-                            component: issue.component,
-                            message: issue.description
-                        )
+                if let healthMonitor = healthMonitor {
+                    let healthResult = healthMonitor.validateState()
+                    if !healthResult.isValid {
+                        AppLogger.shared.warning("Engine started but health check found issues", category: .audio)
+                        for issue in healthResult.criticalIssues {
+                            AppLogger.shared.error(issue.logMessage, category: .audio)
+                            errorTracker.recordError(
+                                severity: .error,
+                                component: issue.component,
+                                message: issue.description
+                            )
+                        }
                     }
                 }
                 
@@ -1174,17 +1226,20 @@ class AudioEngine: AudioEngineContext {
             
             if !addedTrackIds.isEmpty {
                 logDebug("New tracks detected: \(addedTrackIds.count)", category: "PROJECT-UPDATE")
-            }
-            
-            
-            // Set up audio nodes for new tracks
-            for trackId in addedTrackIds {
-                if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
-                    let trackNode = createTrackNode(for: newTrack)
-                    trackNodeManager.storeTrackNode(trackNode, for: trackId)
-                    
-                    // Use centralized rebuild for all connections
-                    rebuildTrackGraph(trackId: trackId)
+                
+                // BATCH MODE: Wrap multiple track additions in batch to avoid rate limiting
+                // This handles MIDI import creating many tracks at once
+                performBatchGraphOperation {
+                    // Set up audio nodes for new tracks
+                    for trackId in addedTrackIds {
+                        if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
+                            let trackNode = createTrackNode(for: newTrack)
+                            trackNodeManager.storeTrackNode(trackNode, for: trackId)
+                            
+                            // Use centralized rebuild for all connections
+                            rebuildTrackGraph(trackId: trackId)
+                        }
+                    }
                 }
             }
             
@@ -1382,6 +1437,12 @@ class AudioEngine: AudioEngineContext {
         try graphManager.modifyGraphForTrack(trackId, work)
     }
     
+    /// Performs multiple graph mutations in batch mode (suspends rate limiting).
+    /// Use for bulk operations like project load, multi-track import, etc.
+    func performBatchGraphOperation(_ work: () throws -> Void) rethrows {
+        try graphManager.performBatchOperation(work)
+    }
+    
     // NOTE: Core graph mutation implementation is now handled by AudioGraphManager
     
     // MARK: - Centralized Graph Rebuild (Single Source of Truth)
@@ -1454,10 +1515,13 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Transport Controls (Delegated to TransportController)
     
     func play() {
-        // Validate engine health before starting playback (only if monitor is initialized)
+        // Quick health validation
         if let healthMonitor = healthMonitor {
-            if !healthMonitor.quickValidate() {
+            let quickCheck = healthMonitor.quickValidate()
+            
+            if !quickCheck {
                 let result = healthMonitor.validateState()
+                
                 if !result.isValid {
                     errorTracker.recordError(
                         severity: .critical,
@@ -2386,4 +2450,6 @@ extension AudioEngine {
         
         return "✅ Audio Engine Healthy"
     }
+    
+    // MARK: - Playback Debugging
 }

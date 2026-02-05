@@ -61,6 +61,15 @@ final class TrackNodeManager {
     @ObservationIgnored
     var onLoadAudioRegion: ((AudioRegion, TrackAudioNode) -> Void)?
     
+    /// Callback to perform batch graph operations (suspends rate limiting)
+    @ObservationIgnored
+    var onPerformBatchOperation: ((@escaping () -> Void) -> Void)?
+    
+    /// Callback to update automation engine's cached track IDs
+    /// REAL-TIME SAFETY: Called when tracks change to avoid 120Hz array allocation
+    @ObservationIgnored
+    var onUpdateAutomationTrackCache: (() -> Void)?
+    
     /// Reference to metronome for reconnection after setup
     @ObservationIgnored
     weak var installedMetronome: MetronomeEngine?
@@ -111,10 +120,17 @@ final class TrackNodeManager {
         
         logDebug("Created \(trackNodes.count) track nodes", category: "PROJECT")
         
-        // Use centralized rebuild for all track connections
-        // This handles both tracks with and without sends
-        for track in project.tracks {
-            onRebuildTrackGraph?(track.id)
+        // REAL-TIME SAFETY: Update automation engine's cached track IDs
+        onUpdateAutomationTrackCache?()
+        
+        // BATCH MODE: Use batch operation for bulk track connection setup
+        // This prevents rate limiting when loading projects with many tracks
+        onPerformBatchOperation? { [weak self] in
+            // Use centralized rebuild for all track connections
+            // This handles both tracks with and without sends
+            for track in project.tracks {
+                self?.onRebuildTrackGraph?(track.id)
+            }
         }
         
         // CRITICAL FIX: Reconnect metronome after track connections
@@ -137,6 +153,9 @@ final class TrackNodeManager {
         let trackNode = createTrackNode(for: track)
         trackNodes[track.id] = trackNode
         
+        // REAL-TIME SAFETY: Update automation engine's cached track IDs
+        onUpdateAutomationTrackCache?()
+        
         // Use centralized rebuild for all connections
         onRebuildTrackGraph?(track.id)
     }
@@ -144,6 +163,9 @@ final class TrackNodeManager {
     /// Store a track node directly (used when AudioEngine creates nodes in updateCurrentProject)
     func storeTrackNode(_ trackNode: TrackAudioNode, for trackId: UUID) {
         trackNodes[trackId] = trackNode
+        
+        // REAL-TIME SAFETY: Update automation engine's cached track IDs
+        onUpdateAutomationTrackCache?()
     }
     
     /// Remove a track node by ID
@@ -151,6 +173,9 @@ final class TrackNodeManager {
         if let trackNode = trackNodes[trackId] {
             onSafeDisconnectTrackNode?(trackNode)
             trackNodes.removeValue(forKey: trackId)
+            
+            // REAL-TIME SAFETY: Update automation engine's cached track IDs
+            onUpdateAutomationTrackCache?()
         }
     }
     
@@ -164,6 +189,9 @@ final class TrackNodeManager {
         // Clear the collections
         trackNodes.removeAll()
         mixerController?.clearSoloTracks()
+        
+        // REAL-TIME SAFETY: Update automation engine's cached track IDs
+        onUpdateAutomationTrackCache?()
     }
     
     // MARK: - Node Creation
@@ -238,5 +266,14 @@ final class TrackNodeManager {
         }
         
         return trackNode
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @MainActor classes can have implicit tasks from Swift Concurrency runtime
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }

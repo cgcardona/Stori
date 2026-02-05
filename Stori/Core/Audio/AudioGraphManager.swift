@@ -60,6 +60,10 @@ final class AudioGraphManager {
     /// Time window for rate limiting (seconds)
     private static let rateLimitWindow: TimeInterval = 1.0
     
+    /// Batch mode: temporarily suspends rate limiting for bulk operations
+    @ObservationIgnored
+    private var isBatchMode: Bool = false
+    
     // MARK: - Dependencies (set by AudioEngine)
     
     @ObservationIgnored
@@ -114,6 +118,20 @@ final class AudioGraphManager {
     /// Performs a track-scoped hot-swap mutation (adding/removing nodes on one track)
     func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
         try modifyGraph(.hotSwap(trackId: trackId), work)
+    }
+    
+    /// Performs multiple graph mutations in batch mode (suspends rate limiting).
+    /// Use this for bulk operations like project load, multi-track import, etc.
+    /// The Logic Pro approach: batch legitimate bulk operations, rate-limit user spam.
+    func performBatchOperation(_ work: () throws -> Void) rethrows {
+        let wasBatchMode = isBatchMode
+        isBatchMode = true
+        defer { isBatchMode = wasBatchMode }
+        
+        try work()
+        
+        // Clear rate limit history after batch to prevent spillover
+        recentMutationTimestamps.removeAll()
     }
     
     /// Check if generation is still valid after an await point
@@ -204,6 +222,11 @@ final class AudioGraphManager {
     
     /// Check if mutation should be rate limited
     private func shouldRateLimitMutation(type: MutationType) -> Bool {
+        // Don't rate limit in batch mode (bulk operations like project load)
+        if isBatchMode {
+            return false
+        }
+        
         // Don't rate limit connection-only mutations (very fast)
         if case .connection = type {
             return false
@@ -263,6 +286,14 @@ final class AudioGraphManager {
         
         try work()
         
+        // Only prepare/start if engine has nodes attached
+        // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            transportController?.setupPositionTimer()
+            return
+        }
+        
         engine.prepare()
         
         if wasRunning {
@@ -313,6 +344,13 @@ final class AudioGraphManager {
         
         try work()
         
+        // Only prepare/start if engine has nodes attached
+        // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            return
+        }
+        
         engine.prepare()
         
         if wasRunning {
@@ -356,6 +394,13 @@ final class AudioGraphManager {
         }
         
         try work()
+        
+        // Only prepare/start if engine has nodes attached
+        // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            return
+        }
         
         engine.prepare()
         
@@ -403,5 +448,14 @@ final class AudioGraphManager {
                 "durationMs": String(format: "%.1f", duration)
             ]
         )
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }
