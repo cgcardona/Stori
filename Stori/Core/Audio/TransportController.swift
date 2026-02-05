@@ -65,6 +65,10 @@ class TransportController {
     
     /// Thread-safe read of current beat position (for MIDI scheduler)
     /// Calculates position from wall-clock delta for maximum accuracy
+    /// Thread-safe read of current beat position (for MIDI scheduler, metronome, recording)
+    /// CRITICAL: This is accessed from audio threads - must be real-time safe!
+    /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    /// NOTE: This calculation MUST match calculateCurrentBeat() to maintain consistency
     nonisolated var atomicBeatPosition: Double {
         os_unfair_lock_lock(&beatPositionLock)
         defer { os_unfair_lock_unlock(&beatPositionLock) }
@@ -74,6 +78,7 @@ class TransportController {
         }
         
         // Calculate position from wall-clock delta (avoids timer jitter)
+        // FORMULA: Same as calculateCurrentBeat() - DO NOT DIVERGE!
         let elapsedSeconds = CACurrentMediaTime() - _atomicPlaybackStartWallTime
         let beatsPerSecond = _atomicTempo / 60.0
         return _atomicPlaybackStartBeat + (elapsedSeconds * beatsPerSecond)
@@ -253,13 +258,14 @@ class TransportController {
             playbackStartWallTime = CACurrentMediaTime() + delaySeconds
             playbackStartBeat = resumeBeat
             
-            print("🎵 PLAY FROM PAUSE (RESUME):")
-            print("    resumeBeat: \(String(format: "%.6f", resumeBeat))")
-            print("    delayBeats: \(delayBeats) beats")
-            print("    delaySeconds: \(String(format: "%.6f", delaySeconds))s @ \(project.tempo) BPM")
-            print("    wallTime: \(String(format: "%.6f", playbackStartWallTime)) (adjusted +\(String(format: "%.3f", delaySeconds))s)")
-            print("    tempo: \(project.tempo) BPM")
-            print("    position: \(currentPosition.displayStringDefault)")
+            // DEBUG: Resume timing logs disabled for production
+            // print("🎵 PLAY FROM PAUSE (RESUME):")
+            // print("    resumeBeat: \(String(format: "%.6f", resumeBeat))")
+            // print("    delayBeats: \(delayBeats) beats")
+            // print("    delaySeconds: \(String(format: "%.6f", delaySeconds))s @ \(project.tempo) BPM")
+            // print("    wallTime: \(String(format: "%.6f", playbackStartWallTime)) (adjusted +\(String(format: "%.3f", delaySeconds))s)")
+            // print("    tempo: \(project.tempo) BPM")
+            // print("    position: \(currentPosition.displayStringDefault)")
             transportState = .playing
             onTransportStateChanged(.playing)
             
@@ -319,7 +325,7 @@ class TransportController {
     }
     
     func stop() {
-        print("⏹️  STOP: Resetting position to beat 0")
+        // print("⏹️  STOP: Resetting position to beat 0")  // DEBUG: Disabled for production
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -332,7 +338,7 @@ class TransportController {
         if let project = getProject() {
             currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
             onPositionChanged(currentPosition)
-            print("    position: \(currentPosition.displayStringDefault)")
+            // print("    position: \(currentPosition.displayStringDefault)")  // DEBUG: Disabled for production
         }
         
         // Update atomic state
@@ -482,23 +488,22 @@ class TransportController {
             return
         }
         
-        // Calculate elapsed time since playback started using captured wall time
-        // (captured on background queue when timer fired, not when this runs on MainActor)
-        let elapsedSeconds = capturedWallTime - playbackStartWallTime
+        // CRITICAL FIX: Use atomic position calculation (single source of truth)
+        // This ensures timer-based position matches MIDI scheduler's position exactly
+        // Previous approach duplicated calculation logic → potential for divergence
+        let currentBeat = calculateCurrentBeat(
+            startBeat: playbackStartBeat,
+            startWallTime: playbackStartWallTime,
+            currentWallTime: capturedWallTime,
+            tempo: project.tempo
+        )
         
-        // Convert elapsed seconds to elapsed beats
-        let beatsPerSecond = project.tempo / 60.0
-        let elapsedBeats = elapsedSeconds * beatsPerSecond
-        
-        // Current position = start position + elapsed beats
-        let currentBeat = playbackStartBeat + elapsedBeats
-        
-        // First update after resume? Log it with detailed timing
+        // Track state changes for debugging (no console output)
         if lastStartBeat != playbackStartBeat {
             let position = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
             lastStartBeat = playbackStartBeat
         }
-        
+
         currentPosition = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         
         // Update atomic state for MIDI scheduler
@@ -508,6 +513,26 @@ class TransportController {
         
         // Check for cycle loop
         checkCycleLoop()
+    }
+    
+    /// Calculate current beat position from wall-clock time (shared calculation logic)
+    /// This is the SINGLE SOURCE OF TRUTH for beat position calculation
+    /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    /// 
+    /// This method is nonisolated because it's a pure calculation with no state access,
+    /// making it safe to call from both MainActor and audio thread contexts.
+    /// 
+    /// - Parameters:
+    ///   - startBeat: The beat position where playback started
+    ///   - startWallTime: The wall-clock time when playback started (from CACurrentMediaTime())
+    ///   - currentWallTime: The current wall-clock time (from CACurrentMediaTime())
+    ///   - tempo: The current tempo in BPM
+    /// - Returns: The current beat position
+    nonisolated internal func calculateCurrentBeat(startBeat: Double, startWallTime: TimeInterval, currentWallTime: TimeInterval, tempo: Double) -> Double {
+        let elapsedSeconds = currentWallTime - startWallTime
+        let beatsPerSecond = tempo / 60.0
+        let elapsedBeats = elapsedSeconds * beatsPerSecond
+        return startBeat + elapsedBeats
     }
     
     private func checkCycleLoop() {

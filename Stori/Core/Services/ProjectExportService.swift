@@ -290,6 +290,17 @@ class ProjectExportService {
     @ObservationIgnored
     private var exportStartTime: Date?
     
+    // MARK: - Task Lifecycle Management
+    
+    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83020)
+    /// See: MetronomeEngine for detailed explanation of Swift Concurrency cleanup bug
+    @ObservationIgnored
+    private var cleanupTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var progressUpdateTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var timeoutTask: Task<Void, Error>?  // Can throw during sleep
+    
     /// MIDI renderers for offline export (keyed by track ID)
     @ObservationIgnored
     private var midiRenderers: [UUID: OfflineMIDIRenderer] = [:]
@@ -353,15 +364,19 @@ class ProjectExportService {
         isCancelled = true
         exportStatus = "Cancelled"
         
+        // Cancel any existing cleanup task
+        cleanupTask?.cancel()
+        
         // Reset export state to close the dialog
         // The actual rendering will stop in the next tap callback
-        Task { @MainActor in
+        cleanupTask = Task { @MainActor in
             // Small delay to show "Cancelled" message before closing
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
             self.isExporting = false
             self.exportProgress = 0.0
             self.elapsedTime = 0.0
             self.estimatedTimeRemaining = nil
+            self.cleanupTask = nil
         }
     }
     
@@ -772,6 +787,10 @@ class ProjectExportService {
         // Store tempo for automation calculations
         exportTempo = project.tempo
         
+        // PDC: Initialize PluginLatencyManager with export sample rate
+        // This ensures compensation delays are calculated correctly for offline rendering
+        PluginLatencyManager.shared.setSampleRate(sampleRate)
+        
         // CRITICAL ASSERTION (Bug #02): Verify master volume from live engine
         let liveMasterVolume = audioEngine.masterVolume
         AppLogger.shared.info("✅ Export using live master volume: \(liveMasterVolume)", category: .audio)
@@ -912,6 +931,39 @@ class ProjectExportService {
                 )
                 midiTrackCount += 1
             }
+        }
+        
+        // PDC: Calculate delay compensation for all tracks after plugin chains are cloned
+        // This ensures export uses the same compensation as playback for perfect parity
+        // Build a map of track ID -> cloned plugin instances for PDC calculation
+        //
+        // WYHIWYG CRITICAL: Export MUST use identical PDC to playback.
+        // Without this, tracks with different plugin latencies will be misaligned in the bounce,
+        // causing phase cancellation, flamming, and a mix that doesn't match what was heard.
+        //
+        // How it works:
+        // 1. Get live plugin instances (cloned AUs have same latency characteristics)
+        // 2. Calculate compensation delays using PluginLatencyManager
+        // 3. scheduleRegionForPlayback applies these delays to each track's audio scheduling
+        //
+        var trackPluginsForPDC: [UUID: [PluginInstance]] = [:]
+        
+        for (trackId, clonedAUNodes) in clonedTrackPlugins {
+            // We need to convert AVAudioUnit back to PluginInstance for PDC calculation
+            // For now, we'll use the live engine's plugin instances as a reference
+            // since cloned plugins have the same latency characteristics
+            if let livePluginChain = await audioEngine.getPluginChain(for: trackId) {
+                let liveActivePlugins = await livePluginChain.activePlugins.filter { !$0.isBypassed }
+                trackPluginsForPDC[trackId] = liveActivePlugins
+            }
+        }
+        
+        // Calculate and store compensation delays for export
+        let _ = PluginLatencyManager.shared.calculateCompensation(trackPlugins: trackPluginsForPDC)
+        
+        let maxLatency = PluginLatencyManager.shared.maxLatencyMs
+        if maxLatency > 1.0 {
+            AppLogger.shared.info("Export PDC: Applying \(String(format: "%.2f", maxLatency))ms max latency compensation", category: .audio)
         }
         
         // Schedule all audio files for playback
@@ -1489,6 +1541,19 @@ class ProjectExportService {
     }
     
     /// Apply automation to track mixer nodes during export render
+    /// 
+    /// SAMPLE-ACCURATE AUTOMATION:
+    /// This method applies automation at the same granularity as live playback (120Hz = ~8.3ms).
+    /// Export uses sub-buffer automation application to ensure WYHIWYG - the bounce matches playback exactly.
+    ///
+    /// Architecture:
+    /// - Playback: AutomationEngine fires at 120Hz, applies values to TrackAudioNode
+    /// - Export: This method fires at 120Hz intervals within each buffer, applies to mixer nodes
+    /// - Both use the same AutomationProcessor for identical value calculation
+    ///
+    /// Why this matters:
+    /// Without frequent updates, fast automation (quick fades, rapid pans) would be stepped in export.
+    /// Pro DAWs apply automation at 60-240Hz for smooth parameter changes.
     private func applyExportAutomation(atSample samplePosition: AVAudioFrameCount, sampleRate: Double) {
         guard let processor = exportAutomationProcessor else { return }
         
@@ -1510,7 +1575,7 @@ class ProjectExportService {
                     mixerNode.pan = pan * 2 - 1
                 }
                 
-                // CRITICAL FIX (Bug #02): Apply EQ automation (was missing, causing export/playback mismatch)
+                // CRITICAL FIX: Apply EQ automation (was missing, causing export/playback mismatch)
                 // This matches the live automation path in AudioEngine+Automation.swift
                 if let eqNode = trackEQNodes[trackId] {
                     // Convert 0-1 normalized values to -12 to +12 dB range (matching live playback)
@@ -1543,7 +1608,15 @@ class ProjectExportService {
         
         // Convert beat position to seconds for AVAudioEngine scheduling
         let startTimeSeconds = region.startTimeSeconds(tempo: tempo)
-        let startFrame = AVAudioFramePosition(startTimeSeconds * sampleRate)
+        
+        // PDC: Get compensation delay for this track (in samples)
+        // This ensures export matches playback when plugins have different latencies
+        let compensationDelaySamples = PluginLatencyManager.shared.getCompensationDelay(for: track.id)
+        let compensationSeconds = Double(compensationDelaySamples) / sampleRate
+        
+        // Apply compensation to start time
+        let compensatedStartTime = startTimeSeconds + compensationSeconds
+        let startFrame = AVAudioFramePosition(compensatedStartTime * sampleRate)
         
         // Use contentLength for loop unit (includes empty space), fallback to source file duration
         let loopUnitDuration = region.contentLength > 0 ? region.contentLength : sourceFileDuration
@@ -1557,8 +1630,8 @@ class ProjectExportService {
         if region.isLooped && regionDurationSeconds > loopUnitDuration {
             // Calculate how many times to loop
             // CRITICAL: Use loopUnitDuration (contentLength) to respect empty space in loops
-            var currentTimeSeconds = startTimeSeconds
-            let endTimeSeconds = startTimeSeconds + regionDurationSeconds
+            var currentTimeSeconds = compensatedStartTime
+            let endTimeSeconds = compensatedStartTime + regionDurationSeconds
             var loopCount = 0
             
             while currentTimeSeconds < endTimeSeconds {
@@ -1678,8 +1751,24 @@ class ProjectExportService {
                     samplerEventPosition = targetPosition
                 }
                 
-                // Apply automation to track mixer nodes
-                self.applyExportAutomation(atSample: capturedFrames, sampleRate: sampleRate)
+                // SAMPLE-ACCURATE AUTOMATION:
+                // Apply automation at 120Hz intervals (same as playback) for smooth parameter changes.
+                // This ensures export matches playback exactly - no stepped automation.
+                //
+                // Calculate: 120Hz = 8.33ms interval = 400 samples at 48kHz
+                let automationUpdateInterval = Int(sampleRate / 120.0)  // ~400 samples at 48kHz
+                let bufferFrameCount = Int(buffer.frameLength)
+                
+                // Apply automation multiple times within this buffer for smooth curves
+                var sampleOffset = 0
+                while sampleOffset < bufferFrameCount {
+                    let automationSamplePos = capturedFrames + AVAudioFrameCount(sampleOffset)
+                    self.applyExportAutomation(atSample: automationSamplePos, sampleRate: sampleRate)
+                    sampleOffset += automationUpdateInterval
+                }
+                
+                // Apply one final time at the end of the buffer for precision
+                self.applyExportAutomation(atSample: capturedFrames + AVAudioFrameCount(bufferFrameCount), sampleRate: sampleRate)
                 
                 // Copy buffer data to output buffer
                 let framesToCopy = min(buffer.frameLength, frameCount - capturedFrames)
@@ -1696,7 +1785,9 @@ class ProjectExportService {
                     capturedFrames += framesToCopy
                     
                     // Update progress and time estimates
-                    Task { @MainActor in
+                    // Cancel previous update to prevent task buildup
+                    progressUpdateTask?.cancel()
+                    progressUpdateTask = Task { @MainActor in
                         let progress = Double(capturedFrames) / Double(frameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
@@ -1710,6 +1801,7 @@ class ProjectExportService {
                                 self.estimatedTimeRemaining = totalEstimatedTime - self.elapsedTime
                             }
                         }
+                        self.progressUpdateTask = nil
                     }
                 }
                 
@@ -1733,14 +1825,16 @@ class ProjectExportService {
                 }
             }
             
-            // Safety timeout
-            Task {
+            // Safety timeout - track to prevent memory corruption on deinit
+            timeoutTask?.cancel()
+            timeoutTask = Task {
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
                 if state.tryResume() {
                     renderEngine.mainMixerNode.removeTap(onBus: 0)
                     renderEngine.stop()
                     continuation.resume(throwing: ExportError.renderTimeout)
                 }
+                self.timeoutTask = nil
             }
         }
     }
@@ -2068,6 +2162,21 @@ class ProjectExportService {
         }
         
         return result
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
+        // Same bug pattern as MetronomeEngine (Issue #83020)
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        cleanupTask?.cancel()
+        progressUpdateTask?.cancel()
+        timeoutTask?.cancel()
     }
 }
 

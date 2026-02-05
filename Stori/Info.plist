@@ -39,6 +39,8 @@
 	<!-- Privacy descriptions -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Stori needs microphone access to record audio tracks for music production.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Stori saves your music projects, audio files, and recordings to the Documents folder.</string>
 	
 	<!-- Copyright -->
 	<key>NSHumanReadableCopyright</key>

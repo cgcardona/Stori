@@ -228,11 +228,16 @@ final class EdgeCaseTests: XCTestCase {
         // Zero velocity notes are valid (note-off)
     }
     
-    func testMIDINoteWithInvalidPitch() {
-        let note = MIDINote(pitch: 200, velocity: 100, startBeat: 0, durationBeats: 1)
-        // MIDI pitch is UInt8, so 200 wraps around
-        // This tests that we don't crash with out-of-range values
-        XCTAssertEqual(note.pitch, 200)
+    func testMIDINoteWithBoundaryPitch() {
+        // Test valid boundary values (0 and 127)
+        let lowNote = MIDINote(pitch: 0, velocity: 100, startBeat: 0, durationBeats: 1)
+        XCTAssertEqual(lowNote.pitch, 0)
+        
+        let highNote = MIDINote(pitch: 127, velocity: 100, startBeat: 0, durationBeats: 1)
+        XCTAssertEqual(highNote.pitch, 127)
+        
+        // Note: Invalid pitches (>127) are caught by assert() in debug builds
+        // and clamped to 127 in release builds
     }
     
     // MARK: - Cycle Loop Edge Cases

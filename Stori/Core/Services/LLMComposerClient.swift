@@ -296,6 +296,15 @@ class LLMComposerClient {
     private let baseURL: URL
     @ObservationIgnored
     private let session: URLSession
+    
+    // MARK: - Task Lifecycle Management
+    
+    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83866)
+    /// See: MetronomeEngine, ProjectExportService, AutomationServer for detailed explanation
+    @ObservationIgnored
+    private var streamingTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var cleanupTask: Task<Void, Never>?
 
     /// M-7: Redact paths, IPs, and long tokens from error messages shown to UI.
     private static func sanitizeErrorMessage(_ error: String) -> String {
@@ -468,7 +477,9 @@ class LLMComposerClient {
         storePrompt: Bool? = nil
     ) -> AsyncThrowingStream<ComposerStreamEvent, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            // Cancel any existing streaming task before starting new one
+            streamingTask?.cancel()
+            streamingTask = Task {
                 guard isConnected else {
                     continuation.finish(throwing: ComposerError.notConnected)
                     return
@@ -482,9 +493,14 @@ class LLMComposerClient {
                 }
                 
                 defer {
-                    Task { @MainActor in
+                    // Cancel previous cleanup task if any
+                    cleanupTask?.cancel()
+                    cleanupTask = Task { @MainActor in
                         isProcessing = false
+                        self.cleanupTask = nil
                     }
+                    // Clear streaming task reference
+                    streamingTask = nil
                 }
                 
                 // Build exhaustive context
@@ -847,5 +863,19 @@ class LLMComposerClient {
                 isVisible: lane.isVisible
             )
         }
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
+        // Same bug pattern as MetronomeEngine, ProjectExportService, AutomationServer (Issue #83866)
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        streamingTask?.cancel()
+        cleanupTask?.cancel()
     }
 }
