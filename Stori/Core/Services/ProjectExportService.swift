@@ -10,6 +10,7 @@ import Foundation
 import AVFoundation
 import AppKit
 import Combine
+import os.lock
 
 // MARK: - Offline MIDI Renderer
 
@@ -133,7 +134,11 @@ class OfflineMIDIRenderer {
     private let preset: SynthPreset
     private let sampleRate: Float
     private let volume: Float
-    private let lock = NSLock()
+    
+    /// Lock for thread-safe access to render state (BUG FIX Issue #50)
+    /// Using os_unfair_lock instead of NSLock for real-time safety
+    /// NSLock can cause priority inversion and indefinite blocking in offline render
+    private var lock = os_unfair_lock_s()
     
     /// Current sample position (incremented with each render call)
     private var currentSamplePosition: AVAudioFramePosition = 0
@@ -189,8 +194,8 @@ class OfflineMIDIRenderer {
     
     /// Render audio for a range of samples (uses internal sample position tracking)
     func render(into buffer: UnsafeMutablePointer<Float>, frameCount: Int) {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         
         let startSample = currentSamplePosition
         let endSample = startSample + AVAudioFramePosition(frameCount)
@@ -261,8 +266,8 @@ class OfflineMIDIRenderer {
     
     /// Reset for new render pass
     func reset() {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         nextEventIndex = 0
         activeVoices.removeAll()
         currentSamplePosition = 0
@@ -1708,19 +1713,22 @@ class ProjectExportService {
         
         // Use a class to track if continuation has been resumed (thread-safe)
         final class ContinuationState: @unchecked Sendable {
-            private let lock = NSLock()
+            /// Lock for thread-safe access to resume state (BUG FIX Issue #50)
+            /// Using os_unfair_lock instead of NSLock for real-time safety
+            /// NSLock can cause priority inversion in render callback
+            private var lock = os_unfair_lock_s()
             private var _isResumed = false
             
             var isResumed: Bool {
-                lock.lock()
-                defer { lock.unlock() }
+                os_unfair_lock_lock(&lock)
+                defer { os_unfair_lock_unlock(&lock) }
                 return _isResumed
             }
             
             /// Returns true if this call set the resumed flag (i.e., first caller wins)
             func tryResume() -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
+                os_unfair_lock_lock(&lock)
+                defer { os_unfair_lock_unlock(&lock) }
                 if _isResumed { return false }
                 _isResumed = true
                 return true
