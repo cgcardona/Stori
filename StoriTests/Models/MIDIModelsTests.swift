@@ -98,6 +98,89 @@ final class MIDIModelsTests: XCTestCase {
         XCTAssertNil(invalid)
     }
     
+    // MARK: - Resize Collision (Issue #79)
+    
+    /// maxEndBeatForResize: prevents overlapping same-pitch notes when resizing (right edge).
+    func testMaxEndBeatForResizeNoNextNoteReturnsRequested() {
+        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let allNotes = [note]
+        let requestedEndBeat = 3.0
+        let result = MIDINote.maxEndBeatForResize(resizingNote: note, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(result, 3.0, accuracy: 0.00001, "No next same-pitch note: should return requested end")
+    }
+    
+    func testMaxEndBeatForResizeCapsAtNextSamePitch() {
+        let first = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)   // C3 at beat 1
+        let second = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)   // C3 at beat 2
+        let allNotes = [first, second]
+        let requestedEndBeat = 2.5  // User tried to extend first note past beat 2
+        let result = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(result, 2.0, accuracy: 0.00001, "Should cap at next note's start (beat 2)")
+    }
+    
+    func testMaxEndBeatForResizeDifferentPitchNoCap() {
+        let first = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)   // C3
+        let second = MIDINote(pitch: 64, startBeat: 2.0, durationBeats: 0.5)  // E3
+        let allNotes = [first, second]
+        let requestedEndBeat = 2.5
+        let result = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(result, 2.5, accuracy: 0.00001, "Different pitch: no collision cap")
+    }
+    
+    func testMaxEndBeatForResizeExactIssue79Scenario() {
+        // Issue #79: two consecutive C3 notes at beat 1 and beat 2; resize first to 2.5 -> must cap at 2
+        let first = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        let result = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: 2.5)
+        XCTAssertEqual(result, 2.0, accuracy: 0.00001)
+        let maxDuration = result - first.startBeat
+        XCTAssertEqual(maxDuration, 1.0, accuracy: 0.00001, "First note duration limited to 1 beat (ends at 2)")
+    }
+    
+    func testMaxEndBeatForResizeMultipleSamePitchCapsAtNearest() {
+        let first = MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let third = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second, third]
+        let result = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: 3.0)
+        XCTAssertEqual(result, 1.0, accuracy: 0.00001, "Should cap at nearest next same-pitch (beat 1)")
+    }
+    
+    func testMaxEndBeatForResizeRequestedBeforeNextReturnsRequested() {
+        let first = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        let requestedEndBeat = 1.5  // User shortens; no collision
+        let result = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(result, 1.5, accuracy: 0.00001)
+    }
+    
+    func testMaxEndBeatForResizeIgnoresNotesBeforeResizingNote() {
+        let other = MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 0.5)
+        let resizing = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let allNotes = [other, resizing]
+        let result = MIDINote.maxEndBeatForResize(resizingNote: resizing, allNotes: allNotes, requestedEndBeat: 3.0)
+        XCTAssertEqual(result, 3.0, accuracy: 0.00001, "Notes before resizing note should not cap")
+    }
+    
+    func testMaxEndBeatForResizeIgnoresSelf() {
+        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let allNotes = [note]
+        let result = MIDINote.maxEndBeatForResize(resizingNote: note, allNotes: allNotes, requestedEndBeat: 2.0)
+        XCTAssertEqual(result, 2.0, accuracy: 0.00001, "Only other notes (different id) are considered")
+    }
+    
+    func testMaxEndBeatForResizePolyphonicNoOverlapSamePitch() {
+        // C3 at 1, E3 at 1.5, C3 at 2. Resizing first C3: can extend to 2, not to 2.5
+        let c1 = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let e = MIDINote(pitch: 64, startBeat: 1.5, durationBeats: 0.5)
+        let c2 = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [c1, e, c2]
+        let result = MIDINote.maxEndBeatForResize(resizingNote: c1, allNotes: allNotes, requestedEndBeat: 2.5)
+        XCTAssertEqual(result, 2.0, accuracy: 0.00001, "Cap at next C3 (beat 2), not E3 (beat 1.5)")
+    }
+    
     // MARK: - MIDIRegion Tests
     
     func testMIDIRegionInitialization() {
