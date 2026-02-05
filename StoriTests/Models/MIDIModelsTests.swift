@@ -180,7 +180,17 @@ final class MIDIModelsTests: XCTestCase {
         let result = MIDINote.maxEndBeatForResize(resizingNote: c1, allNotes: allNotes, requestedEndBeat: 2.5)
         XCTAssertEqual(result, 2.0, accuracy: 0.00001, "Cap at next C3 (beat 2), not E3 (beat 1.5)")
     }
-    
+
+    func testMaxEndBeatForResizeRequestedExactlyAtNextNoteStart() {
+        // Requested end exactly at next same-pitch note start: allowed (no overlap)
+        let first = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.5)
+        let second = MIDINote(pitch: 60, startBeat: 2.0, durationBeats: 0.5)
+        let allNotes = [first, second]
+        let requestedEndBeat = 2.0
+        let result = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: requestedEndBeat)
+        XCTAssertEqual(result, 2.0, accuracy: 0.00001, "Requested end at next note start is allowed (boundary)")
+    }
+
     // MARK: - MIDIRegion Tests
     
     func testMIDIRegionInitialization() {
