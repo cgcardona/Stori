@@ -9,6 +9,11 @@
 //  This pool provides pre-allocated buffers that can be acquired
 //  and released without blocking or allocation.
 //
+//  BUG FIX (Issue #55): Dynamic pool sizing with overflow handling
+//  - Emergency buffer allocation when pool exhausts
+//  - Pool usage monitoring for proactive warnings
+//  - Statistics tracking for debugging heavy load scenarios
+//
 
 import Foundation
 import AVFoundation
@@ -18,12 +23,23 @@ import os.lock
 
 /// A lock-free buffer pool for real-time audio recording.
 /// Pre-allocates AVAudioPCMBuffer instances to avoid allocation on the audio thread.
+///
+/// ARCHITECTURE (Issue #55):
+/// - **Initial Pool**: Fixed-size pre-allocated buffers (fast, real-time safe)
+/// - **Overflow Buffers**: Emergency allocation when pool exhausts (prevents sample drops)
+/// - **Usage Monitoring**: Tracks pool pressure for proactive warnings
+/// - **Auto-Shrink**: Returns overflow buffers after pressure subsides
 final class RecordingBufferPool: @unchecked Sendable {
     
     // MARK: - Configuration
     
-    /// Number of buffers to pre-allocate (should be enough to handle writer queue latency)
-    private let poolSize: Int
+    /// Initial number of buffers to pre-allocate (should handle normal load)
+    private let initialPoolSize: Int
+    
+    /// Maximum number of overflow buffers allowed (prevents unbounded growth)
+    /// At 8192 frames × 48kHz × 2 channels × 4 bytes = ~640KB per buffer
+    /// 32 overflow buffers = ~20MB maximum overflow memory
+    private let maxOverflowBuffers: Int = 32
     
     /// Frame capacity for each buffer
     private let frameCapacity: AVAudioFrameCount
@@ -36,14 +52,37 @@ final class RecordingBufferPool: @unchecked Sendable {
     /// Pool of available buffers (thread-safe access via lock)
     private var availableBuffers: [AVAudioPCMBuffer] = []
     
+    /// Overflow buffers allocated under heavy load (beyond initial pool)
+    /// These are deallocated when pool pressure subsides
+    private var overflowBuffers: [AVAudioPCMBuffer] = []
+    
     /// Lock for thread-safe access to the pool
     /// Using os_unfair_lock for minimal overhead
     private var poolLock = os_unfair_lock_s()
     
-    /// Statistics for monitoring pool health
+    // MARK: - Statistics (BUG FIX Issue #55)
+    
+    /// Total number of acquire() calls
     private(set) var totalAcquired: Int = 0
+    
+    /// Total number of release() calls
     private(set) var totalReleased: Int = 0
-    private(set) var allocationFailures: Int = 0
+    
+    /// Number of times pool exhausted and emergency allocation triggered
+    private(set) var emergencyAllocations: Int = 0
+    
+    /// Peak number of buffers in use simultaneously
+    private(set) var peakBuffersInUse: Int = 0
+    
+    /// Current number of buffers in use (derived from acquire/release counts)
+    var currentBuffersInUse: Int {
+        max(0, totalAcquired - totalReleased)
+    }
+    
+    /// Legacy stat for backward compatibility (maps to emergencyAllocations)
+    var allocationFailures: Int {
+        emergencyAllocations
+    }
     
     /// Write counter for periodic fsync (crash protection)
     private(set) var writeCount: Int = 0
@@ -58,11 +97,11 @@ final class RecordingBufferPool: @unchecked Sendable {
     /// - Parameters:
     ///   - format: Audio format for the buffers
     ///   - frameCapacity: Frame capacity for each buffer (typically matches tap buffer size)
-    ///   - poolSize: Number of buffers to pre-allocate (default: 16)
+    ///   - poolSize: Initial number of buffers to pre-allocate (default: 16)
     init(format: AVAudioFormat, frameCapacity: AVAudioFrameCount, poolSize: Int = 16) {
         self.format = format
         self.frameCapacity = frameCapacity
-        self.poolSize = poolSize
+        self.initialPoolSize = poolSize
         
         // Pre-allocate all buffers upfront (NOT on audio thread!)
         availableBuffers.reserveCapacity(poolSize)
@@ -74,32 +113,94 @@ final class RecordingBufferPool: @unchecked Sendable {
         
         if availableBuffers.count < poolSize {
             // Log warning but continue - we have some buffers
+            AppLogger.shared.warning("RecordingBufferPool: Only allocated \(availableBuffers.count)/\(poolSize) buffers", category: .audio)
         }
     }
     
-    // MARK: - Buffer Acquisition (Real-Time Safe)
+    // MARK: - Buffer Acquisition (Real-Time Safe with Emergency Allocation)
     
     /// Acquire a buffer from the pool.
-    /// Returns nil if no buffers are available (caller should handle gracefully).
+    ///
+    /// ARCHITECTURE (Issue #55):
+    /// 1. Try to acquire from pre-allocated pool (fast, real-time safe)
+    /// 2. If pool exhausted, allocate emergency overflow buffer
+    /// 3. Log warning and update statistics
     /// 
-    /// REAL-TIME SAFE: Uses os_unfair_lock which is safe for audio threads.
+    /// REAL-TIME SAFETY:
+    /// - Uses os_unfair_lock with SHORT critical sections
+    /// - Emergency allocation is NOT real-time safe, but prevents sample drops
+    /// - Trade-off: Brief audio callback delay vs. permanent data loss
+    ///
+    /// - Returns: Buffer (always succeeds unless memory exhaustion)
     func acquire() -> AVAudioPCMBuffer? {
         os_unfair_lock_lock(&poolLock)
-        defer { os_unfair_lock_unlock(&poolLock) }
         
-        if availableBuffers.isEmpty {
-            allocationFailures += 1
+        // Try to acquire from available pool (fast path)
+        if !availableBuffers.isEmpty {
+            let buffer = availableBuffers.removeLast()
+            totalAcquired += 1
+            
+            // Update peak usage tracking
+            let inUse = currentBuffersInUse
+            if inUse > peakBuffersInUse {
+                peakBuffersInUse = inUse
+            }
+            
+            os_unfair_lock_unlock(&poolLock)
+            return buffer
+        }
+        
+        // Pool exhausted - check if we can allocate overflow buffer
+        if overflowBuffers.count >= maxOverflowBuffers {
+            os_unfair_lock_unlock(&poolLock)
+            
+            // Absolute exhaustion - cannot allocate more
+            // Log critical error off-thread to avoid blocking
+            DispatchQueue.global(qos: .utility).async {
+                AppLogger.shared.error("RecordingBufferPool: CRITICAL - Pool and overflow fully exhausted! Samples may be dropped.", category: .audio)
+            }
             return nil
         }
         
-        let buffer = availableBuffers.removeLast()
+        // Emergency allocation (BUG FIX Issue #55)
+        emergencyAllocations += 1
+        let inUse = totalAcquired - totalReleased + 1
+        if inUse > peakBuffersInUse {
+            peakBuffersInUse = inUse
+        }
+        
+        os_unfair_lock_unlock(&poolLock)
+        
+        // Allocate overflow buffer (NOT real-time safe, but prevents data loss)
+        guard let overflowBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCapacity) else {
+            DispatchQueue.global(qos: .utility).async {
+                AppLogger.shared.error("RecordingBufferPool: Failed to allocate emergency buffer", category: .audio)
+            }
+            return nil
+        }
+        
+        // Track overflow buffer for cleanup
+        os_unfair_lock_lock(&poolLock)
+        overflowBuffers.append(overflowBuffer)
         totalAcquired += 1
-        return buffer
+        os_unfair_lock_unlock(&poolLock)
+        
+        // Log warning off-thread
+        DispatchQueue.global(qos: .utility).async {
+            AppLogger.shared.warning("RecordingBufferPool: Emergency allocation #\(self.emergencyAllocations) - Pool exhausted under load", category: .audio)
+        }
+        
+        return overflowBuffer
     }
     
     /// Release a buffer back to the pool.
     /// 
     /// Should be called from the writer queue after the buffer has been written to disk.
+    ///
+    /// ARCHITECTURE (Issue #55):
+    /// - Returns buffer to available pool
+    /// - Auto-deallocates overflow buffers when pool pressure subsides
+    /// - Maintains initial pool size limit to prevent unbounded growth
     func release(_ buffer: AVAudioPCMBuffer) {
         os_unfair_lock_lock(&poolLock)
         defer { os_unfair_lock_unlock(&poolLock) }
@@ -107,25 +208,62 @@ final class RecordingBufferPool: @unchecked Sendable {
         // Reset buffer state for reuse
         buffer.frameLength = 0
         
-        // Only return to pool if we're not over capacity
-        if availableBuffers.count < poolSize {
+        totalReleased += 1
+        
+        // Return to pool if we're below initial capacity (fast path)
+        if availableBuffers.count < initialPoolSize {
+            availableBuffers.append(buffer)
+            return
+        }
+        
+        // Pool is full - check if this is an overflow buffer
+        if let overflowIndex = overflowBuffers.firstIndex(where: { $0 === buffer }) {
+            // Remove overflow buffer (auto-shrink under low pressure)
+            overflowBuffers.remove(at: overflowIndex)
+            // Buffer will be deallocated when it goes out of scope
+        } else {
+            // This is a regular pool buffer - keep it even if pool is full
+            // (shouldn't happen if logic is correct, but handle gracefully)
             availableBuffers.append(buffer)
         }
-        totalReleased += 1
     }
     
-    // MARK: - Pool Status
+    // MARK: - Pool Status (BUG FIX Issue #55)
     
-    /// Number of buffers currently available
+    /// Number of buffers currently available in pool
     var availableCount: Int {
         os_unfair_lock_lock(&poolLock)
         defer { os_unfair_lock_unlock(&poolLock) }
         return availableBuffers.count
     }
     
+    /// Total size of pool (initial + current overflow)
+    var totalPoolSize: Int {
+        os_unfair_lock_lock(&poolLock)
+        defer { os_unfair_lock_unlock(&poolLock) }
+        return initialPoolSize + overflowBuffers.count
+    }
+    
+    /// Pool usage ratio (0.0 = all available, 1.0 = fully exhausted)
+    /// Used for proactive warnings before exhaustion
+    var usageRatio: Float {
+        os_unfair_lock_lock(&poolLock)
+        let available = availableBuffers.count
+        let total = initialPoolSize + overflowBuffers.count
+        os_unfair_lock_unlock(&poolLock)
+        
+        guard total > 0 else { return 0.0 }
+        return Float(total - available) / Float(total)
+    }
+    
     /// True if the pool is running low on buffers (less than 25% available)
     var isLow: Bool {
-        availableCount < poolSize / 4
+        usageRatio > 0.75
+    }
+    
+    /// True if the pool is critically low (less than 10% available)
+    var isCritical: Bool {
+        usageRatio > 0.90
     }
     
     /// True if the pool is exhausted (no buffers available)
@@ -133,14 +271,37 @@ final class RecordingBufferPool: @unchecked Sendable {
         availableCount == 0
     }
     
+    /// Number of overflow buffers currently allocated
+    var overflowCount: Int {
+        os_unfair_lock_lock(&poolLock)
+        defer { os_unfair_lock_unlock(&poolLock) }
+        return overflowBuffers.count
+    }
+    
     /// Reset pool statistics
     func resetStatistics() {
         os_unfair_lock_lock(&poolLock)
         totalAcquired = 0
         totalReleased = 0
-        allocationFailures = 0
+        emergencyAllocations = 0
+        peakBuffersInUse = 0
         writeCount = 0
         os_unfair_lock_unlock(&poolLock)
+    }
+    
+    /// Get pool statistics snapshot (for debugging/monitoring)
+    func getStatistics() -> (acquired: Int, released: Int, emergency: Int, peak: Int, overflow: Int, available: Int) {
+        os_unfair_lock_lock(&poolLock)
+        let stats = (
+            acquired: totalAcquired,
+            released: totalReleased,
+            emergency: emergencyAllocations,
+            peak: peakBuffersInUse,
+            overflow: overflowBuffers.count,
+            available: availableBuffers.count
+        )
+        os_unfair_lock_unlock(&poolLock)
+        return stats
     }
     
     /// Increment write count and return whether fsync should be called
