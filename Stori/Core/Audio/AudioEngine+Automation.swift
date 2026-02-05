@@ -35,11 +35,9 @@ extension AudioEngine {
             self?.schedulingContext ?? .default
         }
         
-        // Track IDs provider
-        automationEngine.trackIdsProvider = { [weak self] in
-            guard let self = self else { return [] }
-            return Array(self.trackNodes.keys)
-        }
+        // REAL-TIME SAFETY: Initialize cached track IDs instead of allocating at 120Hz
+        // The cache is updated when tracks change (see updateAutomationTrackCache)
+        updateAutomationTrackCache()
         
         // Thread-safe automation value applier (merge with mixer for nil params = deterministic, no pops on first point)
         automationEngine.applyValuesHandler = { [weak self] trackId, values in
@@ -190,5 +188,12 @@ extension AudioEngine {
         case .eqHigh: return max(0, min(1, (m.highEQ / 24) + 0.5))
         default: return parameter.defaultValue
         }
+    }
+    
+    /// Update the cached track IDs in the automation engine
+    /// REAL-TIME SAFETY: Call this whenever tracks are added/removed
+    /// This prevents array allocation at 120Hz in the automation timer
+    func updateAutomationTrackCache() {
+        automationEngine.updateTrackIds(Array(trackNodes.keys))
     }
 }

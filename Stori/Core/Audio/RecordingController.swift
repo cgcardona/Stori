@@ -382,12 +382,17 @@ final class RecordingController: @unchecked Sendable {
                 // REAL-TIME SAFE: Use atomic position accessor from TransportController
                 if !self.recordingFirstBufferReceived {
                     self.recordingFirstBufferReceived = true
-                    // Thread-safe read from atomic position
+                    // REAL-TIME SAFETY: Thread-safe read from atomic position
+                    // No fallback - transportController must always be available for recording
                     if let transport = self.transportController {
                         self.recordingStartBeat = transport.atomicBeatPosition
                     } else {
-                        // Fallback: Use closure (may hit MainActor but unlikely on first buffer)
-                        self.recordingStartBeat = self.getCurrentPosition().beats
+                        // CRITICAL: TransportController missing - use safe default (0.0)
+                        // This should never happen in production - log error off-thread
+                        self.recordingStartBeat = 0.0
+                        DispatchQueue.global(qos: .utility).async {
+                            AppLogger.shared.error("TransportController unavailable during recording", category: .audio)
+                        }
                     }
                 }
                 
@@ -492,12 +497,17 @@ final class RecordingController: @unchecked Sendable {
             // REAL-TIME SAFE: Use atomic position accessor from TransportController
             if !self.recordingFirstBufferReceived {
                 self.recordingFirstBufferReceived = true
-                // Thread-safe read from atomic position
+                // REAL-TIME SAFETY: Thread-safe read from atomic position
+                // No fallback - transportController must always be available for recording
                 if let transport = self.transportController {
                     self.recordingStartBeat = transport.atomicBeatPosition
                 } else {
-                    // Fallback: Use closure (may hit MainActor but unlikely on first buffer)
-                    self.recordingStartBeat = self.getCurrentPosition().beats
+                    // CRITICAL: TransportController missing - use safe default (0.0)
+                    // This should never happen in production - log error off-thread
+                    self.recordingStartBeat = 0.0
+                    DispatchQueue.global(qos: .utility).async {
+                        AppLogger.shared.error("TransportController unavailable during count-in recording", category: .audio)
+                    }
                 }
             }
             

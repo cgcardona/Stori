@@ -159,15 +159,8 @@ final class AudioEngineHealthMonitor {
             return finalize(issues: issues)
         }
         
-        if !engine.attachedNodes.contains(mixer) {
-            issues.append(ValidationIssue(
-                severity: .critical,
-                component: "Mixer",
-                description: "Mixer node is not attached to engine",
-                recoveryHint: "Call engine.attach(mixer)"
-            ))
-        }
-        
+        // CRITICAL: Check mixer.engine first, before calling AVFoundation methods
+        // Calling engine.attachedNodes.contains() on a node from another engine causes assertions
         if mixer.engine !== engine {
             issues.append(ValidationIssue(
                 severity: .critical,
@@ -175,11 +168,32 @@ final class AudioEngineHealthMonitor {
                 description: "Mixer is attached to different engine instance",
                 recoveryHint: "Detach and reattach to correct engine"
             ))
+            // Early return - can't safely query engine about this mixer
+            return finalize(issues: issues)
+        }
+        
+        if !engine.attachedNodes.contains(mixer) {
+            issues.append(ValidationIssue(
+                severity: .critical,
+                component: "Mixer",
+                description: "Mixer node is not attached to engine",
+                recoveryHint: "Call engine.attach(mixer)"
+            ))
+            // Early return - can't safely query outputConnectionPoints for unattached node
+            return finalize(issues: issues)
         }
         
         // 4. Validate master chain nodes
         if let masterEQ = masterEQ {
-            if !engine.attachedNodes.contains(masterEQ) {
+            // Check if attached to correct engine first
+            if masterEQ.engine !== engine {
+                issues.append(ValidationIssue(
+                    severity: .error,
+                    component: "MasterEQ",
+                    description: "Master EQ is attached to different engine instance",
+                    recoveryHint: "Detach and reattach to correct engine"
+                ))
+            } else if !engine.attachedNodes.contains(masterEQ) {
                 issues.append(ValidationIssue(
                     severity: .error,
                     component: "MasterEQ",
@@ -190,7 +204,15 @@ final class AudioEngineHealthMonitor {
         }
         
         if let masterLimiter = masterLimiter {
-            if !engine.attachedNodes.contains(masterLimiter) {
+            // Check if attached to correct engine first
+            if masterLimiter.engine !== engine {
+                issues.append(ValidationIssue(
+                    severity: .error,
+                    component: "MasterLimiter",
+                    description: "Master limiter is attached to different engine instance",
+                    recoveryHint: "Detach and reattach to correct engine"
+                ))
+            } else if !engine.attachedNodes.contains(masterLimiter) {
                 issues.append(ValidationIssue(
                     severity: .error,
                     component: "MasterLimiter",

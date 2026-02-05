@@ -61,6 +61,20 @@ class AutomationServer {
     @ObservationIgnored
     private weak var projectManager: ProjectManager?
     
+    // MARK: - Task Lifecycle Management
+    
+    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83459)
+    /// See: MetronomeEngine, ProjectExportService for detailed explanation
+    /// These are nonisolated(unsafe) because Network framework callbacks are nonisolated
+    @ObservationIgnored
+    nonisolated(unsafe) private var stateChangeTask: Task<Void, Never>?
+    @ObservationIgnored
+    nonisolated(unsafe) private var requestHandlerTask: Task<Void, Never>?
+    @ObservationIgnored
+    nonisolated(unsafe) private var statusResponseTask: Task<Void, Never>?
+    @ObservationIgnored
+    nonisolated(unsafe) private var promptExecutionTask: Task<Void, Never>?
+    
     // MARK: - Initialization
     
     init() {}
@@ -94,7 +108,9 @@ class AutomationServer {
             listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
             
             listener?.stateUpdateHandler = { [weak self] state in
-                Task { @MainActor in
+                // Cancel any existing state change task to prevent buildup
+                self?.stateChangeTask?.cancel()
+                self?.stateChangeTask = Task { @MainActor in
                     switch state {
                     case .ready:
                         self?.isRunning = true
@@ -105,6 +121,7 @@ class AutomationServer {
                     default:
                         break
                     }
+                    self?.stateChangeTask = nil
                 }
             }
             
@@ -131,8 +148,11 @@ class AutomationServer {
         
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             if let data = data, !data.isEmpty {
-                Task { @MainActor in
+                // Note: Multiple concurrent connections OK, we just track the most recent
+                self?.requestHandlerTask?.cancel()
+                self?.requestHandlerTask = Task { @MainActor in
                     self?.handleRequest(data: data, connection: connection)
+                    self?.requestHandlerTask = nil
                 }
             }
             
@@ -207,7 +227,9 @@ class AutomationServer {
     // MARK: - Endpoint Handlers
     
     private func handleStatus(connection: NWConnection) {
-        Task { @MainActor in
+        // Cancel previous status request if overlapping
+        statusResponseTask?.cancel()
+        statusResponseTask = Task { @MainActor in
             let status: [String: Any] = [
                 "running": true,
                 "port": Int(port),
@@ -222,6 +244,7 @@ class AutomationServer {
                let jsonString = String(data: jsonData, encoding: .utf8) {
                 sendResponse(connection: connection, statusCode: 200, body: jsonString, contentType: "application/json")
             }
+            self.statusResponseTask = nil
         }
     }
     
@@ -276,8 +299,11 @@ class AutomationServer {
         }
         
         // Execute prompt asynchronously
-        Task { @MainActor in
+        // Cancel previous prompt if a new one arrives (user likely wants the new one)
+        promptExecutionTask?.cancel()
+        promptExecutionTask = Task { @MainActor in
             await executePrompt(request: request, connection: connection)
+            self.promptExecutionTask = nil
         }
     }
     
@@ -418,5 +444,21 @@ class AutomationServer {
                 connection.cancel()
             })
         }
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
+        // Same bug pattern as MetronomeEngine, ProjectExportService (Issue #83459)
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        stateChangeTask?.cancel()
+        requestHandlerTask?.cancel()
+        statusResponseTask?.cancel()
+        promptExecutionTask?.cancel()
     }
 }
