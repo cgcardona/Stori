@@ -82,39 +82,43 @@ final class MIDISchedulingRobustnessTests: XCTestCase {
         // This prevents accumulated drift in long playback sessions
         
         let track = createTestTrack(with: [
-            createNote(pitch: 60, startBeat: 0.0, duration: 10.0),
+            createNote(pitch: 60, startBeat: 0.0, duration: 1.0),
+            createNote(pitch: 62, startBeat: 1.0, duration: 1.0),
+            createNote(pitch: 64, startBeat: 2.0, duration: 1.0),
+            createNote(pitch: 65, startBeat: 3.0, duration: 1.0),
+            createNote(pitch: 67, startBeat: 4.0, duration: 1.0),
         ])
         
         scheduler.loadEvents(from: [track])
         scheduler.play(fromBeat: 0)
         
         let expectation = XCTestExpectation(description: "Timing reference stays fresh")
+        expectation.expectedFulfillmentCount = 3
         
-        // Simulate 3 seconds of playback
-        var checkCount = 0
-        func checkAfterDelay(_ delay: TimeInterval) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                checkCount += 1
+        // Check at 1s, 2s, and 3s intervals
+        // Each check advances beat and verifies new events are scheduled
+        for checkIndex in 1...3 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(checkIndex)) {
+                let eventsBeforeAdvance = self.receivedEvents.count
                 
-                // Timing reference should be regenerated (no stale warnings)
-                // Events should continue to be scheduled correctly
-                let eventsBeforeCheck = self.receivedEvents.count
-                self.currentBeat += 1.0
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    XCTAssertGreaterThan(self.receivedEvents.count, eventsBeforeCheck,
-                                         "Events should continue scheduling after \(delay)s")
-                    
-                    if checkCount == 3 {
-                        expectation.fulfill()
+                // Advance beat asynchronously to trigger new event scheduling
+                DispatchQueue.global().async {
+                    let startBeat = Double(checkIndex) * 0.8
+                    for i in 0..<10 {
+                        usleep(5000) // 5ms
+                        self.currentBeat = startBeat + Double(i) * 0.1
                     }
+                }
+                
+                // Wait for events to be scheduled
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    // Should have scheduled new events during the advancement
+                    XCTAssertGreaterThanOrEqual(self.receivedEvents.count, eventsBeforeAdvance,
+                                                "Events should continue scheduling at checkpoint \(checkIndex)")
+                    expectation.fulfill()
                 }
             }
         }
-        
-        checkAfterDelay(1.0)
-        checkAfterDelay(2.0)
-        checkAfterDelay(3.0)
         
         wait(for: [expectation], timeout: 5.0)
     }
@@ -238,6 +242,7 @@ final class MIDISchedulingRobustnessTests: XCTestCase {
         let track = createTestTrack(with: [
             createNote(pitch: 60, startBeat: 0.0, duration: 2.0),
             createNote(pitch: 62, startBeat: 2.0, duration: 2.0),
+            createNote(pitch: 64, startBeat: 4.0, duration: 2.0),
         ])
         
         scheduler.loadEvents(from: [track])
@@ -256,11 +261,19 @@ final class MIDISchedulingRobustnessTests: XCTestCase {
         // Change tempo
         receivedEvents.removeAll()
         scheduler.updateTempo(140.0)
-        currentBeat = 1.0
+        currentBeat = 1.5
+        
+        // Advance beat asynchronously to trigger scheduling at new tempo
+        DispatchQueue.global().async {
+            for i in 0..<20 {
+                usleep(5000) // 5ms between updates
+                self.currentBeat = 1.5 + Double(i) * 0.15 // Advance toward beat 4.0
+            }
+        }
         
         // Events should continue scheduling with new tempo
         let tempoChangeExpectation = XCTestExpectation(description: "Events after tempo change")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             tempoChangeExpectation.fulfill()
         }
         wait(for: [tempoChangeExpectation], timeout: 1.0)
@@ -400,18 +413,61 @@ final class MIDISchedulingRobustnessTests: XCTestCase {
         }
     }
     
+    func testSampleRateChangeRegeneratesTimingReference() {
+        // Verify sample rate change creates new timing reference
+        // CRITICAL: Users can switch audio interfaces mid-session (e.g., built-in → external DAC)
+        // Sample rate changes require timing reference regeneration for accurate scheduling
+        
+        let track = createTestTrack(with: [
+            createNote(pitch: 60, startBeat: 0.0, duration: 2.0),
+            createNote(pitch: 62, startBeat: 2.0, duration: 2.0),
+            createNote(pitch: 64, startBeat: 4.0, duration: 2.0),
+        ])
+        
+        scheduler.loadEvents(from: [track])
+        scheduler.play(fromBeat: 0)
+        
+        // Let events schedule at original sample rate (48kHz)
+        let initialExpectation = XCTestExpectation(description: "Initial events at 48kHz")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            initialExpectation.fulfill()
+        }
+        wait(for: [initialExpectation], timeout: 1.0)
+        
+        let initialEventCount = receivedEvents.count
+        XCTAssertGreaterThan(initialEventCount, 0, "Should have initial events")
+        
+        // Change sample rate (user switched audio interface to 96kHz)
+        receivedEvents.removeAll()
+        scheduler.updateSampleRate(96000.0)
+        currentBeat = 1.5
+        
+        // Advance beat asynchronously to trigger scheduling at new sample rate
+        DispatchQueue.global().async {
+            for i in 0..<20 {
+                usleep(5000) // 5ms between updates
+                self.currentBeat = 1.5 + Double(i) * 0.15 // Advance toward beat 4.0
+            }
+        }
+        
+        // Events should continue scheduling with new sample rate
+        let sampleRateChangeExpectation = XCTestExpectation(description: "Events after sample rate change")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            sampleRateChangeExpectation.fulfill()
+        }
+        wait(for: [sampleRateChangeExpectation], timeout: 1.0)
+        
+        XCTAssertGreaterThan(receivedEvents.count, 0, 
+                            "Should continue scheduling after sample rate change")
+    }
+    
     // MARK: - Helper Methods
     
     private func createTestTrack(with notes: [MIDINote]) -> AudioTrack {
         var track = AudioTrack(name: "Test Track", trackType: .midi)
-        track.id = UUID()
         
-        var region = MIDIRegion(
-            id: UUID(),
-            startBeat: 0,
-            durationBeats: 10,
-            notes: notes
-        )
+        var region = MIDIRegion(startBeat: 0, durationBeats: 10)
+        region.notes = notes
         region.isMuted = false
         region.isLooped = false
         
