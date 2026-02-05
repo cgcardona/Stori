@@ -1387,32 +1387,72 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Track Send Management (Delegated to BusManager)
     // trackSendIds and trackSendInputBus are now managed by BusManager
     
-    // MARK: [BUGFIX] Safe Node Disconnection
-    /// Disconnects and detaches track nodes. Must run inside graph mutation serialization to avoid races.
+    // MARK: [BUGFIX] Safe Node Disconnection (Issue #81)
+    /// Disconnects and detaches track nodes in downstream-first order to avoid EXC_BAD_ACCESS
+    /// and graph corruption. Order: stop player → uninstall plugin chain → disconnect outputs
+    /// (pan → volume → eq) → disconnect/detach instrument source → disconnect/detach player.
+    /// Caller must have removed track from all bus sends first (so pan isn't connected to buses).
     private func safeDisconnectTrackNode(_ trackNode: TrackAudioNode) {
         modifyGraphSafely {
-            // Uninstall plugin chain first (this unloads all plugins and detaches mixers)
+            let trackId = trackNode.id
+
+            // Stop player before any disconnection
+            if trackNode.playerNode.isPlaying {
+                trackNode.playerNode.stop()
+            }
+
+            // 1. Uninstall plugin chain first (unloads plugins, disconnects and detaches chain mixers)
             trackNode.pluginChain.uninstall()
 
-            let nodesToDisconnect: [(node: AVAudioNode, name: String)] = [
-                (trackNode.panNode, "panNode"),
-                (trackNode.volumeNode, "volumeNode"),
-                (trackNode.eqNode, "eqNode"),
-                (trackNode.timePitchUnit, "timePitchUnit"),
-                (trackNode.playerNode, "playerNode")
-            ]
+            // 2. Disconnect in downstream-first order (same as rebuildTrackGraphInternal).
+            //    Each node: disconnect output, then input, then detach.
+            engine.disconnectNodeOutput(trackNode.panNode)
+            engine.disconnectNodeInput(trackNode.panNode)
+            if engine.attachedNodes.contains(trackNode.panNode) {
+                engine.detach(trackNode.panNode)
+            }
 
-            for (node, _) in nodesToDisconnect {
-                if engine.attachedNodes.contains(node) {
-                    do {
-                        if let playerNode = node as? AVAudioPlayerNode, playerNode.isPlaying {
-                            playerNode.stop()
-                        }
-                        engine.disconnectNodeInput(node)
-                        engine.detach(node)
-                    } catch {
-                    }
+            engine.disconnectNodeOutput(trackNode.volumeNode)
+            engine.disconnectNodeInput(trackNode.volumeNode)
+            if engine.attachedNodes.contains(trackNode.volumeNode) {
+                engine.detach(trackNode.volumeNode)
+            }
+
+            engine.disconnectNodeOutput(trackNode.eqNode)
+            engine.disconnectNodeInput(trackNode.eqNode)
+            if engine.attachedNodes.contains(trackNode.eqNode) {
+                engine.detach(trackNode.eqNode)
+            }
+
+            // 3. Disconnect and detach instrument source (sampler or timePitch)
+            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+               let sampler = instrument.samplerEngine?.sampler {
+                if engine.attachedNodes.contains(sampler) {
+                    engine.disconnectNodeOutput(sampler)
+                    engine.disconnectNodeInput(sampler)
+                    engine.detach(sampler)
                 }
+            } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+                      let auNode = instrument.audioUnitNode,
+                      engine.attachedNodes.contains(auNode) {
+                engine.disconnectNodeOutput(auNode)
+                engine.disconnectNodeInput(auNode)
+                engine.detach(auNode)
+            } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+                      let drumKit = instrument.drumKitEngine {
+                drumKit.detach()
+            }
+
+            engine.disconnectNodeOutput(trackNode.timePitchUnit)
+            engine.disconnectNodeInput(trackNode.timePitchUnit)
+            if engine.attachedNodes.contains(trackNode.timePitchUnit) {
+                engine.detach(trackNode.timePitchUnit)
+            }
+
+            engine.disconnectNodeOutput(trackNode.playerNode)
+            engine.disconnectNodeInput(trackNode.playerNode)
+            if engine.attachedNodes.contains(trackNode.playerNode) {
+                engine.detach(trackNode.playerNode)
             }
         }
     }
@@ -1947,14 +1987,21 @@ class AudioEngine: AudioEngineContext {
     func removeTrack(trackId: UUID) {
         guard var project = currentProject else { return }
         
-        // Remove from project
+        // 1. Remove track from all bus sends first (while track and trackNode still exist).
+        //    This disconnects pan/volume from bus mixers so teardown doesn't leave dangling refs.
+        busManager.removeAllSendsForTrack(trackId)
+        
+        // 2. Remove from project
         project.tracks.removeAll { $0.id == trackId }
         currentProject = project
         
-        // Remove track node (handles disconnection internally)
+        // 3. Remove track node (disconnects and detaches in downstream-first order)
         trackNodeManager.removeTrackNode(for: trackId)
         
-        // Update mixer controller's solo tracking
+        // 4. Clean up instrument so it stops and is removed from InstrumentManager
+        InstrumentManager.shared.removeInstrument(for: trackId)
+        
+        // 5. Update mixer controller's solo tracking
         mixerController.removeTrackFromMixer(trackId: trackId)
     }
     
