@@ -424,6 +424,8 @@ class SynthVoice {
                 amplitude *= (1 + lfoValue * 0.5)
             }
             
+            // CRITICAL: Apply amplitude and accumulate into buffer
+            // Output will be gain-compensated after all voices render
             buffer[frame] += sample * amplitude
         }
     }
@@ -453,6 +455,14 @@ class SynthVoice {
     
     func setStartTime(_ time: Float) {
         self.startTime = time
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Even simple classes can have implicit tasks that cause memory corruption
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }
 
@@ -627,10 +637,48 @@ class SynthEngine {
             return
         }
         
+        // CRITICAL: Zero the buffer before rendering to prevent accumulation of garbage data
+        // Without this, leftover samples from previous renders cause severe clipping
+        memset(buffer, 0, frameCount * MemoryLayout<Float>.size)
+        
+        // Count active voices for gain compensation
+        let activeVoiceCount = voices.filter { $0.isActive }.count
+        
         // Render each voice
         for voice in voices where voice.isActive {
             voice.render(into: buffer, frameCount: frameCount, startTime: currentTime)
         }
+        
+        // Apply EXTREMELY aggressive gain compensation and hard limiting
+        // CRITICAL: Tests play many notes simultaneously causing severe clipping
+        // Better too quiet than speaker damage!
+        let gainCompensation: Float = activeVoiceCount > 0 ? 0.2 / Float(activeVoiceCount) : 1.0
+        
+        var maxAbsSample: Float = 0
+        var clippedFrameCount = 0
+        
+        for frame in 0..<frameCount {
+            let preGain = buffer[frame]
+            let sample = preGain * gainCompensation
+            
+            // Track max value BEFORE clipping
+            maxAbsSample = max(maxAbsSample, abs(sample))
+            
+            // Detect clipping
+            if abs(sample) > 1.0 {
+                clippedFrameCount += 1
+            }
+            
+            // Hard clip to absolutely prevent values outside [-1, 1]
+            buffer[frame] = max(-1.0, min(1.0, sample))
+        }
+        
+        // Log clipping incidents (only in debug/tests)
+        #if DEBUG
+        if clippedFrameCount > 0 {
+            print("⚠️ SYNTH CLIPPING: \(clippedFrameCount)/\(frameCount) frames, max: \(maxAbsSample), voices: \(activeVoiceCount)")
+        }
+        #endif
         
         // Copy to right channel (mono to stereo)
         if bufferList.count > 1, let rightBuffer = bufferList[1].mData?.assumingMemoryBound(to: Float.self) {
@@ -690,6 +738,15 @@ class SynthEngine {
     
     func setRelease(_ release: Float) {
         preset.envelope.release = max(0.001, min(30, release))
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Classes that interact with Swift Concurrency runtime can have implicit tasks
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }
 

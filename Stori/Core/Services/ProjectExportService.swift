@@ -290,6 +290,17 @@ class ProjectExportService {
     @ObservationIgnored
     private var exportStartTime: Date?
     
+    // MARK: - Task Lifecycle Management
+    
+    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83020)
+    /// See: MetronomeEngine for detailed explanation of Swift Concurrency cleanup bug
+    @ObservationIgnored
+    private var cleanupTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var progressUpdateTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var timeoutTask: Task<Void, Error>?  // Can throw during sleep
+    
     /// MIDI renderers for offline export (keyed by track ID)
     @ObservationIgnored
     private var midiRenderers: [UUID: OfflineMIDIRenderer] = [:]
@@ -353,15 +364,19 @@ class ProjectExportService {
         isCancelled = true
         exportStatus = "Cancelled"
         
+        // Cancel any existing cleanup task
+        cleanupTask?.cancel()
+        
         // Reset export state to close the dialog
         // The actual rendering will stop in the next tap callback
-        Task { @MainActor in
+        cleanupTask = Task { @MainActor in
             // Small delay to show "Cancelled" message before closing
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
             self.isExporting = false
             self.exportProgress = 0.0
             self.elapsedTime = 0.0
             self.estimatedTimeRemaining = nil
+            self.cleanupTask = nil
         }
     }
     
@@ -1741,7 +1756,9 @@ class ProjectExportService {
                     capturedFrames += framesToCopy
                     
                     // Update progress and time estimates
-                    Task { @MainActor in
+                    // Cancel previous update to prevent task buildup
+                    progressUpdateTask?.cancel()
+                    progressUpdateTask = Task { @MainActor in
                         let progress = Double(capturedFrames) / Double(frameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
@@ -1755,6 +1772,7 @@ class ProjectExportService {
                                 self.estimatedTimeRemaining = totalEstimatedTime - self.elapsedTime
                             }
                         }
+                        self.progressUpdateTask = nil
                     }
                 }
                 
@@ -1778,14 +1796,16 @@ class ProjectExportService {
                 }
             }
             
-            // Safety timeout
-            Task {
+            // Safety timeout - track to prevent memory corruption on deinit
+            timeoutTask?.cancel()
+            timeoutTask = Task {
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
                 if state.tryResume() {
                     renderEngine.mainMixerNode.removeTap(onBus: 0)
                     renderEngine.stop()
                     continuation.resume(throwing: ExportError.renderTimeout)
                 }
+                self.timeoutTask = nil
             }
         }
     }
@@ -2113,6 +2133,21 @@ class ProjectExportService {
         }
         
         return result
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
+        // Same bug pattern as MetronomeEngine (Issue #83020)
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        cleanupTask?.cancel()
+        progressUpdateTask?.cancel()
+        timeoutTask?.cancel()
     }
 }
 

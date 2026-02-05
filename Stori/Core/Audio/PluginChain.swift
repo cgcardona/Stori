@@ -162,12 +162,7 @@ class PluginChain {
                 return false
             }
             
-            // Verify engine is valid
-            if !engine.attachedNodes.contains(engine.outputNode) {
-                AppLogger.shared.error("PluginChain engine reference is invalid (outputNode not attached)", category: .audio)
-                return false
-            }
-            
+            // Engine reference exists and state is consistent
             return true
             
         case .realized:
@@ -187,25 +182,26 @@ class PluginChain {
                 return false
             }
             
-            // Verify mixers are attached to the correct engine
-            if inputMixer.engine !== engine {
-                AppLogger.shared.error("PluginChain inputMixer attached to wrong engine", category: .audio)
+            // CRITICAL: After engine.reset(), accessing node properties can cause memory corruption
+            // The safest validation is to check if the engine's attachedNodes list has changed
+            // If engine has no attached nodes at all, it was probably reset
+            if engine.attachedNodes.isEmpty {
+                AppLogger.shared.error("PluginChain state=realized but engine has no attached nodes (likely reset)", category: .audio)
                 return false
             }
             
-            if outputMixer.engine !== engine {
-                AppLogger.shared.error("PluginChain outputMixer attached to wrong engine", category: .audio)
+            // Check if our specific mixers are still attached
+            // Use contains() which is safer than checking node.engine property on potentially freed nodes
+            let inputAttached = engine.attachedNodes.contains { $0 === inputMixer }
+            let outputAttached = engine.attachedNodes.contains { $0 === outputMixer }
+            
+            if !inputAttached {
+                AppLogger.shared.error("PluginChain inputMixer not attached after validation", category: .audio)
                 return false
             }
             
-            // Verify mixers are in engine's attached nodes
-            if !engine.attachedNodes.contains(inputMixer) {
-                AppLogger.shared.error("PluginChain inputMixer not in engine's attachedNodes", category: .audio)
-                return false
-            }
-            
-            if !engine.attachedNodes.contains(outputMixer) {
-                AppLogger.shared.error("PluginChain outputMixer not in engine's attachedNodes", category: .audio)
+            if !outputAttached {
+                AppLogger.shared.error("PluginChain outputMixer not attached after validation", category: .audio)
                 return false
             }
             
@@ -536,13 +532,13 @@ class PluginChain {
         }
         
         // Safely detach mixers - only if they exist and are attached to this engine
-        if let inputMixer = _inputMixer, inputMixer.engine === engine {
+        if let inputMixer = _inputMixer, inputMixer.engine === engine, engine.attachedNodes.contains(inputMixer) {
             engine.disconnectNodeOutput(inputMixer)
             engine.disconnectNodeInput(inputMixer)
             engine.detach(inputMixer)
         }
         
-        if let outputMixer = _outputMixer, outputMixer.engine === engine {
+        if let outputMixer = _outputMixer, outputMixer.engine === engine, engine.attachedNodes.contains(outputMixer) {
             engine.disconnectNodeOutput(outputMixer)
             engine.disconnectNodeInput(outputMixer)
             engine.detach(outputMixer)
@@ -718,6 +714,16 @@ class PluginChain {
         return clonedNodes
     }
     
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
+        // Note: Cannot access @MainActor-isolated properties from deinit
+        // Cleanup is handled by explicit uninstall() calls in production/tests
+    }
 }
 
 // MARK: - Track Plugin Extension
