@@ -193,8 +193,16 @@ class TrackInstrument: Identifiable {
     private func setupInstrument(audioEngine: AVAudioEngine?) {
         switch type {
         case .synth:
+            // CRITICAL: Synth requires audio engine for integration with DAW graph
+            guard let engine = audioEngine else {
+                // DEFER creation - will be created when engine is available
+                pendingSamplerSetup = true  // Reuse flag for deferred setup
+                return
+            }
+            
             synthEngine = SynthEngine()
             synthEngine?.loadPreset(preset)
+            synthEngine?.attach(to: engine, connectToMixer: false)
             
         case .sampler:
             // CRITICAL: Sampler can ONLY be created if we have an audio engine
@@ -282,12 +290,12 @@ class TrackInstrument: Identifiable {
     
     // MARK: - Lifecycle
     
-    /// Start the audio engine
+    /// Start the instrument (mark as running)
     func start() throws {
         switch type {
         case .synth:
-            guard let engine = synthEngine else { return }
-            try engine.start()
+            // Synth is always "running" once attached to the main engine
+            guard synthEngine?.isAttached == true else { return }
             if !isRunning { isRunning = true }
             
         case .sampler:
@@ -310,9 +318,9 @@ class TrackInstrument: Identifiable {
         }
     }
     
-    /// Stop the audio engine
+    /// Stop the instrument
     func stop() {
-        synthEngine?.stop()
+        synthEngine?.allNotesOff()
         samplerEngine?.stop()
         audioUnitHost?.allNotesOff()
         if isRunning { isRunning = false }

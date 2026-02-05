@@ -427,6 +427,12 @@ struct MainDAWView: View {
     
     /// Open Piano Roll for editing a specific MIDI region
     private func openPianoRollForRegion(_ region: MIDIRegion, on track: AudioTrack) {
+        // Close all other bottom panels first to ensure only piano roll is open
+        setShowingMixer(false)
+        setShowingStepSequencer(false)
+        setShowingSynthesizer(false)
+        
+        // Set the selected region and open piano roll
         selectedMIDIRegion = region
         selectedMIDITrackId = track.id
         selectedTrackId = track.id
@@ -1670,7 +1676,7 @@ extension MainDAWView {
             
             // Bottom area: Piano Roll panel (when visible)
             if showingPianoRoll {
-                pianoRollPanelView
+                pianoRollPanelView()
             }
             
             // Bottom area: Synthesizer panel (when visible)
@@ -1680,8 +1686,18 @@ extension MainDAWView {
         }
     }
     
-    private var pianoRollPanelView: some View {
+    @ViewBuilder
+    private func pianoRollPanelView() -> some View {
         VStack(spacing: 0) {
+            // Resize Handle - at TOP so it's clear this is a resizable panel
+            ResizeHandle(
+                orientation: .horizontal,
+                onDrag: { delta in
+                    // Allow dragging to nearly full screen (keep 150px for timeline)
+                    setPianoRollHeight(max(150, pianoRollHeight - delta))
+                }
+            )
+            
             // Unified header with mode toggle and controls
             HStack(spacing: 12) {
                 // Editor Mode Toggle - simple text-only buttons for clarity
@@ -1748,15 +1764,6 @@ extension MainDAWView {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color(nsColor: .controlBackgroundColor))
-            
-            // Resize Handle
-            ResizeHandle(
-                orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow up to 450px - leaves room for timeline and control bar
-                    setPianoRollHeight(max(250, min(450, pianoRollHeight - delta)))
-                }
-            )
             
             // Content based on selected editor mode
             if selectedEditorMode == .pianoRoll {
@@ -1839,13 +1846,13 @@ extension MainDAWView {
             ResizeHandle(
                 orientation: .horizontal,
                 onDrag: { delta in
-                    // Allow up to 450px - leaves room for timeline and control bar
-                    setSynthesizerHeight(max(200, min(450, synthesizerHeight - delta)))
+                    // Allow dragging to nearly full screen (keep 150px for timeline)
+                    setSynthesizerHeight(max(150, synthesizerHeight - delta))
                 }
             )
             
             // Synthesizer Content
-            SynthesizerPanelContent()
+            SynthesizerPanelContent(audioEngine: audioEngine)
                 .frame(height: synthesizerHeight)
         }
         .transition(.move(edge: .bottom))
@@ -1862,8 +1869,8 @@ extension MainDAWView {
             ResizeHandle(
                 orientation: .horizontal,
                 onDrag: { delta in
-                    // Allow up to 450px - leaves room for timeline and control bar
-                    setStepSequencerHeight(max(200, min(450, stepSequencerHeight - delta)))
+                    // Allow dragging to nearly full screen (keep 150px for timeline)
+                    setStepSequencerHeight(max(150, stepSequencerHeight - delta))
                 }
             )
             .background(Color(.windowBackgroundColor))
@@ -1925,8 +1932,8 @@ extension MainDAWView {
             ResizeHandle(
                 orientation: .horizontal,
                 onDrag: { delta in
-                    // Allow up to 450px height - leaves room for timeline and control bar
-                    setMixerHeight(max(200, min(450, mixerHeight - delta)))
+                    // Allow dragging to nearly full screen (keep 150px for timeline)
+                    setMixerHeight(max(150, mixerHeight - delta))
                 }
             )
             .background(Color(.windowBackgroundColor))
@@ -1977,10 +1984,10 @@ extension MainDAWView {
         }
         .animation(.easeInOut(duration: 0.3), value: showingInspector)
         .animation(.easeInOut(duration: 0.3), value: showingSelection)
-        .animation(.easeInOut(duration: 0.3), value: showingMixer)
-        .animation(.easeInOut(duration: 0.3), value: showingStepSequencer)
-        .animation(.easeInOut(duration: 0.3), value: showingPianoRoll)
-        .animation(.easeInOut(duration: 0.3), value: showingSynthesizer)
+        .animation(.easeInOut(duration: 0.25), value: showingMixer)
+        .animation(.easeInOut(duration: 0.25), value: showingStepSequencer)
+        .animation(.easeInOut(duration: 0.2), value: showingPianoRoll)
+        .animation(.easeInOut(duration: 0.25), value: showingSynthesizer)
         .onChange(of: showingSynthesizer) { _, newValue in
             // Sync with DAWUIState for NSEvent handler access
             DAWUIState.shared.isSynthesizerVisible = newValue

@@ -357,19 +357,6 @@ private struct RulerPlayhead: View {
         let currentBeat = audioEngine.currentPosition.beats
         let playheadX = CGFloat(currentBeat) * pixelsPerBeat
         
-        // Log whenever position changes significantly (> 0.01 beats or > 1 pixel)
-        let _ = {
-            if abs(currentBeat - lastLoggedBeat) > 0.01 || abs(playheadX - lastLoggedX) > 1.0 {
-                print("📐 RULER PLAYHEAD RENDER:")
-                print("    beat: \(String(format: "%.6f", currentBeat))")
-                print("    pixelsPerBeat: \(String(format: "%.2f", pixelsPerBeat))")
-                print("    playheadX: \(String(format: "%.2f", playheadX)) px")
-                print("    transportState: \(audioEngine.transportState)")
-                lastLoggedBeat = currentBeat
-                lastLoggedX = playheadX
-            }
-        }()
-        
         // Use Canvas for precise pixel-perfect positioning
         return Canvas { context, size in
             // Draw triangle head at top, centered on the playhead position
