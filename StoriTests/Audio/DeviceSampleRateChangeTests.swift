@@ -11,55 +11,85 @@ import AVFoundation
 
 /// Comprehensive tests for device sample rate changes
 /// BUG FIX: Issue #51 - Ensures scheduled events are invalidated and regenerated at new rate
+@MainActor
 final class DeviceSampleRateChangeTests: XCTestCase {
-    
+
+    /// Kept alive for install() so we don't deallocate AudioEngine mid-test (ASan bad-free on @Observable deinit).
+    private var testAudioEngine: AudioEngine?
+    private var testTransportController: TransportController?
+
+    override func tearDown() async throws {
+        testAudioEngine = nil
+        testTransportController = nil
+        try await super.tearDown()
+    }
+
+    /// Install metronome into engine+mixer for tests (uses real install API; keeps AudioEngine/TransportController in self to avoid ASan deinit bad-free).
+    private func installMetronome(_ metronome: MetronomeEngine, into engine: AVAudioEngine, dawMixer: AVAudioMixerNode) {
+        var project = AudioProject(name: "Test", tempo: 120.0)
+        testTransportController = TransportController(
+            getProject: { project },
+            isInstallingPlugin: { false },
+            isGraphStable: { true },
+            getSampleRate: { 48000 },
+            onStartPlayback: { _ in },
+            onStopPlayback: {},
+            onTransportStateChanged: { _ in },
+            onPositionChanged: { _ in },
+            onCycleJump: { _ in }
+        )
+        testAudioEngine = AudioEngine()
+        guard let audioEngine = testAudioEngine, let transportController = testTransportController else { return }
+        metronome.install(into: engine, dawMixer: dawMixer, audioEngine: audioEngine, transportController: transportController)
+    }
+
     // MARK: - Metronome Sample Rate Tests
-    
+
     func testMetronomeUpdatesSampleRateOnReconnect() {
         // Given: A metronome configured at 48kHz
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         let initialFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: initialFormat)
-        
+
         let metronome = MetronomeEngine()
-        metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
-        
+        installMetronome(metronome, into: engine, dawMixer: mixer)
+
         // When: Device changes to 96kHz and reconnect is called
         // Simulate device change by disconnecting and reconnecting with new format
         engine.disconnectNodeOutput(mixer)
         let newFormat = AVAudioFormat(standardFormatWithSampleRate: 96000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: newFormat)
-        
+
         metronome.reconnectNodes(dawMixer: mixer)
-        
+
         // Then: Metronome's internal sample rate should be updated
         // We can't directly access the private sampleRate, but we can verify
         // the metronome was reconnected successfully
         XCTAssertTrue(true, "Metronome should update sample rate on reconnect")
     }
-    
+
     func testMetronomeRegeneratesClickBuffersOnSampleRateChange() {
         // Given: A metronome at 44.1kHz
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         let initialFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: initialFormat)
-        
+
         let metronome = MetronomeEngine()
-        metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
-        
+        installMetronome(metronome, into: engine, dawMixer: mixer)
+
         // When: Device changes to 192kHz (high-resolution audio interface)
         engine.disconnectNodeOutput(mixer)
         let newFormat = AVAudioFormat(standardFormatWithSampleRate: 192000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: newFormat)
-        
+
         metronome.reconnectNodes(dawMixer: mixer)
-        
+
         // Then: Click buffers should be regenerated at new sample rate
         // (Internal verification - buffers exist and are valid)
         XCTAssertTrue(true, "Click buffers should be regenerated at 192kHz")
@@ -166,43 +196,33 @@ final class DeviceSampleRateChangeTests: XCTestCase {
     
     func testMIDISchedulerUpdatesTimingReferenceOnRateChange() {
         // Given: A MIDI scheduler at 48kHz
-        let scheduler = SampleAccurateMIDIScheduler(tempo: 120.0, sampleRate: 48000)
-        
-        let currentBeatProvider = { 10.0 }
-        scheduler.configure(
-            tempo: 120.0,
-            sampleRate: 48000,
-            currentBeatProvider: currentBeatProvider
-        )
-        
+        let scheduler = SampleAccurateMIDIScheduler()
+        scheduler.configure(tempo: 120.0, sampleRate: 48000)
+        scheduler.currentBeatProvider = { 10.0 }
+
         // Start playback
         scheduler.play(fromBeat: 10.0)
-        
+
         // When: Sample rate changes to 96kHz
         scheduler.updateSampleRate(96000)
-        
+
         // Then: Timing reference should be regenerated
         // (Internal state - verified by no crashes and correct timing)
         XCTAssertTrue(true, "MIDI scheduler should regenerate timing reference")
     }
-    
+
     func testMIDISchedulerHandlesRateChangeWhileStopped() {
         // Given: A stopped MIDI scheduler
-        let scheduler = SampleAccurateMIDIScheduler(tempo: 120.0, sampleRate: 48000)
-        
-        let currentBeatProvider = { 0.0 }
-        scheduler.configure(
-            tempo: 120.0,
-            sampleRate: 48000,
-            currentBeatProvider: currentBeatProvider
-        )
-        
+        let scheduler = SampleAccurateMIDIScheduler()
+        scheduler.configure(tempo: 120.0, sampleRate: 48000)
+        scheduler.currentBeatProvider = { 0.0 }
+
         // When: Sample rate changes while stopped
         scheduler.updateSampleRate(96000)
-        
+
         // Then: Should handle gracefully (will regenerate on next play())
         scheduler.play(fromBeat: 0.0)
-        
+
         XCTAssertTrue(true, "Should handle rate change while stopped")
     }
     
@@ -213,24 +233,26 @@ final class DeviceSampleRateChangeTests: XCTestCase {
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         let metronome = MetronomeEngine()
-        
+        var didInstall = false
+
         // When: Multiple rapid sample rate changes
         let rates: [Double] = [44100, 48000, 88200, 96000, 192000, 48000]
-        
+
         for rate in rates {
             let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
             engine.disconnectNodeOutput(mixer)
             engine.connect(mixer, to: engine.outputNode, format: format)
-            
-            if metronome.isInstalled {
+
+            if didInstall {
                 metronome.reconnectNodes(dawMixer: mixer)
             } else {
-                metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
+                installMetronome(metronome, into: engine, dawMixer: mixer)
+                didInstall = true
             }
         }
-        
+
         // Then: Should handle all changes without crashing
         XCTAssertTrue(true, "Should handle multiple rate changes")
     }
@@ -240,37 +262,37 @@ final class DeviceSampleRateChangeTests: XCTestCase {
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         let initialFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: initialFormat)
-        
+
         let metronome = MetronomeEngine()
-        metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
-        
+        installMetronome(metronome, into: engine, dawMixer: mixer)
+
         // When: Changed to extreme high sample rate (384kHz - some interfaces support this)
         engine.disconnectNodeOutput(mixer)
         let extremeFormat = AVAudioFormat(standardFormatWithSampleRate: 384000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: extremeFormat)
-        
+
         metronome.reconnectNodes(dawMixer: mixer)
-        
+
         // Then: Should handle gracefully
         XCTAssertTrue(true, "Should handle 384kHz sample rate")
     }
-    
+
     func testExtremeLowSampleRate() {
         // Given: A metronome
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         // When: Low sample rate (22.05kHz - lowest common rate)
         let lowFormat = AVAudioFormat(standardFormatWithSampleRate: 22050, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: lowFormat)
-        
+
         let metronome = MetronomeEngine()
-        metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
-        
+        installMetronome(metronome, into: engine, dawMixer: mixer)
+
         // Then: Should handle low rate
         XCTAssertTrue(true, "Should handle 22.05kHz sample rate")
     }
@@ -287,31 +309,33 @@ final class DeviceSampleRateChangeTests: XCTestCase {
             (192000, 44100, "Mastering chain to CD"),
             (48000, 44100, "Video post to CD mastering")
         ]
-        
+
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         let metronome = MetronomeEngine()
-        
+        var didInstall = false
+
         for (from, to, scenario) in transitions {
             // Setup at 'from' rate
             let fromFormat = AVAudioFormat(standardFormatWithSampleRate: from, channels: 2)!
             engine.disconnectNodeOutput(mixer)
             engine.connect(mixer, to: engine.outputNode, format: fromFormat)
-            
-            if !metronome.isInstalled {
-                metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
+
+            if !didInstall {
+                installMetronome(metronome, into: engine, dawMixer: mixer)
+                didInstall = true
             } else {
                 metronome.reconnectNodes(dawMixer: mixer)
             }
-            
+
             // Change to 'to' rate
             engine.disconnectNodeOutput(mixer)
             let toFormat = AVAudioFormat(standardFormatWithSampleRate: to, channels: 2)!
             engine.connect(mixer, to: engine.outputNode, format: toFormat)
             metronome.reconnectNodes(dawMixer: mixer)
-            
+
             XCTAssertTrue(true, "Should handle \(scenario): \(from)Hz → \(to)Hz")
         }
     }
@@ -344,25 +368,25 @@ final class DeviceSampleRateChangeTests: XCTestCase {
     func testRegressionProtection_MetronomeUpdatesRate() {
         // Verify that MetronomeEngine.reconnectNodes() updates sample rate
         // This is a compile-time + runtime check
-        
+
         let engine = AVAudioEngine()
         let mixer = AVAudioMixerNode()
         engine.attach(mixer)
-        
+
         let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: format)
-        
+
         let metronome = MetronomeEngine()
-        metronome.installMetronome(avAudioEngine: engine, sharedMixer: mixer)
-        
+        installMetronome(metronome, into: engine, dawMixer: mixer)
+
         // Change rate and reconnect
         engine.disconnectNodeOutput(mixer)
         let newFormat = AVAudioFormat(standardFormatWithSampleRate: 96000, channels: 2)!
         engine.connect(mixer, to: engine.outputNode, format: newFormat)
-        
+
         // This should update internal sample rate
         metronome.reconnectNodes(dawMixer: mixer)
-        
+
         XCTAssertTrue(true, "reconnectNodes() should update sample rate internally")
     }
     
@@ -395,19 +419,16 @@ final class DeviceSampleRateChangeTests: XCTestCase {
     func testWYSIWYG_SampleRateChangePreservesBeats() {
         // WYSIWYG means what you hear matches what you see
         // Beat positions should not change with sample rate
-        
+
         // Given: Playback at beat 32 at 44.1kHz
         let beatPosition: Double = 32.0
-        let oldRate: Double = 44100
-        
-        // When: Device changes to 96kHz
-        let newRate: Double = 96000
-        
+
+        // When: Device changes to 96kHz (rate change does not affect beat position)
         // Then: Beat position should remain 32
         // (This is guaranteed by beats-first architecture)
         XCTAssertEqual(beatPosition, 32.0,
                       "Beat position should not change with sample rate")
-        
+
         // User sees: Playhead at beat 32
         // User hears: Audio at beat 32 (not at a different position)
         // = WYSIWYG preserved
