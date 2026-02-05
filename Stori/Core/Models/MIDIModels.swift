@@ -77,6 +77,26 @@ struct MIDINote: Identifiable, Codable, Equatable, Hashable {
         guard let pitch = MIDIHelper.pitch(for: name) else { return nil }
         return MIDINote(pitch: pitch, velocity: velocity, startBeat: startBeat, durationBeats: durationBeats)
     }
+    
+    // MARK: - Resize Collision (Issue #79)
+    
+    /// Maximum end beat allowed when resizing this note (right edge) so it does not overlap
+    /// the next note on the same pitch. Prevents invalid MIDI (Note On before Note Off).
+    ///
+    /// - Parameters:
+    ///   - resizingNote: The note being resized (must be in `allNotes`).
+    ///   - allNotes: All notes in the region (including the note being resized).
+    ///   - requestedEndBeat: The end beat the user requested (e.g. after snap).
+    /// - Returns: The maximum allowed end beat (≤ requestedEndBeat) that does not overlap
+    ///   any same-pitch note that starts after this note. If no such note exists, returns
+    ///   `requestedEndBeat`.
+    static func maxEndBeatForResize(resizingNote: MIDINote, allNotes: [MIDINote], requestedEndBeat: Double) -> Double {
+        let nextSamePitchStarts = allNotes
+            .filter { $0.pitch == resizingNote.pitch && $0.id != resizingNote.id && $0.startBeat > resizingNote.startBeat }
+            .map(\.startBeat)
+        guard let limit = nextSamePitchStarts.min() else { return requestedEndBeat }
+        return min(requestedEndBeat, limit)
+    }
 }
 
 // MARK: - MIDIRegion

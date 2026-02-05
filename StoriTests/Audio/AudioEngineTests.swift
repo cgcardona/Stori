@@ -64,6 +64,22 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertTrue(engine.isGraphReadyForPlayback)
     }
     
+    // MARK: - Health Monitoring (issue #80: low priority to avoid CPU spikes)
+    
+    /// Engine health checks must run on low-priority queue (.utility) so they don't compete with audio.
+    func testHealthMonitorRunsOnLowPriorityQueue() {
+        XCTAssertEqual(
+            AudioEngine.healthMonitorQueueQoSForTesting,
+            DispatchQoS.QoSClass.utility,
+            "Health monitor queue must use .utility QoS to avoid periodic CPU spikes during playback"
+        )
+        XCTAssertEqual(
+            AudioEngine.healthMonitorQueueLabelForTesting,
+            "com.stori.engine.health",
+            "Health monitor queue label must be stable for diagnostics"
+        )
+    }
+    
     // MARK: - Start/Stop Tests
     
     func testEngineStart() async throws {

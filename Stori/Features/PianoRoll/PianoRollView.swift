@@ -1896,6 +1896,10 @@ struct PianoRollView: View {
     /// - The END position snaps to the grid
     /// - The START position remains fixed
     /// - Duration is calculated from the snapped end position
+    ///
+    /// BUG FIX (Issue #79): Cap resize so the note cannot overlap the next note on the same
+    /// pitch. Overlapping same-pitch notes cause invalid MIDI (Note On before Note Off) and
+    /// undefined instrument behavior (re-trigger, stuck notes, export/playback differences).
     private func resizeNote(_ note: MIDINote, by delta: CGFloat) {
         guard let index = region.notes.firstIndex(where: { $0.id == note.id }) else { return }
         
@@ -1920,6 +1924,11 @@ struct PianoRollView: View {
             // No snap: just ensure minimum duration (prevent zero-length notes)
             newDuration = max(0.01, newDuration)
         }
+        
+        // BUG FIX (Issue #79): Prevent overlapping same-pitch notes (invalid MIDI)
+        let requestedEndBeat = note.startBeat + newDuration
+        let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: note, allNotes: region.notes, requestedEndBeat: requestedEndBeat)
+        newDuration = max(snapResolution != .off ? snapResolution.stepDurationBeats : 0.01, cappedEndBeat - note.startBeat)
         
         region.notes[index].durationBeats = newDuration
         
