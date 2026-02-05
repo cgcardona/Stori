@@ -30,11 +30,19 @@ class OfflineMIDIRenderer {
         }
     }
     
+    /// Copy of preset fields needed for rendering. Isolated from SynthPreset so
+    /// RenderVoice deinit does not run on MainActor (avoids ASan bad-free in TaskLocal teardown).
+    private struct RenderPresetSnapshot {
+        let envelope: ADSREnvelope
+        let oscillator1: OscillatorType
+        let masterVolume: Float
+    }
+    
     /// Active voice for rendering
     private class RenderVoice {
         let pitch: UInt8
         let velocity: UInt8
-        let preset: SynthPreset
+        let preset: RenderPresetSnapshot
         let sampleRate: Float
         
         private var phase: Float = 0
@@ -48,12 +56,18 @@ class OfflineMIDIRenderer {
         var isFinished: Bool { envelopeState == .finished }
         var isReleasing: Bool { envelopeState == .release }
         
-        init(pitch: UInt8, velocity: UInt8, preset: SynthPreset, sampleRate: Float, startSample: AVAudioFramePosition) {
+        init(pitch: UInt8, velocity: UInt8, preset: RenderPresetSnapshot, sampleRate: Float, startSample: AVAudioFramePosition) {
             self.pitch = pitch
             self.velocity = velocity
             self.preset = preset
             self.sampleRate = sampleRate
             self.startSample = startSample
+        }
+        
+        deinit {
+            // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
+            // Same pattern as AudioAnalyzer, MetronomeEngine, etc. Explicit deinit changes teardown
+            // codegen and avoids double-free in swift::TaskLocal::StopLookupScope.
         }
         
         func release(at sample: AVAudioFramePosition) {
@@ -131,7 +145,8 @@ class OfflineMIDIRenderer {
     private var scheduledEvents: [ScheduledEvent] = []
     private var nextEventIndex: Int = 0
     private var activeVoices: [RenderVoice] = []
-    private let preset: SynthPreset
+    /// Snapshot only; avoids MainActor/task-local deinit (ASan bad-free in TaskLocal teardown).
+    private let presetSnapshot: RenderPresetSnapshot
     private let sampleRate: Float
     private let volume: Float
     
@@ -144,7 +159,11 @@ class OfflineMIDIRenderer {
     private var currentSamplePosition: AVAudioFramePosition = 0
     
     init(preset: SynthPreset, sampleRate: Double, volume: Float) {
-        self.preset = preset
+        self.presetSnapshot = RenderPresetSnapshot(
+            envelope: preset.envelope,
+            oscillator1: preset.oscillator1,
+            masterVolume: preset.masterVolume
+        )
         self.sampleRate = Float(sampleRate)
         self.volume = volume
     }
@@ -218,7 +237,7 @@ class OfflineMIDIRenderer {
                 let voice = RenderVoice(
                     pitch: event.pitch,
                     velocity: event.velocity,
-                    preset: preset,
+                    preset: presetSnapshot,
                     sampleRate: sampleRate,
                     startSample: event.sampleTime
                 )
@@ -271,6 +290,11 @@ class OfflineMIDIRenderer {
         nextEventIndex = 0
         activeVoices.removeAll()
         currentSamplePosition = 0
+    }
+    
+    deinit {
+        // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
+        // Same pattern as AudioAnalyzer. Explicit deinit changes teardown codegen.
     }
 }
 
