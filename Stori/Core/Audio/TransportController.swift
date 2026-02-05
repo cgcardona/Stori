@@ -213,6 +213,67 @@ class TransportController {
         self.onTransportStateChanged = onTransportStateChanged
         self.onPositionChanged = onPositionChanged
         self.onCycleJump = onCycleJump
+        
+        // Setup save coordination notifications (Issue #63)
+        setupSaveCoordinationObservers()
+    }
+    
+    // MARK: - Save Coordination (Issue #63)
+    
+    /// Temporary pause state for save operation
+    @ObservationIgnored
+    private var savedStateBeforeSavePause: TransportState = .stopped
+    
+    /// Setup notification observers for save coordination
+    /// CRITICAL (Issue #63): These ensure consistent project state during save
+    private func setupSaveCoordinationObservers() {
+        // Query transport state
+        NotificationCenter.default.addObserver(
+            forName: .queryTransportState,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self else { return }
+            if let continuation = notification.userInfo?["continuation"] as? CheckedContinuation<Bool, Never> {
+                Task { @MainActor in
+                    continuation.resume(returning: self.isPlaying)
+                }
+            }
+        }
+        
+        // Pause transport for save
+        NotificationCenter.default.addObserver(
+            forName: .pauseTransportForSave,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                // Save current state and pause
+                self.savedStateBeforeSavePause = self.transportState
+                if self.isPlaying {
+                    self.pause()
+                }
+                
+                // Confirm pause to ProjectManager
+                NotificationCenter.default.post(name: .transportPausedForSave, object: nil)
+            }
+        }
+        
+        // Resume transport after save
+        NotificationCenter.default.addObserver(
+            forName: .resumeTransportAfterSave,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                // Only resume if we were playing before save
+                if self.savedStateBeforeSavePause == .playing {
+                    self.play()
+                }
+            }
+        }
     }
     
     nonisolated deinit {

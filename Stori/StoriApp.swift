@@ -919,6 +919,12 @@ extension Notification.Name {
     static let willSaveProject = Notification.Name("willSaveProject")  // Posted before save to collect plugin states
     static let pluginConfigsSaved = Notification.Name("pluginConfigsSaved")  // Posted when AudioEngine finishes saving plugin configs
     static let saveProject = Notification.Name("saveProject")
+    
+    // Issue #63: Transport-ProjectManager save coordination notifications
+    static let queryTransportState = Notification.Name("queryTransportState")  // Query if transport is playing
+    static let pauseTransportForSave = Notification.Name("pauseTransportForSave")  // Request transport pause for save
+    static let transportPausedForSave = Notification.Name("transportPausedForSave")  // Transport confirms pause
+    static let resumeTransportAfterSave = Notification.Name("resumeTransportAfterSave")  // Resume transport after save
     static let exportProject = Notification.Name("exportProject")
     static let importAudio = Notification.Name("importAudio")
     static let importMIDIFile = Notification.Name("importMIDIFile")
