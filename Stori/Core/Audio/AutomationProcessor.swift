@@ -500,9 +500,10 @@ final class AutomationProcessor: @unchecked Sendable {
     
     // MARK: - Cleanup
     
-    /// Explicit deinit to prevent Swift Concurrency memory corruption
-    /// Same issue as AudioGraphManager, MetronomeEngine, and 24 other @Observable/@Sendable classes
-    /// See: GitHub Issue #83020 - ASan detected double-free during swift_task_deinitOnExecutorImpl
+    /// CRITICAL: Protective deinit for @Observable / Swift Concurrency (ASan Issue #84742+)
+    /// Root cause: TaskLocal::StopLookupScope can bad-free when deinit runs off MainActor.
+    /// Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
+    /// See: AudioAnalyzer, AudioEngine, MetronomeEngine; https://github.com/apple/swift/issues/84742
     deinit {
         // Empty deinit is sufficient - ensures proper Swift Concurrency cleanup
     }
