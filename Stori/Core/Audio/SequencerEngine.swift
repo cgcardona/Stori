@@ -1299,6 +1299,15 @@ class SequencerEngine {
         }
         return exp(-decay * (t - attack))
     }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
+    }
 }
 
 // MARK: - Drum Player
@@ -1334,6 +1343,28 @@ private class DrumPlayer {
     
     /// Set a sample buffer to use instead of synthesis
     func setSampleBuffer(_ buffer: AVAudioPCMBuffer) {
+        #if DEBUG
+        // Check if the loaded sample itself is clipping
+        if let channelData = buffer.floatChannelData {
+            var maxSample: Float = 0
+            var clippedCount = 0
+            
+            for channel in 0..<Int(buffer.format.channelCount) {
+                for frame in 0..<Int(buffer.frameLength) {
+                    let sample = abs(channelData[channel][frame])
+                    maxSample = max(maxSample, sample)
+                    if sample > 0.99 {
+                        clippedCount += 1
+                    }
+                }
+            }
+            
+            if clippedCount > 0 {
+                print("⚠️ DRUM SAMPLE \(soundType) CONTAINS CLIPPING: \(clippedCount) frames, max: \(maxSample)")
+            }
+        }
+        #endif
+        
         sampleBuffer = buffer
     }
     
@@ -1536,5 +1567,13 @@ private class DrumPlayer {
             return t / attack
         }
         return exp(-decay * (t - attack))
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Even simple nested classes can have implicit tasks that cause memory corruption
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }

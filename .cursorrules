@@ -132,7 +132,7 @@ TellUrStoriDAW/
 ├── README.md
 ├── Stori/                        # Main app target (Swift)
 ├── StoriTests/                   # Unit and integration tests
-├── TellUrStoriDAW.xcodeproj/
+├── Stori.xcodeproj/
 └── VERSION
 ```
 
@@ -513,13 +513,13 @@ Before committing any new feature:
 
 ```bash
 # Run all tests
-xcodebuild test -project TellUrStoriDAW.xcodeproj -scheme Stori -destination 'platform=macOS'
+xcodebuild test -project Stori.xcodeproj -scheme Stori -destination 'platform=macOS'
 
 # Run specific test class
-xcodebuild test -project TellUrStoriDAW.xcodeproj -scheme Stori -destination 'platform=macOS' -only-testing:StoriTests/AudioModelsTests
+xcodebuild test -project Stori.xcodeproj -scheme Stori -destination 'platform=macOS' -only-testing:StoriTests/AudioModelsTests
 
 # Run tests with coverage
-xcodebuild test -project TellUrStoriDAW.xcodeproj -scheme Stori -destination 'platform=macOS' -enableCodeCoverage YES
+xcodebuild test -project Stori.xcodeproj -scheme Stori -destination 'platform=macOS' -enableCodeCoverage YES
 ```
 
 ### Test Writing Guidelines

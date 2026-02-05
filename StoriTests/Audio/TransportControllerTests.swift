@@ -514,4 +514,256 @@ final class TransportControllerTests: XCTestCase {
             XCTAssertGreaterThan(sum, 0)
         }
     }
+    
+    // MARK: - calculateCurrentBeat() Tests (Bug #12: Position Timer Accuracy)
+    
+    /// Helper to create a test TransportController
+    @MainActor
+    private func createTestController() -> TransportController {
+        return TransportController(
+            getProject: { nil },
+            isInstallingPlugin: { false },
+            isGraphStable: { true },
+            onStartPlayback: { _ in },
+            onStopPlayback: {},
+            onTransportStateChanged: { _ in },
+            onPositionChanged: { _ in },
+            onCycleJump: { _ in }
+        )
+    }
+    
+    /// Test calculateCurrentBeat() at 120 BPM (most common tempo)
+    /// Verifies the single source of truth for beat position calculation
+    @MainActor
+    func testCalculateCurrentBeatAt120BPM() {
+        let controller = createTestController()
+        
+        // 120 BPM = 2 beats per second
+        // 2 seconds elapsed = 4 beats
+        let result = controller.calculateCurrentBeat(
+            startBeat: 0.0,
+            startWallTime: 0.0,
+            currentWallTime: 2.0,
+            tempo: 120.0
+        )
+        
+        assertApproximatelyEqual(result, 4.0, tolerance: 0.00001)
+    }
+    
+    /// Test calculateCurrentBeat() at various common tempos
+    @MainActor
+    func testCalculateCurrentBeatVariousTempos() {
+        let controller = createTestController()
+        
+        let testCases: [(tempo: Double, seconds: Double, expectedBeats: Double)] = [
+            // tempo, elapsed seconds, expected beats
+            (60.0, 1.0, 1.0),      // 60 BPM: 1 beat per second
+            (90.0, 2.0, 3.0),      // 90 BPM: 1.5 beats per second
+            (120.0, 2.0, 4.0),     // 120 BPM: 2 beats per second
+            (140.0, 1.0, 2.333),   // 140 BPM: 2.333... beats per second
+            (180.0, 1.0, 3.0),     // 180 BPM: 3 beats per second
+            (240.0, 0.5, 2.0),     // 240 BPM: 4 beats per second
+        ]
+        
+        for (tempo, seconds, expectedBeats) in testCases {
+            let result = controller.calculateCurrentBeat(
+                startBeat: 0.0,
+                startWallTime: 0.0,
+                currentWallTime: seconds,
+                tempo: tempo
+            )
+            
+            assertApproximatelyEqual(result, expectedBeats, tolerance: 0.001)
+        }
+    }
+    
+    /// Test calculateCurrentBeat() with non-zero start beat
+    /// Verifies that calculation works correctly when not starting from beat 0
+    @MainActor
+    func testCalculateCurrentBeatWithNonZeroStart() {
+        let controller = createTestController()
+        
+        // Start at beat 8.5, play for 2 seconds at 120 BPM
+        // Should end at 8.5 + 4.0 = 12.5 beats
+        let result = controller.calculateCurrentBeat(
+            startBeat: 8.5,
+            startWallTime: 0.0,
+            currentWallTime: 2.0,
+            tempo: 120.0
+        )
+        
+        assertApproximatelyEqual(result, 12.5, tolerance: 0.00001)
+    }
+    
+    /// Test calculateCurrentBeat() with non-zero start time
+    /// Verifies that only the elapsed time matters, not absolute wall time
+    @MainActor
+    func testCalculateCurrentBeatWithNonZeroStartTime() {
+        let controller = createTestController()
+        
+        // Start at wall time 100.0, current time 102.0 (2 seconds elapsed)
+        // At 120 BPM, 2 seconds = 4 beats
+        let result = controller.calculateCurrentBeat(
+            startBeat: 0.0,
+            startWallTime: 100.0,
+            currentWallTime: 102.0,
+            tempo: 120.0
+        )
+        
+        assertApproximatelyEqual(result, 4.0, tolerance: 0.00001)
+    }
+    
+    /// Test calculateCurrentBeat() precision with very small time intervals
+    /// Critical for sample-accurate timing
+    @MainActor
+    func testCalculateCurrentBeatMicrosecondPrecision() {
+        let controller = createTestController()
+        
+        // 1 millisecond at 120 BPM
+        // 120 BPM = 2 beats/second = 0.002 beats/millisecond
+        let oneMillisecond = 0.001
+        let result1ms = controller.calculateCurrentBeat(
+            startBeat: 0.0,
+            startWallTime: 0.0,
+            currentWallTime: oneMillisecond,
+            tempo: 120.0
+        )
+        
+        assertApproximatelyEqual(result1ms, 0.002, tolerance: 0.000001)
+        
+        // 100 microseconds (0.0001 seconds)
+        let oneHundredMicroseconds = 0.0001
+        let result100us = controller.calculateCurrentBeat(
+            startBeat: 0.0,
+            startWallTime: 0.0,
+            currentWallTime: oneHundredMicroseconds,
+            tempo: 120.0
+        )
+        
+        assertApproximatelyEqual(result100us, 0.0002, tolerance: 0.00001)
+    }
+    
+    /// Test calculateCurrentBeat() at extreme tempos
+    /// Verifies calculation works across full professional tempo range
+    @MainActor
+    func testCalculateCurrentBeatExtremeTempos() {
+        let controller = createTestController()
+        
+        // Very slow tempo: 40 BPM (ballad)
+        let slowResult = controller.calculateCurrentBeat(
+            startBeat: 0.0,
+            startWallTime: 0.0,
+            currentWallTime: 3.0,
+            tempo: 40.0
+        )
+        // 40 BPM = 0.667 beats/second, 3s = 2 beats
+        assertApproximatelyEqual(slowResult, 2.0, tolerance: 0.001)
+        
+        // Very fast tempo: 300 BPM (electronic music)
+        let fastResult = controller.calculateCurrentBeat(
+            startBeat: 0.0,
+            startWallTime: 0.0,
+            currentWallTime: 1.0,
+            tempo: 300.0
+        )
+        // 300 BPM = 5 beats/second, 1s = 5 beats
+        assertApproximatelyEqual(fastResult, 5.0, tolerance: 0.001)
+    }
+    
+    /// Test calculateCurrentBeat() consistency across multiple invocations
+    /// Verifies deterministic behavior (same inputs = same output)
+    @MainActor
+    func testCalculateCurrentBeatDeterministic() {
+        let controller = createTestController()
+        
+        let params = (startBeat: 5.25, startTime: 123.456, currentTime: 125.789, tempo: 128.5)
+        
+        // Call multiple times with same parameters
+        let results = (0..<10).map { _ in
+            controller.calculateCurrentBeat(
+                startBeat: params.startBeat,
+                startWallTime: params.startTime,
+                currentWallTime: params.currentTime,
+                tempo: params.tempo
+            )
+        }
+        
+        // All results should be identical (deterministic)
+        let firstResult = results[0]
+        for (index, result) in results.enumerated() {
+            XCTAssertEqual(result, firstResult, accuracy: 0.000001,
+                          "Invocation \(index) should produce identical result")
+        }
+    }
+    
+    /// Test calculateCurrentBeat() formula correctness
+    /// Explicitly verifies: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    @MainActor
+    func testCalculateCurrentBeatFormulaCorrectness() {
+        let controller = createTestController()
+        
+        let startBeat = 10.0
+        let startTime = 50.0
+        let currentTime = 55.5 // 5.5 seconds elapsed
+        let tempo = 144.0      // 144 BPM
+        
+        // Manual calculation
+        let elapsedSeconds = currentTime - startTime // 5.5
+        let beatsPerSecond = tempo / 60.0            // 2.4
+        let elapsedBeats = elapsedSeconds * beatsPerSecond // 13.2
+        let expectedBeat = startBeat + elapsedBeats   // 23.2
+        
+        let result = controller.calculateCurrentBeat(
+            startBeat: startBeat,
+            startWallTime: startTime,
+            currentWallTime: currentTime,
+            tempo: tempo
+        )
+        
+        assertApproximatelyEqual(result, expectedBeat, tolerance: 0.000001)
+        assertApproximatelyEqual(result, 23.2, tolerance: 0.000001)
+    }
+    
+    /// Test calculateCurrentBeat() with zero elapsed time
+    /// Should return exactly the start beat
+    @MainActor
+    func testCalculateCurrentBeatZeroElapsedTime() {
+        let controller = createTestController()
+        
+        let startBeat = 42.5
+        let wallTime = 100.0
+        
+        let result = controller.calculateCurrentBeat(
+            startBeat: startBeat,
+            startWallTime: wallTime,
+            currentWallTime: wallTime, // Same time = 0 elapsed
+            tempo: 120.0
+        )
+        
+        XCTAssertEqual(result, startBeat, accuracy: 0.000001,
+                      "Zero elapsed time should return exactly the start beat")
+    }
+    
+    /// Test calculateCurrentBeat() performance
+    /// Must be fast enough for real-time audio thread access
+    @MainActor
+    func testCalculateCurrentBeatPerformance() {
+        let controller = createTestController()
+        
+        measure {
+            var sum: Double = 0
+            for i in 0..<100000 {
+                let result = controller.calculateCurrentBeat(
+                    startBeat: 0.0,
+                    startWallTime: 0.0,
+                    currentWallTime: Double(i) * 0.0001,
+                    tempo: 120.0
+                )
+                sum += result
+            }
+            // Use sum to prevent optimization
+            XCTAssertGreaterThan(sum, 0)
+        }
+        // Should complete 100,000 calculations in ~0.01s or less
+    }
 }
