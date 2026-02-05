@@ -102,6 +102,21 @@ final class TrackAudioNode: @unchecked Sendable {
         }
     }
     
+    // MARK: - Plugin Delay Compensation
+    
+    /// Plugin delay compensation in samples (BUG FIX Issue #49)
+    /// This value is set by TrackPluginManager when plugin chains change
+    /// It represents the compensation delay this track needs to align with tracks
+    /// that have higher plugin latency
+    private(set) var compensationDelaySamples: UInt32 = 0
+    
+    /// Apply the compensation delay for this track (BUG FIX Issue #49)
+    /// Called by TrackPluginManager.updateDelayCompensation() when plugin chains change
+    /// Thread-safe: Can be called from main actor
+    func applyCompensationDelay(samples: UInt32) {
+        compensationDelaySamples = samples
+    }
+    
     // MARK: - Initialization
     init(
         id: UUID,
