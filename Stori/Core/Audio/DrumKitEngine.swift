@@ -100,20 +100,25 @@ class DrumKitEngine {
         loadDefaultKit()
     }
     
-    /// Detach from the audio engine
+    /// Detach from the audio engine. Disconnects outputs before detach to avoid graph corruption (Issue #81).
     func detach() {
         guard let engine = audioEngine else { return }
         
-        // Stop and detach all players
+        // Disconnect mixer output first (downstream-first), then stop and disconnect players
+        if engine.attachedNodes.contains(mixerNode) {
+            engine.disconnectNodeOutput(mixerNode)
+            engine.disconnectNodeInput(mixerNode)
+            engine.detach(mixerNode)
+        }
         for (_, player) in drumPlayers {
             player.stop()
-            engine.detach(player)
+            if engine.attachedNodes.contains(player) {
+                engine.disconnectNodeOutput(player)
+                engine.disconnectNodeInput(player)
+                engine.detach(player)
+            }
         }
         drumPlayers.removeAll()
-        
-        // Detach mixer
-        engine.detach(mixerNode)
-        
         audioEngine = nil
     }
     

@@ -526,6 +526,19 @@ class BusManager {
         trackSendInputBus.removeValue(forKey: sendKey)
     }
     
+    /// Removes all bus sends for a track. Call before removing the track so the track's
+    /// pan/volume nodes are disconnected from bus mixers before teardown (prevents graph corruption).
+    func removeAllSendsForTrack(_ trackId: UUID) {
+        let prefix = "\(trackId.uuidString)-"
+        let keysToRemove = trackSendIds.keys.filter { $0.hasPrefix(prefix) }
+        for sendKey in keysToRemove {
+            let busIdStr = String(sendKey.dropFirst(prefix.count))
+            if let busId = UUID(uuidString: busIdStr) {
+                removeTrackSend(trackId, from: busId)
+            }
+        }
+    }
+    
     private func restoreTrackSendsForProject(_ project: AudioProject) {
         
         for (trackIndex, track) in project.tracks.enumerated() {
