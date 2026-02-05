@@ -282,7 +282,13 @@ class AudioEngine: AudioEngineContext {
         }
         
         // Install the metronome nodes
-        metronome.install(into: engine, dawMixer: mixer, audioEngine: self, transportController: transportController)
+        metronome.install(
+            into: engine,
+            dawMixer: mixer,
+            audioEngine: self,
+            transportController: transportController,
+            midiScheduler: midiPlaybackEngine.sampleAccurateScheduler
+        )
         installedMetronome = metronome
         
         // Restart if it was running
