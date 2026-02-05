@@ -1998,16 +1998,41 @@ struct PianoRollView: View {
         region.notes = updatedNotes
     }
     
+    /// Quantize selected notes using the current quantize strength parameter
+    ///
+    /// BUG FIX (Issue #33): Previously ignored `quantizeStrength` parameter and always
+    /// applied 100% quantization, destroying musical feel and human groove.
+    ///
+    /// PROFESSIONAL STANDARD: Respects quantize strength (0-100%) like Logic Pro:
+    /// - 100% = full snap to grid (tight, mechanical)
+    /// - 50% = halfway to grid (preserves human feel)
+    /// - 0% = no quantization (original timing)
+    ///
+    /// WYSIWYG IMPACT: Consistent behavior with "Quantize with Options" dialog.
+    /// Both code paths now use the same strength-aware quantization logic.
+    ///
+    /// MUSICALITY: Enables "soft" quantization to tighten timing without losing groove,
+    /// essential for maintaining the human feel in performances.
     private func quantizeSelected() {
         guard snapResolution != .off else { return }
+        let strength = Float(quantizeStrength / 100.0)
         
         for id in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == id }) {
-                region.notes[index].startBeat = snapResolution.quantize(beat:region.notes[index].startBeat)
-                region.notes[index].durationBeats = max(
-                    snapResolution.stepDurationBeats,
-                    snapResolution.quantize(beat:region.notes[index].durationBeats)
+                // Apply strength-aware quantization to note start time
+                region.notes[index].startBeat = snapResolution.quantize(
+                    beat: region.notes[index].startBeat,
+                    strength: strength
                 )
+                
+                // Duration quantization: Only snap if strength is very high (>90%)
+                // This preserves note lengths at lower strength settings
+                if quantizeStrength > 90 {
+                    region.notes[index].durationBeats = max(
+                        snapResolution.stepDurationBeats,
+                        snapResolution.quantize(beat: region.notes[index].durationBeats, strength: strength)
+                    )
+                }
             }
         }
     }
