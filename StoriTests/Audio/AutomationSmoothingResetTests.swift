@@ -82,6 +82,18 @@ final class AutomationSmoothingResetTests: XCTestCase {
     
     // MARK: - Core Reset Tests
     
+    /// FAILS WITHOUT FIX: If reset used mixer instead of automation, smoothed state would be stale;
+    /// first setVolumeSmoothed(0.0) would blend from stale value and volume would not be 0.0.
+    func testAutomationResetPreventsAudibleRampFromStaleMixer() {
+        var volumeLane = AutomationLane(id: trackId, parameter: .volume)
+        volumeLane.points = [AutomationPoint(beat: 0, value: 0.0, curve: .linear)]
+        trackNode.setVolume(0.8)  // Stale mixer (previous session)
+        trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
+        trackNode.setVolumeSmoothed(0.0)  // First automation tick at beat 0
+        XCTAssertEqual(trackNode.volume, 0.0, accuracy: 0.01,
+                      "Without fix: smoothed would stay 0.8, first tick would blend; volume would ≠ 0.0")
+    }
+    
     func testResetSmoothingInitializesFromAutomationAtPlayhead() {
         // BUG FIX VERIFICATION: Smoothed values should initialize from automation curve
         
@@ -156,10 +168,10 @@ final class AutomationSmoothingResetTests: XCTestCase {
             // Reset smoothing at this beat position
             trackNode.resetSmoothing(atBeat: beat, automationLanes: [volumeLane])
             
-            // Verify initialization (indirectly through behavior)
-            // The actual smoothed value is private, but the fix ensures it's initialized correctly
-            XCTAssertTrue(true,
-                         "Smoothing reset at beat \(beat) should initialize to \(expectedValue)")
+            // Verify: apply same value as automation; output should match (no ramp from stale mixer)
+            trackNode.setVolumeSmoothed(Float(expectedValue))
+            XCTAssertEqual(trackNode.volume, Float(expectedValue), accuracy: 0.02,
+                           "At beat \(beat) smoothed should be \(expectedValue); without fix would ramp from 0.99")
         }
     }
     
@@ -231,9 +243,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Start playback from beat 0
         trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-        
-        // Should initialize to 0.0 (automation at beat 0), not 0.5 (mixer)
-        XCTAssertTrue(true, "Playback from beat 0 should use automation value")
+        trackNode.setVolumeSmoothed(0.0)
+        XCTAssertEqual(trackNode.volume, 0.0, accuracy: 0.01,
+                      "Playback from beat 0 must use automation (0.0), not mixer (0.5)")
     }
     
     func testPlayFromMidSongWithAutomation() {
@@ -249,9 +261,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Start playback from beat 2 (halfway through ramp, should be 0.5)
         trackNode.resetSmoothing(atBeat: 2, automationLanes: [volumeLane])
-        
-        // Should initialize to 0.5 (automation at beat 2), not 0.1 (mixer)
-        XCTAssertTrue(true, "Playback from beat 2 should use automation value at beat 2")
+        trackNode.setVolumeSmoothed(0.5)
+        XCTAssertEqual(trackNode.volume, 0.5, accuracy: 0.02,
+                      "Playback from beat 2 must use automation (0.5), not mixer (0.1)")
     }
     
     func testRepeatedPlayStopCycles() {
@@ -264,9 +276,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         for _ in 0..<5 {
             trackNode.setVolume(Float.random(in: 0...1))  // Randomize mixer
             trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-            
-            // Each reset should initialize from automation (0.3), not mixer
-            XCTAssertTrue(true, "Each play cycle should reset to automation value")
+            trackNode.setVolumeSmoothed(0.3)
+            XCTAssertEqual(trackNode.volume, 0.3, accuracy: 0.02,
+                           "Each play cycle must reset to automation (0.3), not stale mixer")
         }
     }
     
@@ -319,10 +331,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Reset at beat 5 (after last point at beat 2)
         trackNode.resetSmoothing(atBeat: 5, automationLanes: [volumeLane])
-        
-        // Should use last automation value (0.9), not mixer (0.1)
-        XCTAssertTrue(true,
-                     "After last point should hold last automation value")
+        trackNode.setVolumeSmoothed(0.9)
+        XCTAssertEqual(trackNode.volume, 0.9, accuracy: 0.02,
+                      "After last point must hold last automation (0.9), not mixer (0.1)")
     }
     
     func testResetSmoothingBetweenAutomationPoints() {
@@ -338,11 +349,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Reset at beat 2 (halfway between 0 and 4)
         trackNode.resetSmoothing(atBeat: 2, automationLanes: [volumeLane])
-        
-        // Should interpolate to 0.5 (halfway between 0.0 and 1.0)
-        // Not use mixer value (0.5) - coincidence in this case, but logic should use automation
-        XCTAssertTrue(true,
-                     "Between points should interpolate automation value")
+        trackNode.setVolumeSmoothed(0.5)
+        XCTAssertEqual(trackNode.volume, 0.5, accuracy: 0.02,
+                      "Between points must use interpolated automation (0.5), not mixer")
     }
     
     // MARK: - Transient Material Tests
@@ -362,12 +371,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Play from beat 0
         trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-        
-        // CRITICAL: Smoothed value should initialize to 0.0 (automation)
-        // If it initialized to 0.8 (mixer), user would hear volume ramp DOWN over 50ms
-        // This would be audible on drum transient (attack phase affected)
-        XCTAssertTrue(true,
-                     "Drum transient should start at correct volume (0.0), no ramp")
+        trackNode.setVolumeSmoothed(0.0)
+        XCTAssertEqual(trackNode.volume, 0.0, accuracy: 0.01,
+                      "Drum transient must start at 0.0 (automation); without fix would ramp from 0.8")
     }
     
     func testVolumeAutomationOnSilentSection() {
@@ -384,10 +390,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Play from beat 0
         trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-        
-        // Should start at 1.0 (full volume), no ramp from 0.0
-        XCTAssertTrue(true,
-                     "Should start at full volume, no audible ramp up")
+        trackNode.setVolumeSmoothed(1.0)
+        XCTAssertEqual(trackNode.volume, 1.0, accuracy: 0.01,
+                      "Must start at 1.0 (automation); without fix would ramp from 0.0")
     }
     
     // MARK: - EQ Reset Tests
@@ -461,10 +466,10 @@ final class AutomationSmoothingResetTests: XCTestCase {
         // Seek to beat 3 (value should be 0.65)
         trackNode.setVolume(0.1)  // Simulate mixer change
         trackNode.resetSmoothing(atBeat: 3, automationLanes: [volumeLane])
-        
-        // Should initialize to interpolated value at beat 3
-        XCTAssertTrue(true,
-                     "Seek should reset smoothing to automation at new position")
+        // Linear 0.2→0.8 over 4 beats: at beat 3, value = 0.2 + (0.8-0.2)*(3/4) = 0.65
+        trackNode.setVolumeSmoothed(0.65)
+        XCTAssertEqual(trackNode.volume, 0.65, accuracy: 0.02,
+                      "Seek to beat 3 must use interpolated automation (0.65)")
     }
     
     func testResetSmoothingDuringCycleLoop() {
@@ -481,10 +486,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Jump back to cycle start (beat 0)
         trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-        
-        // Should reset to 0.3 (automation at beat 0), not stay at 0.9
-        XCTAssertTrue(true,
-                     "Cycle jump should reset to automation at cycle start")
+        trackNode.setVolumeSmoothed(0.3)
+        XCTAssertEqual(trackNode.volume, 0.3, accuracy: 0.02,
+                      "Cycle jump must reset to automation at cycle start (0.3), not stay at 0.9")
     }
     
     // MARK: - Regression Protection
@@ -544,11 +548,9 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Play from beat 0
         trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-        
-        // WYSIWYG: User sees automation shows 0.1 at beat 0
-        // They should HEAR 0.1, not 0.6 ramping to 0.1
-        XCTAssertTrue(true,
-                     "WYSIWYG: Should hear automation value (0.1), not mixer value (0.6)")
+        trackNode.setVolumeSmoothed(0.1)
+        XCTAssertEqual(trackNode.volume, 0.1, accuracy: 0.01,
+                      "WYSIWYG: must hear automation (0.1) at beat 0, not ramp from mixer (0.6)")
     }
     
     func testNoAudibleRampOnPlaybackStart() {
@@ -562,11 +564,19 @@ final class AutomationSmoothingResetTests: XCTestCase {
         
         // Start playback from beat 0 (where automation = 1.0)
         trackNode.resetSmoothing(atBeat: 0, automationLanes: [volumeLane])
-        
-        // CRITICAL: Volume should start at 1.0 immediately
-        // No audible ramp from 0.0 → 1.0 over 50ms
-        // This is especially important for transient-heavy material (drums, percussion)
-        XCTAssertTrue(true,
-                     "No audible ramp on playback start (instant-correct value)")
+        trackNode.setVolumeSmoothed(1.0)
+        XCTAssertEqual(trackNode.volume, 1.0, accuracy: 0.01,
+                      "Must start at 1.0 immediately; without fix would ramp from 0.0 over ~50ms")
+    }
+    
+    /// FAILS WITHOUT FIX: Pan reset from automation (0–1) must match; first setPanSmoothed would otherwise blend from stale pan.
+    func testPanResetFromAutomationAtPlayhead() {
+        var panLane = AutomationLane(id: trackId, parameter: .pan)
+        panLane.points = [AutomationPoint(beat: 0, value: 0.5, curve: .linear)]  // Center = 0.5 in 0–1
+        trackNode.setPan(0.8)  // Stale mixer
+        trackNode.resetSmoothing(atBeat: 0, automationLanes: [panLane])
+        trackNode.setPanSmoothed(0)  // 0.5 in 0–1 → 0 in -1..+1
+        XCTAssertEqual(trackNode.pan, 0.0, accuracy: 0.02,
+                      "Pan must reset from automation (center); without fix would blend from 0.8")
     }
 }
