@@ -494,7 +494,7 @@ class TransportController {
         // Current position = start position + elapsed beats
         let currentBeat = playbackStartBeat + elapsedBeats
         
-        // First update after resume? Log it with detailed timing
+        // Track state changes for debugging (no console output)
         if lastStartBeat != playbackStartBeat {
             let position = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
             lastStartBeat = playbackStartBeat
