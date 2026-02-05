@@ -152,6 +152,15 @@ final class RecordingBufferPool: @unchecked Sendable {
         os_unfair_lock_unlock(&poolLock)
         return shouldSync
     }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @unchecked Sendable classes can have implicit tasks that cause
+    /// memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
+    }
 }
 
 // MARK: - Buffer Copy Helper

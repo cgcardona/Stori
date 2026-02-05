@@ -87,6 +87,8 @@ class MetronomeEngine {
     private weak var avAudioEngine: AVAudioEngine?
     @ObservationIgnored
     private weak var dawAudioEngine: AudioEngine?
+    @ObservationIgnored
+    private weak var transportController: TransportController?
     
     // MARK: - Scheduling State (ignored for observation)
     
@@ -105,6 +107,9 @@ class MetronomeEngine {
     
     @ObservationIgnored
     private var fillTimer: DispatchSourceTimer?
+    
+    @ObservationIgnored
+    private var beatFlashTask: Task<Void, Never>?
     
     @ObservationIgnored
     private let lookaheadSeconds: Double = 0.5
@@ -129,12 +134,13 @@ class MetronomeEngine {
     
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
-    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine) {
+    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine, transportController: TransportController) {
         // Idempotent: only install once
         guard !isInstalled else { return }
         
         self.avAudioEngine = engine
         self.dawAudioEngine = audioEngine
+        self.transportController = transportController
         
         // Create nodes
         let player = AVAudioPlayerNode()
@@ -307,8 +313,15 @@ class MetronomeEngine {
            let playerTime = player.playerTime(forNodeTime: renderTime) {
             transportStartSampleTime = playerTime.sampleTime
             
-            // Compute the next beat boundary
-            let currentBeatPosition = dawAudioEngine?.currentPosition.beats ?? 0
+            // Compute the next beat boundary using thread-safe atomic position
+            let currentBeatPosition: Double
+            if let transport = transportController {
+                currentBeatPosition = transport.atomicBeatPosition
+            } else {
+                // Fallback: MainActor-isolated read (NOT safe from audio thread!)
+                currentBeatPosition = dawAudioEngine?.currentPosition.beats ?? 0
+            }
+            
             nextClickSampleTime = computeNextBeatSampleTime(
                 from: playerTime.sampleTime,
                 currentBeat: currentBeatPosition
@@ -335,6 +348,10 @@ class MetronomeEngine {
     private func stopPlaying() {
         isPlaying = false
         beatFlash = false
+        
+        // Cancel beat flash task
+        beatFlashTask?.cancel()
+        beatFlashTask = nil
         
         // Stop the fill timer
         fillTimer?.cancel()
@@ -380,7 +397,14 @@ class MetronomeEngine {
         }
         
         // Get current beat position from the DAW
-        let currentBeats = dawEngine.currentPosition.beats
+        // Get current beat position from single source of truth
+        let currentBeats: Double
+        if let transport = transportController {
+            currentBeats = transport.atomicBeatPosition
+        } else {
+            // Fallback: MainActor-isolated read (NOT safe from audio thread!)
+            currentBeats = dawEngine.currentPosition.beats
+        }
         
         // Calculate which beat index we're on (floor to get the beat we're currently in)
         let currentBeatIndex = Int(floor(currentBeats))
@@ -431,7 +455,11 @@ class MetronomeEngine {
     private func triggerBeatFlash() {
         beatFlash = true
         
-        Task {
+        // Cancel any existing flash task to prevent memory issues on deinit
+        beatFlashTask?.cancel()
+        
+        // Store the task so we can cancel it during cleanup
+        beatFlashTask = Task {
             try? await Task.sleep(nanoseconds: 80_000_000)  // 80ms
             await MainActor.run {
                 self.beatFlash = false
@@ -504,5 +532,18 @@ class MetronomeEngine {
     
     func toggle() {
         isEnabled.toggle()
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Task holding self reference during @MainActor class cleanup
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        beatFlashTask?.cancel()
+        fillTimer?.cancel()
     }
 }

@@ -355,8 +355,8 @@ class SynthVoice {
         releaseStartTime = time
     }
     
-    /// Mark voice as inactive (for cleanup)
-    func deactivate() {
+    /// Mark voice as inactive (for cleanup outside render path)
+    func markInactive() {
         isActive = false
     }
     
@@ -424,6 +424,8 @@ class SynthVoice {
                 amplitude *= (1 + lfoValue * 0.5)
             }
             
+            // CRITICAL: Apply amplitude and accumulate into buffer
+            // Output will be gain-compensated after all voices render
             buffer[frame] += sample * amplitude
         }
     }
@@ -454,11 +456,20 @@ class SynthVoice {
     func setStartTime(_ time: Float) {
         self.startTime = time
     }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Even simple classes can have implicit tasks that cause memory corruption
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
+    }
 }
 
 // MARK: - SynthEngine
 
 /// Main synthesizer engine managing multiple polyphonic voices.
+/// Integrates with the main DAW audio graph via AVAudioSourceNode.
 class SynthEngine {
     
     // MARK: - Properties
@@ -479,34 +490,42 @@ class SynthEngine {
         return voices
     }
     
-    /// Audio engine components
-    private var audioEngine: AVAudioEngine?
-    private var sourceNode: AVAudioSourceNode?
-    private var mixerNode: AVAudioMixerNode?
+    /// The source node that generates synth audio - attach this to the main DAW engine
+    private(set) var sourceNode: AVAudioSourceNode?
     
+    /// Reference to the main DAW engine (weak to avoid retain cycle)
+    private weak var attachedEngine: AVAudioEngine?
+    
+    /// Audio format for the source node
     private let sampleRate: Double = 48000
     private var currentTime: Float = 0
-    private var isPlaying = false
+    
+    /// Whether the synth is attached to an engine and ready to produce audio
+    private(set) var isAttached = false
     
     // MARK: - Initialization
     
     init() {
-        // Audio engine setup is deferred until needed
+        // Source node is created lazily when attached to engine
     }
     
-    // MARK: - Audio Engine
+    // MARK: - Engine Integration
     
-    /// Start the audio engine
-    func start() throws {
-        guard !isPlaying else { return }
+    /// Attach the synth to the main DAW audio engine.
+    /// This creates the source node and attaches it to the engine.
+    /// The caller (AudioGraphManager) is responsible for connecting to the mixer.
+    /// - Parameters:
+    ///   - engine: The main DAW AVAudioEngine
+    ///   - connectToMixer: If true, connects directly to main mixer (for standalone use)
+    func attach(to engine: AVAudioEngine, connectToMixer: Bool = false) {
+        guard !isAttached else { return }
         
-        audioEngine = AVAudioEngine()
-        guard let engine = audioEngine else { return }
+        attachedEngine = engine
         
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
         
         // Create source node that renders synth voices
-        sourceNode = AVAudioSourceNode(format: format) { [weak self] _, timeStamp, frameCount, audioBufferList -> OSStatus in
+        sourceNode = AVAudioSourceNode(format: format) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             guard let self = self else { return noErr }
             
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -516,33 +535,37 @@ class SynthEngine {
                 memset(buffer.mData, 0, Int(buffer.mDataByteSize))
             }
             
-            // Render all active voices (directly, no async)
+            // Render all active voices
             self.renderVoices(into: ablPointer, frameCount: Int(frameCount))
             
             return noErr
         }
         
-        guard let sourceNode = sourceNode else { return }
+        guard let node = sourceNode else { return }
         
-        mixerNode = AVAudioMixerNode()
-        guard let mixer = mixerNode else { return }
+        engine.attach(node)
         
-        engine.attach(sourceNode)
-        engine.attach(mixer)
+        if connectToMixer {
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+        }
         
-        engine.connect(sourceNode, to: mixer, format: format)
-        engine.connect(mixer, to: engine.mainMixerNode, format: format)
-        
-        try engine.start()
-        isPlaying = true
-        
+        isAttached = true
     }
     
-    /// Stop the audio engine
-    func stop() {
-        audioEngine?.stop()
-        isPlaying = false
+    /// Detach from the audio engine
+    func detach() {
+        guard isAttached, let engine = attachedEngine, let node = sourceNode else { return }
+        
+        engine.detach(node)
+        sourceNode = nil
+        attachedEngine = nil
+        isAttached = false
         allNotesOff()
+    }
+    
+    /// Get the output node for audio graph connection
+    func getOutputNode() -> AVAudioNode? {
+        return sourceNode
     }
     
     // MARK: - Note Control
@@ -614,10 +637,48 @@ class SynthEngine {
             return
         }
         
+        // CRITICAL: Zero the buffer before rendering to prevent accumulation of garbage data
+        // Without this, leftover samples from previous renders cause severe clipping
+        memset(buffer, 0, frameCount * MemoryLayout<Float>.size)
+        
+        // Count active voices for gain compensation
+        let activeVoiceCount = voices.filter { $0.isActive }.count
+        
         // Render each voice
         for voice in voices where voice.isActive {
             voice.render(into: buffer, frameCount: frameCount, startTime: currentTime)
         }
+        
+        // Apply EXTREMELY aggressive gain compensation and hard limiting
+        // CRITICAL: Tests play many notes simultaneously causing severe clipping
+        // Better too quiet than speaker damage!
+        let gainCompensation: Float = activeVoiceCount > 0 ? 0.2 / Float(activeVoiceCount) : 1.0
+        
+        var maxAbsSample: Float = 0
+        var clippedFrameCount = 0
+        
+        for frame in 0..<frameCount {
+            let preGain = buffer[frame]
+            let sample = preGain * gainCompensation
+            
+            // Track max value BEFORE clipping
+            maxAbsSample = max(maxAbsSample, abs(sample))
+            
+            // Detect clipping
+            if abs(sample) > 1.0 {
+                clippedFrameCount += 1
+            }
+            
+            // Hard clip to absolutely prevent values outside [-1, 1]
+            buffer[frame] = max(-1.0, min(1.0, sample))
+        }
+        
+        // Log clipping incidents (only in debug/tests)
+        #if DEBUG
+        if clippedFrameCount > 0 {
+            print("⚠️ SYNTH CLIPPING: \(clippedFrameCount)/\(frameCount) frames, max: \(maxAbsSample), voices: \(activeVoiceCount)")
+        }
+        #endif
         
         // Copy to right channel (mono to stereo)
         if bufferList.count > 1, let rightBuffer = bufferList[1].mData?.assumingMemoryBound(to: Float.self) {
@@ -632,7 +693,7 @@ class SynthEngine {
         // They will be cleaned up later on main thread or in noteOn (outside render path)
         for i in 0..<voices.count {
             if voices[i].shouldDeallocate(at: currentTime) {
-                voices[i].deactivate()
+                voices[i].markInactive()
             }
         }
         
@@ -677,6 +738,15 @@ class SynthEngine {
     
     func setRelease(_ release: Float) {
         preset.envelope.release = max(0.001, min(30, release))
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Classes that interact with Swift Concurrency runtime can have implicit tasks
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }
 

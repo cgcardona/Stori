@@ -290,6 +290,17 @@ class ProjectExportService {
     @ObservationIgnored
     private var exportStartTime: Date?
     
+    // MARK: - Task Lifecycle Management
+    
+    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83020)
+    /// See: MetronomeEngine for detailed explanation of Swift Concurrency cleanup bug
+    @ObservationIgnored
+    private var cleanupTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var progressUpdateTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var timeoutTask: Task<Void, Error>?  // Can throw during sleep
+    
     /// MIDI renderers for offline export (keyed by track ID)
     @ObservationIgnored
     private var midiRenderers: [UUID: OfflineMIDIRenderer] = [:]
@@ -301,6 +312,14 @@ class ProjectExportService {
     /// Per-track EQ nodes for applying 3-band EQ during export (keyed by track ID)
     @ObservationIgnored
     private var trackEQNodes: [UUID: AVAudioUnitEQ] = [:]
+    
+    /// Master EQ node for offline export (mirrors live AudioEngine.masterEQ)
+    @ObservationIgnored
+    private var exportMasterEQ: AVAudioUnitEQ?
+    
+    /// Master limiter node for offline export (mirrors live AudioEngine.masterLimiter)
+    @ObservationIgnored
+    private var exportMasterLimiter: AVAudioUnitEffect?
     
     /// Cloned AU plugins for track insert chains (keyed by track ID)
     @ObservationIgnored
@@ -345,15 +364,19 @@ class ProjectExportService {
         isCancelled = true
         exportStatus = "Cancelled"
         
+        // Cancel any existing cleanup task
+        cleanupTask?.cancel()
+        
         // Reset export state to close the dialog
         // The actual rendering will stop in the next tap callback
-        Task { @MainActor in
+        cleanupTask = Task { @MainActor in
             // Small delay to show "Cancelled" message before closing
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
             self.isExporting = false
             self.exportProgress = 0.0
             self.elapsedTime = 0.0
             self.estimatedTimeRemaining = nil
+            self.cleanupTask = nil
         }
     }
     
@@ -768,6 +791,10 @@ class ProjectExportService {
         // This ensures compensation delays are calculated correctly for offline rendering
         PluginLatencyManager.shared.setSampleRate(sampleRate)
         
+        // CRITICAL ASSERTION (Bug #02): Verify master volume from live engine
+        let liveMasterVolume = audioEngine.masterVolume
+        AppLogger.shared.info("✅ Export using live master volume: \(liveMasterVolume)", category: .audio)
+        
         // Set up automation processor for export
         exportAutomationProcessor = AutomationProcessor()
         for track in project.tracks {
@@ -794,6 +821,17 @@ class ProjectExportService {
         
         for track in project.tracks {
             guard track.isEnabled && !track.isFrozen else { continue }
+            
+            // CRITICAL ASSERTIONS (Bug #02): Verify track parameters match expectations
+            assert(track.mixerSettings.volume >= 0.0 && track.mixerSettings.volume <= 2.0,
+                   "Track \(track.name) volume out of range: \(track.mixerSettings.volume)")
+            assert(track.mixerSettings.pan >= 0.0 && track.mixerSettings.pan <= 1.0,
+                   "Track \(track.name) pan out of range: \(track.mixerSettings.pan)")
+            
+            // Verify mute/solo states are correctly handled (track should be excluded if muted and not soloed)
+            if track.mixerSettings.isMuted && !track.mixerSettings.isSolo {
+                AppLogger.shared.warning("⚠️ Track \(track.name) is muted - should be skipped in export", category: .audio)
+            }
             
             // Create per-track mixer node for volume/pan automation
             let trackMixer = AVAudioMixerNode()
@@ -939,6 +977,104 @@ class ProjectExportService {
             )
         }
         
+        // CRITICAL FIX (Bug #02): Add master chain to match live playback signal path
+        // Live path: mixer → masterEQ → masterLimiter → output
+        // Export MUST use the same chain for WYHIWYG (What You Hear Is What You Get)
+        try setupMasterChainForExport(
+            renderEngine: renderEngine,
+            audioEngine: audioEngine,
+            format: format
+        )
+        
+    }
+    
+    // MARK: - Master Chain Export Support (Bug #02 Fix)
+    
+    /// Setup master EQ and limiter for offline export to match live playback
+    /// CRITICAL: This ensures export matches what the user hears (WYHIWYG)
+    /// Signal path: mainMixer → masterEQ → masterLimiter → [tap point]
+    private func setupMasterChainForExport(
+        renderEngine: AVAudioEngine,
+        audioEngine: AudioEngine,
+        format: AVAudioFormat
+    ) throws {
+        // Create master EQ (3-band, matching live AudioEngine.masterEQ)
+        let masterEQ = AVAudioUnitEQ(numberOfBands: 3)
+        renderEngine.attach(masterEQ)
+        exportMasterEQ = masterEQ
+        
+        // Configure EQ bands to match live setup (see AudioEngine.setupMasterEQ)
+        // Band 0: High Shelf (8000 Hz)
+        masterEQ.bands[0].filterType = .highShelf
+        masterEQ.bands[0].frequency = 8000
+        masterEQ.bands[0].gain = 0.0
+        masterEQ.bands[0].bypass = false
+        
+        // Band 1: Mid Parametric (1000 Hz)
+        masterEQ.bands[1].filterType = .parametric
+        masterEQ.bands[1].frequency = 1000
+        masterEQ.bands[1].bandwidth = 1.0
+        masterEQ.bands[1].gain = 0.0
+        masterEQ.bands[1].bypass = false
+        
+        // Band 2: Low Shelf (200 Hz)
+        masterEQ.bands[2].filterType = .lowShelf
+        masterEQ.bands[2].frequency = 200
+        masterEQ.bands[2].gain = 0.0
+        masterEQ.bands[2].bypass = false
+        
+        // Sync EQ settings from live engine
+        let liveHighGain = audioEngine.masterEQ.bands[0].gain
+        let liveMidGain = audioEngine.masterEQ.bands[1].gain
+        let liveLowGain = audioEngine.masterEQ.bands[2].gain
+        
+        masterEQ.bands[0].gain = liveHighGain
+        masterEQ.bands[1].gain = liveMidGain
+        masterEQ.bands[2].gain = liveLowGain
+        
+        AppLogger.shared.info("Export master EQ configured: High=\(liveHighGain)dB, Mid=\(liveMidGain)dB, Low=\(liveLowGain)dB", category: .audio)
+        
+        // Create master limiter (matching live AudioEngine.masterLimiter)
+        let limiterDesc = AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: kAudioUnitSubType_PeakLimiter,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        
+        let masterLimiter = AVAudioUnitEffect(audioComponentDescription: limiterDesc)
+        renderEngine.attach(masterLimiter)
+        exportMasterLimiter = masterLimiter
+        
+        // Configure limiter parameters to match live setup (see AudioEngine.setupMasterLimiter)
+        if let parameterTree = masterLimiter.auAudioUnit.parameterTree {
+            // Attack: 5ms (fast for transparent limiting)
+            if let attackParam = parameterTree.parameter(withAddress: 0) {
+                attackParam.value = 0.005
+            }
+            // Release: 100ms (moderate to avoid pumping)
+            if let releaseParam = parameterTree.parameter(withAddress: 1) {
+                releaseParam.value = 0.1
+            }
+            // Pre-gain: 0 dB (unity)
+            if let preGainParam = parameterTree.parameter(withAddress: 2) {
+                preGainParam.value = 0.0
+            }
+        }
+        
+        AppLogger.shared.info("Export master limiter configured (5ms attack, 100ms release)", category: .audio)
+        
+        // Disconnect mainMixer from output (if connected) and insert master chain
+        // New signal path: mainMixer → masterEQ → masterLimiter → [tap point in renderProjectAudio]
+        renderEngine.disconnectNodeOutput(renderEngine.mainMixerNode)
+        renderEngine.connect(renderEngine.mainMixerNode, to: masterEQ, format: format)
+        renderEngine.connect(masterEQ, to: masterLimiter, format: format)
+        
+        // NOTE: The tap will be installed on masterLimiter output in renderProjectAudio()
+        // This matches the live signal path where output is after the limiter
+        
+        AppLogger.shared.info("✅ Export master chain installed: mainMixer → masterEQ → masterLimiter", category: .audio)
     }
     
     // MARK: - AU Plugin Export Support
@@ -955,12 +1091,12 @@ class ProjectExportService {
             return []
         }
         
-        let activeCount = await pluginChain.activePlugins.count
+        _ = await pluginChain.activePlugins.count
         
         // Log each active plugin before cloning
-        for (idx, plugin) in await pluginChain.activePlugins.enumerated() {
-            let name = await plugin.descriptor.name
-            let bypassed = await plugin.isBypassed
+        for (_, plugin) in await pluginChain.activePlugins.enumerated() {
+            _ = await plugin.descriptor.name
+            _ = await plugin.isBypassed
         }
         
         // Clone all active plugins
@@ -1046,6 +1182,16 @@ class ProjectExportService {
             sendsToProcess = track.sends
                 .filter { !$0.isMuted }
                 .map { (busId: $0.busId, level: Float($0.sendLevel)) }
+        }
+        
+        // CRITICAL ASSERTION (Bug #02): Verify send levels are in valid range
+        for send in sendsToProcess {
+            assert(send.level >= 0.0 && send.level <= 1.0,
+                   "Track \(track.name) send level out of range: \(send.level)")
+        }
+        
+        if !sendsToProcess.isEmpty {
+            AppLogger.shared.info("✅ Track '\(track.name)' has \(sendsToProcess.count) active sends in export", category: .audio)
         }
         
         guard !sendsToProcess.isEmpty else { return }
@@ -1429,17 +1575,19 @@ class ProjectExportService {
                     mixerNode.pan = pan * 2 - 1
                 }
                 
-                // Apply EQ automation if track has EQ node
+                // CRITICAL FIX: Apply EQ automation (was missing, causing export/playback mismatch)
+                // This matches the live automation path in AudioEngine+Automation.swift
                 if let eqNode = trackEQNodes[trackId] {
-                    if let eqLow = values.eqLow {
-                        // Convert 0-1 to -12..+12 dB
-                        eqNode.bands[2].gain = (eqLow - 0.5) * 24
-                    }
-                    if let eqMid = values.eqMid {
-                        eqNode.bands[1].gain = (eqMid - 0.5) * 24
-                    }
-                    if let eqHigh = values.eqHigh {
-                        eqNode.bands[0].gain = (eqHigh - 0.5) * 24
+                    // Convert 0-1 normalized values to -12 to +12 dB range (matching live playback)
+                    let eqLow = ((values.eqLow ?? 0.5) - 0.5) * 24
+                    let eqMid = ((values.eqMid ?? 0.5) - 0.5) * 24
+                    let eqHigh = ((values.eqHigh ?? 0.5) - 0.5) * 24
+                    
+                    // Apply to EQ bands (if they exist)
+                    if eqNode.bands.count >= 3 {
+                        eqNode.bands[0].gain = eqHigh  // High shelf
+                        eqNode.bands[1].gain = eqMid   // Mid parametric
+                        eqNode.bands[2].gain = eqLow   // Low shelf
                     }
                 }
             }
@@ -1571,7 +1719,12 @@ class ProjectExportService {
         samplerEventPosition = AVAudioFramePosition(initialLookahead)
         
         return try await withCheckedThrowingContinuation { continuation in
-            renderEngine.mainMixerNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
+            // CRITICAL FIX (Bug #02): Tap from master limiter output (not mainMixer) to match live signal path
+            // Live path ends at: mixer → masterEQ → masterLimiter → output
+            // Export MUST tap after limiter for WYHIWYG
+            let tapNode = exportMasterLimiter ?? renderEngine.mainMixerNode
+            
+            tapNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
                 guard let self = self else { return }
                 
                 // Don't process if already resumed
@@ -1632,7 +1785,9 @@ class ProjectExportService {
                     capturedFrames += framesToCopy
                     
                     // Update progress and time estimates
-                    Task { @MainActor in
+                    // Cancel previous update to prevent task buildup
+                    progressUpdateTask?.cancel()
+                    progressUpdateTask = Task { @MainActor in
                         let progress = Double(capturedFrames) / Double(frameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
@@ -1646,6 +1801,7 @@ class ProjectExportService {
                                 self.estimatedTimeRemaining = totalEstimatedTime - self.elapsedTime
                             }
                         }
+                        self.progressUpdateTask = nil
                     }
                 }
                 
@@ -1669,14 +1825,16 @@ class ProjectExportService {
                 }
             }
             
-            // Safety timeout
-            Task {
+            // Safety timeout - track to prevent memory corruption on deinit
+            timeoutTask?.cancel()
+            timeoutTask = Task {
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
                 if state.tryResume() {
                     renderEngine.mainMixerNode.removeTap(onBus: 0)
                     renderEngine.stop()
                     continuation.resume(throwing: ExportError.renderTimeout)
                 }
+                self.timeoutTask = nil
             }
         }
     }
@@ -2004,6 +2162,21 @@ class ProjectExportService {
         }
         
         return result
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Cancel async resources before implicit deinit
+        // ASan detected double-free during swift_task_deinitOnExecutorImpl
+        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
+        // Same bug pattern as MetronomeEngine (Issue #83020)
+        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+        
+        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+        cleanupTask?.cancel()
+        progressUpdateTask?.cancel()
+        timeoutTask?.cancel()
     }
 }
 

@@ -104,27 +104,9 @@ struct TimelinePlayhead: View {
     
     private let lineWidth: CGFloat = 2
     
-    // Track last logged position to avoid spam
-    @State private var lastLoggedBeat: Double = -1
-    @State private var lastLoggedX: CGFloat = -1
-    
     var body: some View {
         // Position from beats (no seconds)
-        let currentBeat = audioEngine.currentPosition.beats
-        let playheadX = CGFloat(currentBeat) * pixelsPerBeat
-        
-        // Log whenever position changes significantly (> 0.01 beats or > 1 pixel)
-        let _ = {
-            if abs(currentBeat - lastLoggedBeat) > 0.01 || abs(playheadX - lastLoggedX) > 1.0 {
-                print("📍 PLAYHEAD RENDER:")
-                print("    beat: \(String(format: "%.6f", currentBeat))")
-                print("    pixelsPerBeat: \(String(format: "%.2f", pixelsPerBeat))")
-                print("    playheadX: \(String(format: "%.2f", playheadX)) px")
-                print("    transportState: \(audioEngine.transportState)")
-                lastLoggedBeat = currentBeat
-                lastLoggedX = playheadX
-            }
-        }()
+        let playheadX = CGFloat(audioEngine.currentPosition.beats) * pixelsPerBeat
         
         return Rectangle()
             .fill(Color.red)

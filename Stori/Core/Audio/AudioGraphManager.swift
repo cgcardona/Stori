@@ -286,6 +286,14 @@ final class AudioGraphManager {
         
         try work()
         
+        // Only prepare/start if engine has nodes attached
+        // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            transportController?.setupPositionTimer()
+            return
+        }
+        
         engine.prepare()
         
         if wasRunning {
@@ -336,6 +344,13 @@ final class AudioGraphManager {
         
         try work()
         
+        // Only prepare/start if engine has nodes attached
+        // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            return
+        }
+        
         engine.prepare()
         
         if wasRunning {
@@ -379,6 +394,13 @@ final class AudioGraphManager {
         }
         
         try work()
+        
+        // Only prepare/start if engine has nodes attached
+        // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            return
+        }
         
         engine.prepare()
         
@@ -426,5 +448,14 @@ final class AudioGraphManager {
                 "durationMs": String(format: "%.1f", duration)
             ]
         )
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }

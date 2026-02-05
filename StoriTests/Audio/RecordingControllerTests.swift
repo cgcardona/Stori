@@ -16,6 +16,7 @@ final class RecordingControllerTests: XCTestCase {
     var sut: RecordingController!
     var mockEngine: AVAudioEngine!
     var mockMixer: AVAudioMixerNode!
+    var mockTransportController: TransportController!
     var mockProject: AudioProject!
     
     var projectUpdates: [AudioProject]!
@@ -40,10 +41,24 @@ final class RecordingControllerTests: XCTestCase {
         recordingModeStartCount = 0
         recordingModeStopCount = 0
         
+        // Create mock TransportController
+        mockTransportController = TransportController(
+            getProject: { [weak self] in self?.mockProject },
+            isInstallingPlugin: { false },
+            isGraphStable: { true },
+            getSampleRate: { 48000 },
+            onStartPlayback: { _ in },
+            onStopPlayback: { },
+            onTransportStateChanged: { _ in },
+            onPositionChanged: { _ in },
+            onCycleJump: { _ in }
+        )
+        
         // Initialize RecordingController
         sut = RecordingController(
             engine: mockEngine,
             mixer: mockMixer,
+            transportController: mockTransportController,
             getProject: { [weak self] in self?.mockProject },
             getCurrentPosition: { PlaybackPosition(beats: 0) },
             getSelectedTrackId: { [weak self] in self?.mockProject.tracks.first?.id },
@@ -67,6 +82,7 @@ final class RecordingControllerTests: XCTestCase {
         sut = nil
         mockEngine = nil
         mockMixer = nil
+        mockTransportController = nil
         mockProject = nil
         try await super.tearDown()
     }

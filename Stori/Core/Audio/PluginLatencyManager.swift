@@ -78,7 +78,7 @@ class PluginLatencyManager {
     
     /// Current sample rate for latency calculations
     @ObservationIgnored
-    private var sampleRate: Double = 48000.0
+    internal var sampleRate: Double = 48000.0  // internal for testing
     
     /// Track latency info cache
     @ObservationIgnored
@@ -172,6 +172,39 @@ class PluginLatencyManager {
         
         trackLatencies[trackId] = info
         return info
+    }
+    
+    // MARK: - Testing Support
+    
+    /// TEST ONLY: Calculate compensation with explicit latency values
+    /// Allows testing PDC logic without loading real Audio Unit plugins
+    /// - Parameter trackLatencies: Map of track ID to total latency in samples
+    /// - Returns: Map of track ID to compensation delay in samples
+    func calculateCompensationWithExplicitLatencies(_ trackLatencies: [UUID: UInt32]) -> [UUID: UInt32] {
+        guard isEnabled else {
+            return trackLatencies.mapValues { _ in 0 }
+        }
+        
+        // Find maximum latency
+        let maxLatency = trackLatencies.values.max() ?? 0
+        self.maxLatencySamples = maxLatency
+        self.maxLatencyMs = Double(maxLatency) / sampleRate * 1000.0
+        
+        // Calculate compensation for each track
+        var compensation: [UUID: UInt32] = [:]
+        
+        for (trackId, latency) in trackLatencies {
+            // Tracks with less latency need more compensation delay
+            let needed = maxLatency - latency
+            compensation[trackId] = needed
+        }
+        
+        // Thread-safe write (same pattern as calculateCompensation)
+        os_unfair_lock_lock(&compensationLock)
+        self.compensationDelays = compensation
+        os_unfair_lock_unlock(&compensationLock)
+        
+        return compensation
     }
     
     /// Calculate latencies for all tracks and determine compensation delays

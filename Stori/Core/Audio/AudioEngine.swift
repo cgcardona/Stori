@@ -107,7 +107,7 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     let mixer = AVAudioMixerNode()
     @ObservationIgnored
-    private let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo
+    internal let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo (internal for export parity)
     @ObservationIgnored
     private let masterLimiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
         componentType: kAudioUnitType_Effect,
@@ -262,7 +262,7 @@ class AudioEngine: AudioEngineContext {
         }
         
         // Install the metronome nodes
-        metronome.install(into: engine, dawMixer: mixer, audioEngine: self)
+        metronome.install(into: engine, dawMixer: mixer, audioEngine: self, transportController: transportController)
         installedMetronome = metronome
         
         // Restart if it was running
@@ -457,6 +457,7 @@ class AudioEngine: AudioEngineContext {
         trackNodeManager.onSafeDisconnectTrackNode = { [weak self] trackNode in self?.safeDisconnectTrackNode(trackNode) }
         trackNodeManager.onLoadAudioRegion = { [weak self] region, trackNode in self?.loadAudioRegion(region, trackNode: trackNode) }
         trackNodeManager.onPerformBatchOperation = { [weak self] work in self?.performBatchGraphOperation(work) }
+        trackNodeManager.onUpdateAutomationTrackCache = { [weak self] in self?.updateAutomationTrackCache() }
         trackNodeManager.mixer = mixer
         // Note: installedMetronome and mixerController are set after they're initialized
         
@@ -546,7 +547,7 @@ class AudioEngine: AudioEngineContext {
         projectLifecycleManager.onSetTransportStopped = { [weak self] in self?.transportState = .stopped }
         projectLifecycleManager.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
         projectLifecycleManager.onProjectLoaded = { [weak self] project in
-            print("\n🎉 PROJECT LOADED: '\(project.name)'")
+            // print("\n🎉 PROJECT LOADED: '\(project.name)'")  // DEBUG: Disabled for production
         }
         
         // Initialize device configuration manager
@@ -795,6 +796,12 @@ class AudioEngine: AudioEngineContext {
         
         // Set default master volume to match published property
         mixer.outputVolume = Float(masterVolume)
+        
+        // Install clipping detection taps (DEBUG only)
+        // DISABLED: Taps themselves can cause clicks during tests
+        // #if DEBUG
+        // installClippingDetectionTaps()
+        // #endif
        
         // Start the engine
         startAudioEngine()
@@ -815,7 +822,7 @@ class AudioEngine: AudioEngineContext {
         // Log sample rate diagnostic info on startup
         dumpSampleRateInfo()
         
-        print("\n🚀 AUDIO ENGINE INITIALIZED")
+        // print("\n🚀 AUDIO ENGINE INITIALIZED")  // DEBUG: Disabled for production
     }
     
     private func setupMasterMeterTap() {
@@ -884,6 +891,47 @@ class AudioEngine: AudioEngineContext {
         }
         
         AppLogger.shared.debug("Master limiter configured for safe headroom", category: .audio)
+    }
+    
+    /// Install audio taps to detect clipping at various points in the signal chain (DEBUG only)
+    private func installClippingDetectionTaps() {
+        // Tap after mixer (before EQ/limiter)
+        mixer.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
+            self?.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
+        }
+        
+        // Tap after limiter (final output)
+        masterLimiter.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
+            self?.detectClipping(in: buffer, location: "MASTER OUTPUT (post-limiter)")
+        }
+        
+        // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
+    }
+    
+    /// Detect and log clipping in an audio buffer
+    private func detectClipping(in buffer: AVAudioPCMBuffer, location: String) {
+        guard let channelData = buffer.floatChannelData else { return }
+        
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        
+        var maxSample: Float = 0
+        var clippedFrames = 0
+        
+        for channel in 0..<channelCount {
+            for frame in 0..<frameCount {
+                let sample = abs(channelData[channel][frame])
+                maxSample = max(maxSample, sample)
+                
+                if sample > 0.99 {  // Near clipping threshold
+                    clippedFrames += 1
+                }
+            }
+        }
+        
+        if clippedFrames > 0 || maxSample > 0.95 {
+            print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
+        }
     }
     
     // MARK: - Engine Start Recovery
