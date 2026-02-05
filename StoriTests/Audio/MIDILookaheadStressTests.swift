@@ -289,20 +289,25 @@ final class MIDILookaheadStressTests: XCTestCase {
     // MARK: - Helper Methods
     
     private func createTestTrack(with notes: [MIDINote]) -> AudioTrack {
-        var track = AudioTrack(name: "Test Track", trackType: .midi)
-        track.id = UUID()
+        let track = AudioTrack(name: "Test Track", trackType: .midi)
         
-        var region = MIDIRegion(
+        let region = MIDIRegion(
             id: UUID(),
+            name: "Test Region",
+            notes: notes,
             startBeat: 0,
             durationBeats: 20,
-            notes: notes
+            instrumentId: nil,
+            color: .blue,
+            isLooped: false,
+            loopCount: 1,
+            isMuted: false,
+            contentLengthBeats: 20
         )
-        region.isMuted = false
-        region.isLooped = false
         
-        track.midiRegions = [region]
-        return track
+        var mutableTrack = track
+        mutableTrack.midiRegions = [region]
+        return mutableTrack
     }
     
     private func createNote(pitch: UInt8, startBeat: Double, duration: Double, velocity: UInt8 = 100) -> MIDINote {

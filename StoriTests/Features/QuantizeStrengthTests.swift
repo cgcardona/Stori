@@ -42,13 +42,13 @@ final class QuantizeStrengthTests: XCTestCase {
         // Create test notes with off-grid timing (simulating human performance)
         testNotes = [
             // Note 1: 0.1 beats early (should quantize to 0.0)
-            MIDINote(pitch: 60, startBeat: -0.1, durationBeats: 0.5, velocity: 100),
+            MIDINote(pitch: 60, velocity: 100, startBeat: -0.1, durationBeats: 0.5),
             // Note 2: 0.05 beats late (should quantize to 0.25)
-            MIDINote(pitch: 62, startBeat: 0.30, durationBeats: 0.5, velocity: 100),
+            MIDINote(pitch: 62, velocity: 100, startBeat: 0.30, durationBeats: 0.5),
             // Note 3: 0.08 beats early (should quantize to 0.5)
-            MIDINote(pitch: 64, startBeat: 0.42, durationBeats: 0.5, velocity: 100),
+            MIDINote(pitch: 64, velocity: 100, startBeat: 0.42, durationBeats: 0.5),
             // Note 4: 0.12 beats late (should quantize to 1.0)
-            MIDINote(pitch: 65, startBeat: 1.12, durationBeats: 0.5, velocity: 100)
+            MIDINote(pitch: 65, velocity: 100, startBeat: 1.12, durationBeats: 0.5)
         ]
     }
     
@@ -161,10 +161,10 @@ final class QuantizeStrengthTests: XCTestCase {
     func testQuantizePreservesGrooveWith50PercentStrength() {
         // Simulate a groovy drum pattern with swing timing
         let swingNotes: [MIDINote] = [
-            MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 0.25, velocity: 100),    // On grid
-            MIDINote(pitch: 60, startBeat: 0.17, durationBeats: 0.25, velocity: 80),    // Swung (should be 0.167)
-            MIDINote(pitch: 60, startBeat: 0.50, durationBeats: 0.25, velocity: 100),   // On grid
-            MIDINote(pitch: 60, startBeat: 0.67, durationBeats: 0.25, velocity: 80)     // Swung (should be 0.667)
+            MIDINote(pitch: 60, velocity: 100, startBeat: 0.0, durationBeats: 0.25),    // On grid
+            MIDINote(pitch: 60, velocity: 80, startBeat: 0.17, durationBeats: 0.25),    // Swung (should be 0.167)
+            MIDINote(pitch: 60, velocity: 100, startBeat: 0.50, durationBeats: 0.25),   // On grid
+            MIDINote(pitch: 60, velocity: 80, startBeat: 0.67, durationBeats: 0.25)     // Swung (should be 0.667)
         ]
         
         let strength: Float = 0.5
@@ -186,10 +186,10 @@ final class QuantizeStrengthTests: XCTestCase {
     func testQuantizeWith100PercentDestroysMicroTiming() {
         // Show that 100% quantization destroys micro-timing nuances
         let microTimedNotes: [MIDINote] = [
-            MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 0.5, velocity: 100),
-            MIDINote(pitch: 62, startBeat: 0.252, durationBeats: 0.5, velocity: 95),  // Slightly late (feel)
-            MIDINote(pitch: 64, startBeat: 0.498, durationBeats: 0.5, velocity: 100), // Slightly early (anticipation)
-            MIDINote(pitch: 65, startBeat: 0.753, durationBeats: 0.5, velocity: 90)   // Slightly late (laid back)
+            MIDINote(pitch: 60, velocity: 100, startBeat: 0.0, durationBeats: 0.5),
+            MIDINote(pitch: 62, velocity: 95, startBeat: 0.252, durationBeats: 0.5),  // Slightly late (feel)
+            MIDINote(pitch: 64, velocity: 100, startBeat: 0.498, durationBeats: 0.5), // Slightly early (anticipation)
+            MIDINote(pitch: 65, velocity: 90, startBeat: 0.753, durationBeats: 0.5)   // Slightly late (laid back)
         ]
         
         let strength: Float = 1.0
@@ -205,10 +205,10 @@ final class QuantizeStrengthTests: XCTestCase {
     func testQuantizeWith25PercentPreservesMicroTiming() {
         // Show that 25% quantization preserves most micro-timing nuances
         let microTimedNotes: [MIDINote] = [
-            MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 0.5, velocity: 100),
-            MIDINote(pitch: 62, startBeat: 0.252, durationBeats: 0.5, velocity: 95),  // Slightly late
-            MIDINote(pitch: 64, startBeat: 0.498, durationBeats: 0.5, velocity: 100), // Slightly early
-            MIDINote(pitch: 65, startBeat: 0.753, durationBeats: 0.5, velocity: 90)   // Slightly late
+            MIDINote(pitch: 60, velocity: 100, startBeat: 0.0, durationBeats: 0.5),
+            MIDINote(pitch: 62, velocity: 95, startBeat: 0.252, durationBeats: 0.5),  // Slightly late
+            MIDINote(pitch: 64, velocity: 100, startBeat: 0.498, durationBeats: 0.5), // Slightly early
+            MIDINote(pitch: 65, velocity: 90, startBeat: 0.753, durationBeats: 0.5)   // Slightly late
         ]
         
         let strength: Float = 0.25
@@ -229,7 +229,7 @@ final class QuantizeStrengthTests: XCTestCase {
     func testQuantizeStrengthWithNegativeBeats() {
         // Quantization should work with negative beat values (pre-roll)
         let strength: Float = 0.5
-        let negativeNote = MIDINote(pitch: 60, startBeat: -0.1, durationBeats: 0.5, velocity: 100)
+        let negativeNote = MIDINote(pitch: 60, velocity: 100, startBeat: -0.1, durationBeats: 0.5)
         
         let quantized = snapResolution.quantize(beat: negativeNote.startBeat, strength: strength)
         
@@ -241,7 +241,7 @@ final class QuantizeStrengthTests: XCTestCase {
     func testQuantizeStrengthWithLargeBeats() {
         // Quantization should work with large beat values (long projects)
         let strength: Float = 0.5
-        let largeNote = MIDINote(pitch: 60, startBeat: 1000.03, durationBeats: 0.5, velocity: 100)
+        let largeNote = MIDINote(pitch: 60, velocity: 100, startBeat: 1000.03, durationBeats: 0.5)
         
         let quantized = snapResolution.quantize(beat: largeNote.startBeat, strength: strength)
         
@@ -253,10 +253,10 @@ final class QuantizeStrengthTests: XCTestCase {
     func testQuantizeStrengthWithAlreadyQuantizedNotes() {
         // Notes already on the grid should stay on the grid regardless of strength
         let onGridNotes: [MIDINote] = [
-            MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 0.5, velocity: 100),
-            MIDINote(pitch: 62, startBeat: 0.25, durationBeats: 0.5, velocity: 100),
-            MIDINote(pitch: 64, startBeat: 0.5, durationBeats: 0.5, velocity: 100),
-            MIDINote(pitch: 65, startBeat: 1.0, durationBeats: 0.5, velocity: 100)
+            MIDINote(pitch: 60, velocity: 100, startBeat: 0.0, durationBeats: 0.5),
+            MIDINote(pitch: 62, velocity: 100, startBeat: 0.25, durationBeats: 0.5),
+            MIDINote(pitch: 64, velocity: 100, startBeat: 0.5, durationBeats: 0.5),
+            MIDINote(pitch: 65, velocity: 100, startBeat: 1.0, durationBeats: 0.5)
         ]
         
         let strengths: [Float] = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -277,8 +277,19 @@ final class QuantizeStrengthTests: XCTestCase {
         // Previously, quantizeSelected() ignored the strength parameter
         
         // Create a test region with off-grid notes
-        let region = MIDIRegion(startBeat: 0, durationBeats: 4, track: UUID())
-        region.notes = testNotes
+        var region = MIDIRegion(
+            id: UUID(),
+            name: "Test Region",
+            notes: testNotes,
+            startBeat: 0,
+            durationBeats: 4,
+            instrumentId: nil,
+            color: .blue,
+            isLooped: false,
+            loopCount: 1,
+            isMuted: false,
+            contentLengthBeats: 4
+        )
         
         // Simulate 50% quantize strength
         let strength: Float = 0.5

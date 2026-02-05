@@ -42,7 +42,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeWithSnapQuantizesEndPosition() {
         // Note at beat 1.0, duration 1.3 (ends at 2.3)
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
         // User drags right edge slightly (0.1 beats) - new end would be 2.4
         let newDuration = 1.4
@@ -60,7 +60,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeWithoutSnapAllowsFreeDuration() {
         // With snap OFF, duration should be set freely (no quantization)
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
         // User drags right edge slightly (0.173 beats)
         let newDuration = note.durationBeats + 0.173 // 1.473
@@ -72,7 +72,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeShorterSnapsEndPosition() {
         // Test that shortening notes also snaps end position correctly
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.7, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.7)
         
         // User drags left to shorten by 0.3 beats - new end would be 2.4
         let newDuration = 1.4
@@ -89,7 +89,7 @@ final class NoteDurationResizeTests: XCTestCase {
     func testResizeStartPositionRemainsFixed() {
         // Critical: Start position MUST NOT change during resize
         let originalStartBeat = 1.37 // Off-grid start
-        let note = MIDINote(pitch: 60, startBeat: originalStartBeat, durationBeats: 1.0, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: originalStartBeat, durationBeats: 1.0)
         
         // Resize note
         let newDuration = 1.5
@@ -111,7 +111,7 @@ final class NoteDurationResizeTests: XCTestCase {
     func testBugScenarioFromIssue32() {
         // Exact scenario from bug report
         // Note at beat 1.0, duration 1.3 beats (ends at 2.3)
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
         // User resizes right edge slightly (drag by 0.1 beats)
         let durationDelta = 0.1
@@ -137,7 +137,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testOldBuggyBehaviorNoLongerOccurs() {
         // This test documents the OLD buggy behavior to ensure it doesn't regress
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
         // Old behavior: quantized the duration directly
         let newDurationWithDelta = 1.4
@@ -174,7 +174,7 @@ final class NoteDurationResizeTests: XCTestCase {
         ]
         
         for (start, initialDuration, delta, expectedEnd) in testCases {
-            let note = MIDINote(pitch: 60, startBeat: start, durationBeats: initialDuration, velocity: 100)
+            let note = MIDINote(pitch: 60, velocity: 100, startBeat: start, durationBeats: initialDuration)
             let newDuration = initialDuration + delta
             let newEndBeat = note.startBeat + newDuration
             let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
@@ -188,7 +188,7 @@ final class NoteDurationResizeTests: XCTestCase {
         // Test with 1/8th note grid (0.5 beats)
         snapResolution = .eighth
         
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         let newDuration = 1.4
         let newEndBeat = note.startBeat + newDuration // 2.4
         
@@ -201,7 +201,7 @@ final class NoteDurationResizeTests: XCTestCase {
         // Test with 1/4 note grid (1.0 beats)
         snapResolution = .quarter
         
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         let newDuration = 1.4
         let newEndBeat = note.startBeat + newDuration // 2.4
         
@@ -214,7 +214,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeEnforcesMinimumDuration() {
         // When snapped end would be at or before start, enforce minimum duration
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.3)
         
         // User tries to resize very short (delta = -0.25)
         let newDuration = 0.05
@@ -231,7 +231,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeWithoutSnapEnforcesMinimum() {
         // Without snap, enforce minimum duration of 0.01 beats
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.3)
         
         // User tries to resize to negative duration
         let newDuration = -0.1
@@ -245,7 +245,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeWithOffGridStartPosition() {
         // Note starts off-grid (start = 1.37, duration = 1.0, ends at 2.37)
-        let note = MIDINote(pitch: 60, startBeat: 1.37, durationBeats: 1.0, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.37, durationBeats: 1.0)
         
         // User resizes by +0.2 beats (new end = 2.57)
         let newDuration = 1.2
@@ -271,7 +271,7 @@ final class NoteDurationResizeTests: XCTestCase {
         ]
         
         for (start, duration) in notes {
-            let note = MIDINote(pitch: 60, startBeat: start, durationBeats: duration, velocity: 100)
+            let note = MIDINote(pitch: 60, velocity: 100, startBeat: start, durationBeats: duration)
             let newDuration = duration + 0.3
             let newEndBeat = note.startBeat + newDuration
             let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
@@ -292,7 +292,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeProvidesConsistentFeedback() {
         // When user drags right, note should always get longer (or stay same if already on grid)
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.0, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.0)
         
         // Test multiple small drag increments
         let dragIncrements = [0.05, 0.1, 0.15, 0.2, 0.25]
@@ -321,7 +321,7 @@ final class NoteDurationResizeTests: XCTestCase {
         ]
         
         for scenario in testScenarios {
-            let note = MIDINote(pitch: 60, startBeat: scenario.start, durationBeats: scenario.initialDur, velocity: 100)
+            let note = MIDINote(pitch: 60, velocity: 100, startBeat: scenario.start, durationBeats: scenario.initialDur)
             let newDuration = scenario.initialDur + scenario.delta
             let newEndBeat = note.startBeat + newDuration
             let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
@@ -335,7 +335,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeVeryShortNote() {
         // Note with minimum duration
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 0.25, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 0.25)
         
         // Try to extend by tiny amount
         let newDuration = 0.26
@@ -349,7 +349,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeVeryLongNote() {
         // Note spanning many bars
-        let note = MIDINote(pitch: 60, startBeat: 0.0, durationBeats: 64.0, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 0.0, durationBeats: 64.0)
         
         // Extend by small amount
         let newDuration = 64.3
@@ -363,7 +363,7 @@ final class NoteDurationResizeTests: XCTestCase {
     
     func testResizeAtProjectBoundary() {
         // Note near end of project
-        let note = MIDINote(pitch: 60, startBeat: 127.5, durationBeats: 0.5, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 127.5, durationBeats: 0.5)
         
         // Extend past typical project length
         let newDuration = 1.0
@@ -381,7 +381,7 @@ final class NoteDurationResizeTests: XCTestCase {
         // WYSIWYG: Resize behavior must be predictable and consistent
         // If user sees the end snap to a grid line, that's where it should actually be
         
-        let note = MIDINote(pitch: 60, startBeat: 1.0, durationBeats: 1.3, velocity: 100)
+        let note = MIDINote(pitch: 60, velocity: 100, startBeat: 1.0, durationBeats: 1.3)
         
         // Simulate multiple resize operations (user keeps dragging)
         let resizeSteps = [0.05, 0.1, 0.15, 0.2]

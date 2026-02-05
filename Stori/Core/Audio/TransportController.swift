@@ -517,7 +517,18 @@ class TransportController {
     
     /// Calculate current beat position from wall-clock time (shared calculation logic)
     /// This is the SINGLE SOURCE OF TRUTH for beat position calculation
-    private func calculateCurrentBeat(startBeat: Double, startWallTime: TimeInterval, currentWallTime: TimeInterval, tempo: Double) -> Double {
+    /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    /// 
+    /// This method is nonisolated because it's a pure calculation with no state access,
+    /// making it safe to call from both MainActor and audio thread contexts.
+    /// 
+    /// - Parameters:
+    ///   - startBeat: The beat position where playback started
+    ///   - startWallTime: The wall-clock time when playback started (from CACurrentMediaTime())
+    ///   - currentWallTime: The current wall-clock time (from CACurrentMediaTime())
+    ///   - tempo: The current tempo in BPM
+    /// - Returns: The current beat position
+    nonisolated internal func calculateCurrentBeat(startBeat: Double, startWallTime: TimeInterval, currentWallTime: TimeInterval, tempo: Double) -> Double {
         let elapsedSeconds = currentWallTime - startWallTime
         let beatsPerSecond = tempo / 60.0
         let elapsedBeats = elapsedSeconds * beatsPerSecond
