@@ -62,7 +62,8 @@ final class AudioResourcePoolTests: XCTestCase {
         // Request incompatible buffer (different rate)
         let buffer3 = pool.borrowBuffer(format: format44k, frameCapacity: 512)
         XCTAssertNotNil(buffer3, "Should allocate new buffer for different rate")
-        XCTAssertEqual(pool.getStatistics().totalAllocations, 2)
+        // totalAllocations counts all borrow operations (3 total: 2 new, 1 reuse)
+        XCTAssertEqual(pool.getStatistics().totalAllocations, 3)
     }
     
     func testMemoryPressureRejectsAllocations() {

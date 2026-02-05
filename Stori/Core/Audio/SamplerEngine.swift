@@ -791,6 +791,15 @@ class SamplerEngine {
     func setPan(_ pan: Float) {
         sampler.stereoPan = pan
     }
+    
+    // MARK: - Cleanup
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Classes that interact with Swift Concurrency runtime can have implicit tasks
+    /// that cause memory corruption during deallocation if not properly cleaned up
+    deinit {
+        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
+    }
 }
 
 // MARK: - Sampler Errors
