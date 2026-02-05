@@ -33,6 +33,18 @@ final class AudioGraphManager {
         case hotSwap(trackId: UUID)
     }
     
+    /// Pending mutation for coalescing
+    private struct PendingMutation {
+        let type: MutationType
+        let work: () throws -> Void
+        let timestamp: Date
+        let targetKey: String
+        
+        var isStale: Bool {
+            Date().timeIntervalSince(timestamp) > AudioGraphManager.mutationStalenessThreshold
+        }
+    }
+    
     // MARK: - State
     
     /// Flag indicating if a graph mutation is currently in progress
@@ -48,7 +60,7 @@ final class AudioGraphManager {
     @ObservationIgnored
     private(set) var graphGeneration: Int = 0
     
-    // MARK: - Rate Limiting
+    // MARK: - Rate Limiting & Coalescing
     
     /// Timestamps of recent mutations for rate limiting
     @ObservationIgnored
@@ -63,6 +75,20 @@ final class AudioGraphManager {
     /// Batch mode: temporarily suspends rate limiting for bulk operations
     @ObservationIgnored
     private var isBatchMode: Bool = false
+    
+    /// Pending mutations with target-based coalescing
+    @ObservationIgnored
+    private var pendingMutations: [String: PendingMutation] = [:]
+    
+    /// Timer for flushing coalesced mutations
+    @ObservationIgnored
+    private var flushTimer: Timer?
+    
+    /// Flush delay for mutation coalescing (milliseconds)
+    private static let coalescingDelayMs: TimeInterval = 0.050 // 50ms - one buffer period at 512 samples / 48kHz
+    
+    /// Maximum staleness for mutations (discard if older than this)
+    private static let mutationStalenessThreshold: TimeInterval = 0.500 // 500ms
     
     // MARK: - Dependencies (set by AudioEngine)
     
@@ -141,7 +167,7 @@ final class AudioGraphManager {
     
     // MARK: - Private Implementation
     
-    /// Core graph mutation implementation with tiered behavior
+    /// Core graph mutation implementation with tiered behavior and coalescing
     private func modifyGraph(_ type: MutationType, _ work: () throws -> Void) rethrows {
         // REENTRANCY HANDLING: If already in a mutation, just run the work directly
         if _isGraphMutationInProgress {
@@ -149,7 +175,34 @@ final class AudioGraphManager {
             return
         }
         
-        // RATE LIMITING: Prevent rebuild storms
+        // COALESCING: For rapid mutations on same target, queue only the latest
+        let targetKey = mutationTargetKey(for: type)
+        
+        // Check if we should coalesce this mutation
+        if shouldCoalesceMutation(type: type, targetKey: targetKey) {
+            // Store work as untyped closure to avoid @escaping in rethrows context
+            // The work will be executed on main thread during flush, maintaining thread safety
+            let mutation = PendingMutation(
+                type: type,
+                work: { () throws -> Void in try work() },
+                timestamp: Date(),
+                targetKey: targetKey
+            )
+            
+            // Replace any existing mutation for same target (coalescing)
+            pendingMutations[targetKey] = mutation
+            
+            AppLogger.shared.debug(
+                "AudioGraphManager: Coalescing mutation for target '\(targetKey)' (pending: \(pendingMutations.count))",
+                category: .audio
+            )
+            
+            // Schedule flush if not already scheduled
+            scheduleFlush()
+            return
+        }
+        
+        // RATE LIMITING: Prevent rebuild storms for immediate execution
         if shouldRateLimitMutation(type: type) {
             let recentCount = recentMutationTimestamps.count
             AppLogger.shared.warning(
@@ -170,6 +223,101 @@ final class AudioGraphManager {
             return
         }
         
+        // Execute immediately
+        try executeGraphMutation(type: type, work: work)
+    }
+    
+    // MARK: - Rate Limiting Helpers
+    
+    /// Generate a unique target key for mutation coalescing
+    private func mutationTargetKey(for type: MutationType) -> String {
+        switch type {
+        case .structural:
+            return "structural-global"
+        case .connection:
+            return "connection-global"
+        case .hotSwap(let trackId):
+            return "hotswap-\(trackId.uuidString)"
+        }
+    }
+    
+    /// Check if mutation should be coalesced (queued and merged with existing)
+    private func shouldCoalesceMutation(type: MutationType, targetKey: String) -> Bool {
+        // Don't coalesce in batch mode (bulk operations like project load)
+        if isBatchMode {
+            return false
+        }
+        
+        // Don't coalesce structural mutations - always execute immediately
+        if case .structural = type {
+            return false
+        }
+        
+        // Coalesce connection and hot-swap mutations
+        // This prevents rapid UI spam from causing audio glitches
+        return true
+    }
+    
+    /// Schedule a flush of pending coalesced mutations
+    private func scheduleFlush() {
+        // Invalidate existing timer
+        flushTimer?.invalidate()
+        
+        // Schedule new timer on main thread
+        flushTimer = Timer.scheduledTimer(withTimeInterval: Self.coalescingDelayMs, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.flushPendingMutations()
+            }
+        }
+    }
+    
+    /// Flush all pending coalesced mutations
+    @MainActor
+    private func flushPendingMutations() {
+        let mutations = pendingMutations.values.sorted { $0.timestamp < $1.timestamp }
+        pendingMutations.removeAll()
+        
+        AppLogger.shared.debug(
+            "AudioGraphManager: Flushing \(mutations.count) coalesced mutations",
+            category: .audio
+        )
+        
+        var executedCount = 0
+        var discardedStale = 0
+        
+        for mutation in mutations {
+            // Discard stale mutations (older than 500ms)
+            if mutation.isStale {
+                AppLogger.shared.warning(
+                    "AudioGraphManager: Discarding stale mutation for target '\(mutation.targetKey)' (age: \(String(format: "%.0f", Date().timeIntervalSince(mutation.timestamp) * 1000))ms)",
+                    category: .audio
+                )
+                discardedStale += 1
+                continue
+            }
+            
+            // Execute mutation
+            do {
+                try executeGraphMutation(type: mutation.type, work: mutation.work)
+                executedCount += 1
+            } catch {
+                AppLogger.shared.error(
+                    "AudioGraphManager: Failed to execute coalesced mutation: \(error)",
+                    category: .audio
+                )
+            }
+        }
+        
+        if discardedStale > 0 {
+            AppLogger.shared.info(
+                "AudioGraphManager: Flush complete - executed: \(executedCount), discarded stale: \(discardedStale)",
+                category: .audio
+            )
+        }
+    }
+    
+    /// Execute a graph mutation immediately (core implementation)
+    private func executeGraphMutation(type: MutationType, work: () throws -> Void) rethrows {
         // Record mutation timestamp
         recordMutationTimestamp()
         
@@ -217,8 +365,6 @@ final class AudioGraphManager {
             )
         }
     }
-    
-    // MARK: - Rate Limiting Helpers
     
     /// Check if mutation should be rate limited
     private func shouldRateLimitMutation(type: MutationType) -> Bool {
@@ -456,6 +602,10 @@ final class AudioGraphManager {
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
     deinit {
+        // Cancel any pending flush timers
+        flushTimer?.invalidate()
+        flushTimer = nil
+        
         // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }
