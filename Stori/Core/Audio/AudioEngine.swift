@@ -163,11 +163,15 @@ class AudioEngine: AudioEngineContext {
     var isGraphReadyForPlayback: Bool = false
     
     // MARK: - Engine Health Watchdog
-    /// High-priority timer for health checks (immune to main thread blocking)
+    /// Low-priority timer for health checks (runs on .utility queue to avoid audio thread contention; issue #80)
     @ObservationIgnored
     private var engineHealthTimer: DispatchSourceTimer?
     
-    /// Background queue for health monitoring (utility priority - not critical path)
+    /// Queue label and QoS used for health monitoring (exposed for tests; issue #80).
+    static let healthMonitorQueueLabelForTesting = "com.stori.engine.health"
+    static let healthMonitorQueueQoSForTesting: DispatchQoS.QoSClass = .utility
+    
+    /// Background queue for health monitoring (utility priority - not critical path; issue #80).
     @ObservationIgnored
     private let healthMonitorQueue = DispatchQueue(
         label: "com.stori.engine.health",
@@ -177,6 +181,22 @@ class AudioEngine: AudioEngineContext {
     /// Whether the engine is expected to be running (for health monitoring)
     @ObservationIgnored
     private var engineExpectedToRun: Bool = false
+    
+    /// Thread-safe mirror of engineExpectedToRun for health timer (avoids MainActor hop every tick)
+    @ObservationIgnored
+    private nonisolated(unsafe) var _atomicEngineExpectedToRun: Bool = false
+    
+    /// Thread-safe cache of engine.isRunning; updated on MainActor when we run checkEngineHealth or start/stop
+    @ObservationIgnored
+    private nonisolated(unsafe) var _atomicLastKnownEngineRunning: Bool = false
+    
+    /// Tick counter for health timer (only accessed from healthMonitorQueue). Used for staggered refresh.
+    @ObservationIgnored
+    private nonisolated(unsafe) var _healthCheckTickCount: Int = 0
+    
+    /// Refresh every N ticks when engine expected running; back off when playing to reduce CPU impact (issue #80).
+    private static let healthCheckRefreshTicksWhenStopped = 6
+    private static let healthCheckRefreshTicksWhenPlaying = 15
     
     /// Count of consecutive health check failures (for escalating recovery)
     @ObservationIgnored
@@ -965,6 +985,8 @@ class AudioEngine: AudioEngineContext {
             if engine.isRunning {
                 isGraphReadyForPlayback = true
                 engineExpectedToRun = true
+                _atomicEngineExpectedToRun = true
+                _atomicLastKnownEngineRunning = true
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
                 // Validate engine health after start (only if monitor is initialized)
@@ -1023,6 +1045,7 @@ class AudioEngine: AudioEngineContext {
         
         // Stop and reset before retry
         engine.stop()
+        _atomicLastKnownEngineRunning = false
         engine.reset()
         engine.prepare()
         
@@ -1040,6 +1063,8 @@ class AudioEngine: AudioEngineContext {
                 if self.engine.isRunning {
                     self.isGraphReadyForPlayback = true
                     self.engineExpectedToRun = true
+                    self._atomicEngineExpectedToRun = true
+                    self._atomicLastKnownEngineRunning = true
                     self.engineStartRetryAttempt = 0
                     AppLogger.shared.info("Engine recovery successful on attempt \(self.engineStartRetryAttempt)", category: .audio)
                 } else {
@@ -1055,39 +1080,68 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Engine Health Monitoring
     
-    /// Setup periodic engine health checks using DispatchSourceTimer
-    /// This timer runs on a background queue and is immune to main thread blocking
+    /// Setup periodic engine health checks using DispatchSourceTimer.
+    /// Runs on low-priority queue (.utility); only dispatches to MainActor when cache indicates
+    /// possible desync or when due for a staggered refresh. Backs off refresh rate during
+    /// playback to avoid periodic CPU spikes (issue #80).
     private func setupEngineHealthMonitoring() {
+        // Mirror state for timer (timer runs on healthMonitorQueue, cannot touch MainActor every tick)
+        _atomicEngineExpectedToRun = engineExpectedToRun
+        _atomicLastKnownEngineRunning = engine.isRunning
+        _healthCheckTickCount = 0
+        
         // Cancel existing timer
         engineHealthTimer?.cancel()
         engineHealthTimer = nil
         
-        // Create timer on background queue
+        // Timer on utility queue; relaxed leeway to avoid aligning with buffer boundaries
         let timer = DispatchSource.makeTimerSource(queue: healthMonitorQueue)
         timer.schedule(
             deadline: .now() + 2.0,
             repeating: 2.0,
-            leeway: .seconds(1)  // Relaxed leeway since health checks are not time-critical
+            leeway: .milliseconds(400)
         )
         timer.setEventHandler { [weak self] in
-            // Dispatch to MainActor for engine access
-            Task { @MainActor in
-                self?.checkEngineHealth()
+            guard let self = self else { return }
+            // Stay on healthMonitorQueue: avoid MainActor hop when cache says engine is healthy
+            if !self._atomicEngineExpectedToRun {
+                self._healthCheckTickCount = 0
+                return
+            }
+            self._healthCheckTickCount += 1
+            let isPlaying = self._transportControllerRef?.atomicIsPlaying ?? false
+            let ticksUntilRefresh = isPlaying
+                ? Self.healthCheckRefreshTicksWhenPlaying
+                : Self.healthCheckRefreshTicksWhenStopped
+            let dueForRefresh = self._healthCheckTickCount >= ticksUntilRefresh
+            if dueForRefresh {
+                self._healthCheckTickCount = 0
+            }
+            let needCheck = !self._atomicLastKnownEngineRunning || dueForRefresh
+            if needCheck {
+                Task { @MainActor in
+                    self.checkEngineHealth()
+                }
             }
         }
         timer.resume()
         engineHealthTimer = timer
     }
     
-    /// Check engine health and attempt recovery if needed
+    /// Check engine health and attempt recovery if needed.
+    /// Updates thread-safe cache so next health timer tick can avoid MainActor if still healthy (issue #80).
     private func checkEngineHealth() {
         // Only check if we expect the engine to be running
         guard engineExpectedToRun else {
             healthCheckFailureCount = 0
+            _atomicLastKnownEngineRunning = false
             return
         }
         
-        if !engine.isRunning {
+        let running = engine.isRunning
+        _atomicLastKnownEngineRunning = running
+        
+        if !running {
             healthCheckFailureCount += 1
             AppLogger.shared.warning("Engine health: Not running (failure #\(healthCheckFailureCount))", category: .audio)
             
@@ -1111,6 +1165,7 @@ class AudioEngine: AudioEngineContext {
         guard healthCheckFailureCount <= 3 else {
             AppLogger.shared.error("Engine health: Max recovery attempts reached, stopping monitoring", category: .audio)
             engineExpectedToRun = false
+            _atomicEngineExpectedToRun = false
             return
         }
         
