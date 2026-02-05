@@ -26,7 +26,6 @@ struct PianoRollView: View {
     @State private var showScaleHighlight = false
     @State private var showAutomationLanes = false  // Toggle for MIDI CC lanes
     @State private var automationLanes: [AutomationLane] = []  // Active CC/PitchBend lanes
-    @State private var showAddLanePopover = false  // Popover for adding lanes
     @State private var showTransformSheet = false   // MIDI Transform dialog
     @State private var showQuantizeOptions = false  // Quantize options sheet
     @State private var showVelocityPopover = false  // Velocity editor popover
@@ -45,6 +44,7 @@ struct PianoRollView: View {
     @State private var isMarqueeSelecting = false
     @State private var marqueeStart: CGPoint = .zero
     @State private var marqueeEnd: CGPoint = .zero
+    @State private var previousMarqueeSelection: Set<UUID> = []  // Track previous selection for audio feedback
     
     // For brush tool - track notes painted in current drag for undo
     @State private var brushPaintedNotes: Set<UUID> = []
@@ -57,8 +57,14 @@ struct PianoRollView: View {
     @State private var duplicateStartPositions: [UUID: (beat: Double, pitch: UInt8)] = [:]
     @State private var originalPositionsBeforeDrag: [UUID: (beat: Double, pitch: UInt8)] = [:]
     
+    // For undo support during note drag (capture state at drag START, register at drag END)
+    @State private var notesBeforeDrag: [MIDINote] = []
+    
+    // For undo support during note resize (capture state at resize START, register at resize END)
+    @State private var notesBeforeResize: [MIDINote] = []
+    
     // For pitch preview during drag (debouncing to avoid audio spam)
-    @State private var lastPreviewedPitch: UInt8 = 0
+    @State private var lastPreviewedPitches: Set<UInt8> = []  // Track chord for multi-note drag
     @State private var lastPreviewTime: Date = .distantPast
     
     // For keyboard pitch indicator during drag (shows target pitch on keyboard)
@@ -139,26 +145,19 @@ struct PianoRollView: View {
                         // Keyboard (synced with grid's vertical scroll via offset)
                         // FIX: Canvas is now VIEWPORT-sized, draws in scrolled coordinates
                         // This prevents the huge offscreen texture that caused initial paint failures
-                        pianoKeyboard
-                            .frame(width: keyboardWidth, height: availableHeight)
-                        .contentShape(Rectangle())  // Constrain hit-testing to visible area only
-                        .gesture(
-                            DragGesture(minimumDistance: 1)  // Require slight movement to avoid accidental triggers
-                                .onChanged { value in
-                                    // Calculate pitch from visible Y position (accounting for scroll)
-                                    let pitch = keyboardPitchAt(visibleY: value.location.y)
-                                    if pitch >= minPitch && pitch <= maxPitch {
-                                        onPreviewNote?(UInt8(pitch))
-                                    }
-                                }
+                        // Wrap in ScrollView to capture scroll wheel events
+                        PianoKeyboardScrollWrapper(
+                            keyboard: AnyView(pianoKeyboard),
+                            keyboardWidth: keyboardWidth,
+                            availableHeight: availableHeight,
+                            verticalScrollOffset: $verticalScrollOffset,
+                            gridHeight: gridHeight,
+                            onPreviewNote: onPreviewNote,
+                            keyboardPitchAt: keyboardPitchAt(visibleY:),
+                            minPitch: minPitch,
+                            maxPitch: maxPitch
                         )
-                        .onTapGesture { location in
-                            // Handle taps on keyboard for note preview (accounting for scroll)
-                            let pitch = keyboardPitchAt(visibleY: location.y)
-                            if pitch >= minPitch && pitch <= maxPitch {
-                                onPreviewNote?(UInt8(pitch))
-                            }
-                        }
+                        .frame(width: keyboardWidth, height: availableHeight)
                         
                         // MIDI CC Automation lane labels (when visible)
                         if showAutomationLanes {
@@ -247,10 +246,6 @@ struct PianoRollView: View {
                                                     
                                                     // Transparent spacer to maintain scroll content height
                                                     Color.clear
-                                                        .frame(width: gridWidth, height: gridHeight)
-                                                    
-                                                    // Vertical grid lines - same pattern as playhead
-                                                    verticalGridOverlay
                                                         .frame(width: gridWidth, height: gridHeight)
                                                     
                                                     notesOverlay
@@ -376,68 +371,6 @@ struct PianoRollView: View {
         }
     }
     
-    // MARK: - Add CC Lane Popover
-    
-    /// Popover for adding MIDI CC automation lanes
-    private var addLanePopover: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Add MIDI CC Lane")
-                .font(.headline)
-                .padding(.bottom, 4)
-            
-            // MIDI CC parameters for piano roll
-            ForEach(midiCCLaneOptions, id: \.self) { param in
-                Button(action: {
-                    addAutomationLane(for: param)
-                    showAddLanePopover = false
-                    showAutomationLanes = true  // Ensure lanes are visible
-                }) {
-                    HStack {
-                        Image(systemName: param.icon)
-                            .foregroundColor(param.color)
-                            .frame(width: 20)
-                        Text(param.rawValue)
-                        Spacer()
-                        if automationLanes.contains(where: { $0.parameter == param }) {
-                            Image(systemName: "checkmark")
-                                .foregroundColor(.green)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(automationLanes.contains(where: { $0.parameter == param }))
-            }
-            
-            Divider()
-            
-            // Remove all button
-            if !automationLanes.isEmpty {
-                Button(role: .destructive, action: {
-                    automationLanes.removeAll()
-                    showAddLanePopover = false
-                }) {
-                    Label("Remove All Lanes", systemImage: "trash")
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.red)
-            }
-        }
-        .padding()
-        .frame(width: 220)
-    }
-    
-    /// Available MIDI CC parameters for piano roll lanes
-    private var midiCCLaneOptions: [AutomationParameter] {
-        [.midiCC1, .midiCC11, .midiCC64, .midiCC74, .pitchBend]
-    }
-    
-    /// Add a new automation lane for the specified parameter
-    private func addAutomationLane(for parameter: AutomationParameter) {
-        guard !automationLanes.contains(where: { $0.parameter == parameter }) else { return }
-        let lane = AutomationLane(parameter: parameter, color: parameter.color)
-        automationLanes.append(lane)
-    }
-    
     // MARK: - Computed Properties
     
     private var gridWidth: CGFloat {
@@ -532,6 +465,7 @@ struct PianoRollView: View {
                 showScaleHighlight: $showScaleHighlight,
                 currentScale: $currentScale,
                 showAutomationLanes: $showAutomationLanes,
+                automationLanes: $automationLanes,
                 horizontalZoom: $horizontalZoom,
                 showTransformSheet: $showTransformSheet,
                 showQuantizeOptions: $showQuantizeOptions,
@@ -861,11 +795,15 @@ struct PianoRollView: View {
     private var noteGrid: some View {
         let rowH = scaledNoteHeight
         let scrollOffset = verticalScrollOffset
+        let hScrollOffset = horizontalScrollOffset
         let scaleHighlight = showScaleHighlight
         let scale = currentScale
         let root = scaleRoot
+        let zoom = horizontalZoom
+        let pxPerBeat = scaledPixelsPerBeat
         
         return Canvas { context, size in
+            // HORIZONTAL ROWS (pitch lanes)
             // Calculate visible rows based on viewport and scroll offset
             let buffer = 2  // Small buffer for smooth edges
             let firstRow = max(0, Int(floor(scrollOffset / rowH)) - buffer)
@@ -909,23 +847,14 @@ struct PianoRollView: View {
                 let strokeColor = isC ? Color.blue.opacity(0.4) : Color.gray.opacity(0.1)
                 context.stroke(linePath, with: .color(strokeColor), lineWidth: lineWidth)
             }
-        }
-        // FIX: Removed .drawingGroup() - with viewport-sized canvas, we don't need offscreen rasterization
-    }
-    
-    // MARK: - Vertical Grid Overlay
-    
-    /// Vertical grid lines - same Rectangle+offset pattern as playhead
-    private var verticalGridOverlay: some View {
-        // PERF: Use Canvas instead of 1500+ Rectangle views - massive performance improvement
-        Canvas { context, size in
+            
+            // VERTICAL GRID LINES (beat markers)
             // Determine opacity for each tier based on zoom
-            let eighthOpacity: Double = horizontalZoom >= 0.75 ? 0.15 : 0.0
-            let sixteenthOpacity: Double = horizontalZoom >= 1.5 ? 0.08 : 0.0
+            let eighthOpacity: Double = zoom >= 0.75 ? 0.15 : 0.0
+            let sixteenthOpacity: Double = zoom >= 1.5 ? 0.08 : 0.0
             
             let beatsPerBar: CGFloat = 4.0
-            let pxPerBar = scaledPixelsPerBeat * beatsPerBar
-            let pxPerBeat = scaledPixelsPerBeat
+            let pxPerBar = pxPerBeat * beatsPerBar
             
             // Pre-calculate colors
             let barColor = Color.white.opacity(0.35)
@@ -933,14 +862,15 @@ struct PianoRollView: View {
             let eighthColor = Color.white.opacity(eighthOpacity)
             let sixteenthColor = Color.white.opacity(sixteenthOpacity)
             
-            // Draw all grid lines in a single pass
-            let numBars = max(1, Int(ceil(size.width / pxPerBar)) + 1)
+            // Calculate visible bars based on horizontal scroll
+            let firstBar = max(0, Int(floor(hScrollOffset / pxPerBar)))
+            let lastBar = Int(ceil((hScrollOffset + size.width) / pxPerBar)) + 1
             
-            for barIndex in 0..<numBars {
-                let barX = round(CGFloat(barIndex) * pxPerBar)  // Pixel-align for crisp rendering
+            for barIndex in firstBar..<lastBar {
+                let barX = round(CGFloat(barIndex) * pxPerBar - hScrollOffset)
                 
                 // Bar line (strongest)
-                if barX < size.width {
+                if barX >= 0 && barX < size.width {
                     let barPath = Path { path in
                         path.move(to: CGPoint(x: barX, y: 0))
                         path.addLine(to: CGPoint(x: barX, y: size.height))
@@ -951,7 +881,7 @@ struct PianoRollView: View {
                 // Beat lines within this bar (1, 2, 3)
                 for beat in 1..<4 {
                     let beatX = round(barX + CGFloat(beat) * pxPerBeat)
-                    if beatX < size.width {
+                    if beatX >= 0 && beatX < size.width {
                         let beatPath = Path { path in
                             path.move(to: CGPoint(x: beatX, y: 0))
                             path.addLine(to: CGPoint(x: beatX, y: size.height))
@@ -964,7 +894,7 @@ struct PianoRollView: View {
                 if eighthOpacity > 0 {
                     for eighthOffset in [0.5, 1.5, 2.5, 3.5] {
                         let eighthX = round(barX + CGFloat(eighthOffset) * pxPerBeat)
-                        if eighthX > barX && eighthX < size.width {
+                        if eighthX >= 0 && eighthX < size.width {
                             let eighthPath = Path { path in
                                 path.move(to: CGPoint(x: eighthX, y: 0))
                                 path.addLine(to: CGPoint(x: eighthX, y: size.height))
@@ -978,7 +908,7 @@ struct PianoRollView: View {
                 if sixteenthOpacity > 0 {
                     for sixteenthOffset in [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75] {
                         let sixteenthX = round(barX + CGFloat(sixteenthOffset) * pxPerBeat)
-                        if sixteenthX > barX && sixteenthX < size.width {
+                        if sixteenthX >= 0 && sixteenthX < size.width {
                             let sixteenthPath = Path { path in
                                 path.move(to: CGPoint(x: sixteenthX, y: 0))
                                 path.addLine(to: CGPoint(x: sixteenthX, y: size.height))
@@ -989,7 +919,7 @@ struct PianoRollView: View {
                 }
             }
         }
-        .allowsHitTesting(false)  // Don't intercept mouse events
+        // FIX: Removed .drawingGroup() - with viewport-sized canvas, we don't need offscreen rasterization
     }
     
     // MARK: - Measure Ruler
@@ -1310,14 +1240,45 @@ struct PianoRollView: View {
             onMove: { offset in moveNote(note, by: offset) },
             onResize: { delta in resizeNote(note, by: delta) },
             onDelete: { deleteNote(note) },
+            onResizeEnd: {
+                // Register undo ONCE at resize end (not during resize motion)
+                if !notesBeforeResize.isEmpty {
+                    let beforeNotes = notesBeforeResize
+                    let afterNotes = region.notes
+                    
+                    undoManager?.registerUndo(withTarget: undoManager!) { _ in
+                        self.region.notes = beforeNotes
+                    }
+                    undoManager?.setActionName("Resize Note")
+                    
+                    // Clear snapshot
+                    notesBeforeResize = []
+                }
+            },
             onDragEnd: { 
+                // Register undo ONCE at drag end (not during drag motion)
+                // This prevents undo stack pollution (hundreds of undo entries per drag)
+                if !notesBeforeDrag.isEmpty {
+                    let beforeNotes = notesBeforeDrag
+                    let afterNotes = region.notes
+                    
+                    undoManager?.registerUndo(withTarget: undoManager!) { _ in
+                        self.region.notes = beforeNotes
+                    }
+                    undoManager?.setActionName("Move Notes")
+                    
+                    // Clear snapshot
+                    notesBeforeDrag = []
+                }
+                
+                // Clean up drag state
                 isDuplicatingDrag = false
                 draggedNotesOriginalIds = []
                 hasDuplicatedForCurrentDrag = false
                 duplicateStartPositions.removeAll()
                 originalPositionsBeforeDrag.removeAll()
                 // Reset pitch preview and keyboard indicator state
-                lastPreviewedPitch = 0
+                lastPreviewedPitches.removeAll()
                 draggingPitch = nil
                 // Stop any playing preview note to prevent stuck notes
                 onStopPreview?()
@@ -1392,6 +1353,7 @@ struct PianoRollView: View {
             if !isMarqueeSelecting {
                 isMarqueeSelecting = true
                 marqueeStart = value.startLocation
+                previousMarqueeSelection = []  // Reset tracking at start of new marquee
             }
             marqueeEnd = value.location
             
@@ -1405,6 +1367,8 @@ struct PianoRollView: View {
             
             // Find notes within the marquee rectangle
             var newSelection = Set<UUID>()
+            var notesInMarquee: [MIDINote] = []  // Track actual notes for audio feedback
+            
             for note in region.notes {
                 let noteX = note.startBeat * scaledPixelsPerBeat
                 let noteY = CGFloat(maxPitch - Int(note.pitch)) * scaledNoteHeight
@@ -1413,9 +1377,34 @@ struct PianoRollView: View {
                 
                 if rect.intersects(noteRect) {
                     newSelection.insert(note.id)
+                    notesInMarquee.append(note)
                 }
             }
+            
+            // LOGIC PRO BEHAVIOR: Play audio for newly selected notes
+            // Detect notes that just became selected (weren't in previous selection)
+            let newlySelectedIds = newSelection.subtracting(previousMarqueeSelection)
+            
+            if !newlySelectedIds.isEmpty {
+                // Find the notes that were newly selected and play their pitches
+                let newlySelectedNotes = notesInMarquee.filter { newlySelectedIds.contains($0.id) }
+                
+                // Group by pitch to avoid playing the same pitch multiple times
+                let uniquePitches = Set(newlySelectedNotes.map { $0.pitch })
+                
+                // Play each unique pitch (sorted for consistent audio experience)
+                // Limit to 8 simultaneous previews to avoid audio overload on fast drags
+                let sortedPitches = uniquePitches.sorted()
+                let pitchesToPlay = sortedPitches.prefix(8)
+                
+                for pitch in pitchesToPlay {
+                    onPreviewNote?(pitch)
+                }
+            }
+            
+            // Update state
             selectedNotes = newSelection
+            previousMarqueeSelection = newSelection
             
         case .brush:
             // Brush tool: paint notes at grid positions as you drag
@@ -1503,6 +1492,7 @@ struct PianoRollView: View {
         
         // End marquee selection
         isMarqueeSelecting = false
+        previousMarqueeSelection = []  // Reset for next marquee operation
         
         isDrawing = false
         drawingNote = nil
@@ -1758,8 +1748,12 @@ struct PianoRollView: View {
     }
     
     private func moveNote(_ note: MIDINote, by offset: CGSize) {
-        // Capture original positions on VERY FIRST call (before any movement)
+        // Capture original state on VERY FIRST call (before any movement) for undo
         if originalPositionsBeforeDrag.isEmpty {
+            // Snapshot entire notes array for undo (capture at drag START)
+            notesBeforeDrag = region.notes
+            
+            // Capture individual positions for drag calculations
             let notesToCapture = selectedNotes.isEmpty ? [note.id] : selectedNotes
             for noteId in notesToCapture {
                 if let originalNote = region.notes.first(where: { $0.id == noteId }) {
@@ -1805,8 +1799,8 @@ struct PianoRollView: View {
         // If multiple notes are selected, move all of them together with the same offset
         let notesToMove = selectedNotes.isEmpty ? [note.id] : Array(selectedNotes)
         
-        // Track the new pitch for audio preview (use the first note's new pitch)
-        var newPitchForPreview: UInt8? = nil
+        // Track ALL new pitches for audio preview (play the entire chord)
+        var newPitchesForPreview: Set<UInt8> = []
         
         for noteId in notesToMove {
             // Skip original notes during duplication - they should never move
@@ -1829,60 +1823,66 @@ struct PianoRollView: View {
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(startPos.pitch) + pitchOffset)
             } else {
-                // Normal drag: calculate offset from current position
-                var actualBeatOffset = rawTimeOffset
+                // Normal drag: calculate offset from EACH note's own position
+                // FIX: Use movedNote.startBeat (not note.startBeat) to preserve relative timing
+                var newStartBeat = movedNote.startBeat + rawTimeOffset
                 if snapResolution != .off {
-                    let newStartBeat = snapResolution.quantize(beat:note.startBeat + rawTimeOffset)
-                    actualBeatOffset = newStartBeat - note.startBeat
+                    newStartBeat = snapResolution.quantize(beat: newStartBeat)
                 }
-                movedNote.startBeat = max(0, movedNote.startBeat + actualBeatOffset)
+                movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(movedNote.pitch) + pitchOffset)
             }
             
             region.notes[index] = movedNote
             
-            // Capture the first note's new pitch for audio preview
-            if newPitchForPreview == nil {
-                newPitchForPreview = movedNote.pitch
-            }
+            // Collect all unique pitches for chord preview
+            newPitchesForPreview.insert(movedNote.pitch)
         }
         
         // Play audio preview and update keyboard indicator when pitch changes
-        if let newPitch = newPitchForPreview {
-            // Always update dragging pitch for keyboard highlight (even without audio)
-            draggingPitch = newPitch
+        if !newPitchesForPreview.isEmpty {
+            // Update dragging pitch for keyboard highlight (use highest pitch)
+            draggingPitch = newPitchesForPreview.max()
             
             // Play audio preview when pitch actually changes (debounced to avoid spam)
             if pitchOffset != 0 {
-                previewPitchIfChanged(newPitch)
+                previewPitchesIfChanged(newPitchesForPreview)
             }
         }
         
-        // Register undo
-        if let undoManager = undoManager {
-            undoManager.registerUndo(withTarget: undoManager) { _ in
-                self.region.notes = oldNotes
-            }
-            undoManager.setActionName("Move Notes")
-        }
+        // NOTE: Undo is registered at drag END, not during drag motion (see onDragEnd callback)
+        // This prevents undo stack pollution (hundreds of undo entries per drag)
     }
     
-    /// Preview a pitch with debouncing to avoid audio spam during fast drags
-    private func previewPitchIfChanged(_ pitch: UInt8) {
+    /// Preview multiple pitches (chord) with debouncing to avoid audio spam during fast drags
+    private func previewPitchesIfChanged(_ pitches: Set<UInt8>) {
         let now = Date()
-        // Only trigger if pitch changed or at least 100ms have passed
-        if pitch != lastPreviewedPitch || now.timeIntervalSince(lastPreviewTime) > 0.1 {
-            lastPreviewedPitch = pitch
+        let timeSinceLastPreview = now.timeIntervalSince(lastPreviewTime)
+        let pitchesChanged = pitches != lastPreviewedPitches
+        
+        // Only trigger if pitch set changed or at least 100ms have passed
+        if pitchesChanged || timeSinceLastPreview > 0.1 {
+            lastPreviewedPitches = pitches
             lastPreviewTime = now
-            onPreviewNote?(pitch)
+            
+            // Play all pitches in the chord (sorted for consistent triggering)
+            // Limit to 8 simultaneous notes to prevent audio overload
+            let sortedPitches = pitches.sorted()
+            let pitchesToPlay = sortedPitches.prefix(8)
+            
+            for pitch in pitchesToPlay {
+                onPreviewNote?(pitch)
+            }
         }
     }
     
     private func resizeNote(_ note: MIDINote, by delta: CGFloat) {
         guard let index = region.notes.firstIndex(where: { $0.id == note.id }) else { return }
         
-        // Capture state for undo
-        let oldNotes = region.notes
+        // Capture state at resize START (first call)
+        if notesBeforeResize.isEmpty {
+            notesBeforeResize = region.notes
+        }
         
         let durationDelta = delta / scaledPixelsPerBeat
         var newDuration = note.durationBeats + durationDelta
@@ -1895,13 +1895,8 @@ struct PianoRollView: View {
         
         region.notes[index].durationBeats = newDuration
         
-        // Register undo
-        if let undoManager = undoManager {
-            undoManager.registerUndo(withTarget: undoManager) { _ in
-                self.region.notes = oldNotes
-            }
-            undoManager.setActionName("Resize Note")
-        }
+        // NOTE: Undo is registered at resize END, not during resize motion (see onResizeEnd callback)
+        // This prevents undo stack pollution (hundreds of undo entries per resize)
     }
     
     private func updateNoteVelocity(_ noteId: UUID, velocity: UInt8) {
@@ -2016,6 +2011,7 @@ struct NoteView: View {
     let onMove: (CGSize) -> Void
     let onResize: (CGFloat) -> Void
     let onDelete: () -> Void
+    let onResizeEnd: () -> Void
     let onDragEnd: () -> Void
     let onSlice: (Double) -> Void  // Split note at position in beats (relative to note start)
     let onGlue: () -> Void               // Merge with next adjacent note
@@ -2144,6 +2140,7 @@ struct NoteView: View {
             }
             .onEnded { _ in
                 isResizing = false
+                onResizeEnd()
             }
     }
     
@@ -2521,5 +2518,88 @@ struct MIDICCAutomationLane: View {
             )
             region.controllerEvents.append(event)
         }
+    }
+}
+
+// MARK: - Piano Keyboard Scroll Wrapper
+
+/// Wrapper for piano keyboard that handles both click/drag gestures and scroll wheel events
+private struct PianoKeyboardScrollWrapper: NSViewRepresentable {
+    let keyboard: AnyView
+    let keyboardWidth: CGFloat
+    let availableHeight: CGFloat
+    @Binding var verticalScrollOffset: CGFloat
+    let gridHeight: CGFloat
+    let onPreviewNote: ((UInt8) -> Void)?
+    let keyboardPitchAt: (CGFloat) -> Int
+    let minPitch: Int
+    let maxPitch: Int
+    
+    func makeNSView(context: Context) -> NSScrollableKeyboardView {
+        let view = NSScrollableKeyboardView()
+        view.onScroll = { deltaY in
+            let maxOffset = max(0, gridHeight - availableHeight)
+            let newOffset = max(0, min(verticalScrollOffset - deltaY, maxOffset))
+            DispatchQueue.main.async {
+                verticalScrollOffset = newOffset
+            }
+        }
+        
+        // Add hosting view for SwiftUI keyboard
+        let hostingView = NSHostingView(rootView: keyboard)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingView)
+        
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        
+        // Store callbacks for mouse handling
+        view.onMouseDown = { location in
+            let pitch = keyboardPitchAt(location.y)
+            if pitch >= minPitch && pitch <= maxPitch {
+                onPreviewNote?(UInt8(pitch))
+            }
+        }
+        
+        view.onMouseDragged = { location in
+            let pitch = keyboardPitchAt(location.y)
+            if pitch >= minPitch && pitch <= maxPitch {
+                onPreviewNote?(UInt8(pitch))
+            }
+        }
+        
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSScrollableKeyboardView, context: Context) {
+        // Update hosting view with new keyboard
+        if let hostingView = nsView.subviews.first as? NSHostingView<AnyView> {
+            hostingView.rootView = keyboard
+        }
+    }
+}
+
+private class NSScrollableKeyboardView: NSView {
+    var onScroll: ((CGFloat) -> Void)?
+    var onMouseDown: ((NSPoint) -> Void)?
+    var onMouseDragged: ((NSPoint) -> Void)?
+    
+    override func scrollWheel(with event: NSEvent) {
+        let deltaY = event.scrollingDeltaY
+        onScroll?(deltaY)  // Direct delta (natural scrolling)
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        onMouseDown?(location)
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        onMouseDragged?(location)
     }
 }

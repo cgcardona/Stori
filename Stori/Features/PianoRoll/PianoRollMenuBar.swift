@@ -20,6 +20,7 @@ struct PianoRollMenuBar: View {
     @Binding var showScaleHighlight: Bool
     @Binding var currentScale: Scale
     @Binding var showAutomationLanes: Bool
+    @Binding var automationLanes: [AutomationLane]
     @Binding var horizontalZoom: CGFloat
     
     // Sheet triggers
@@ -187,6 +188,32 @@ struct PianoRollMenuBar: View {
                 Label("Automation Lanes", systemImage: "slider.horizontal.3")
             }
             
+            // MIDI CC automation lane options (submenu like scales)
+            if showAutomationLanes {
+                Menu {
+                    ForEach(midiCCLaneOptions, id: \.self) { param in
+                        Toggle(isOn: Binding(
+                            get: { hasLane(for: param) },
+                            set: { enabled in toggleLane(for: param, enabled: enabled) }
+                        )) {
+                            HStack {
+                                Image(systemName: param.icon)
+                                Text(param.rawValue)
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    Button(role: .destructive, action: removeAllLanes) {
+                        Label("Remove All Lanes", systemImage: "trash")
+                    }
+                    .disabled(automationLanes.isEmpty)
+                } label: {
+                    Label("MIDI CC Lanes", systemImage: "slider.horizontal.below.rectangle")
+                }
+            }
+            
             Divider()
             
             // Zoom
@@ -229,5 +256,49 @@ struct PianoRollMenuBar: View {
                 region.notes[index].velocity = velocity
             }
         }
+    }
+    
+    // MARK: - Automation Lane Management
+    
+    /// Available MIDI CC automation parameters for piano roll
+    private var midiCCLaneOptions: [AutomationParameter] {
+        [
+            .pitchBend,
+            .midiCC1,    // Mod Wheel
+            .midiCC11,   // Expression
+            .midiCC64,   // Sustain
+            .midiCC74,   // Filter Cutoff
+            .midiCC10,   // Pan
+            .midiCC7     // Volume
+        ]
+    }
+    
+    /// Check if a lane exists for the given parameter
+    private func hasLane(for parameter: AutomationParameter) -> Bool {
+        automationLanes.contains(where: { $0.parameter == parameter })
+    }
+    
+    /// Toggle a MIDI CC automation lane on/off
+    private func toggleLane(for parameter: AutomationParameter, enabled: Bool) {
+        if enabled {
+            // Add lane if it doesn't exist
+            if !hasLane(for: parameter) {
+                let newLane = AutomationLane(
+                    parameter: parameter,
+                    points: [],
+                    initialValue: parameter.defaultValue,
+                    color: parameter.color
+                )
+                automationLanes.append(newLane)
+            }
+        } else {
+            // Remove lane
+            automationLanes.removeAll(where: { $0.parameter == parameter })
+        }
+    }
+    
+    /// Remove all automation lanes
+    private func removeAllLanes() {
+        automationLanes.removeAll()
     }
 }

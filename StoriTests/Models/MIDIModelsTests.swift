@@ -197,11 +197,14 @@ final class MIDIModelsTests: XCTestCase {
     
     func testMIDIRegionTransposeClamping() {
         var region = MIDIRegion()
-        region.addNote(MIDINote(pitch: 250, startBeat: 0, durationBeats: 1.0))
+        // Start with valid pitch near the top of the range
+        region.addNote(MIDINote(pitch: 120, startBeat: 0, durationBeats: 1.0))
         
-        region.transpose(by: 10)  // Would go to 260, but UInt8 clamps to 255
+        // Transpose by +10 would give 130, but max MIDI pitch is 127
+        region.transpose(by: 10)
         
-        XCTAssertEqual(region.notes[0].pitch, 255)
+        // Should clamp to 127 (max valid MIDI pitch)
+        XCTAssertEqual(region.notes[0].pitch, 127)
     }
     
     func testMIDIRegionShift() {

@@ -124,4 +124,21 @@ final class SelectionManager {
             selectedMIDIRegionId = nil
         }
     }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Even though this class has no explicit Task blocks,
+        // ASan detected memory corruption during deinit (Issue #84201+)
+        // 
+        // Root cause: @MainActor + @Observable classes may have implicit tasks
+        // created by Swift Concurrency runtime during observation updates.
+        // 
+        // This deinit ensures ordered cleanup before Swift's implicit deallocation,
+        // preventing race conditions with Swift Concurrency's task-local cleanup.
+        //
+        // See: MetronomeEngine, ProjectExportService, AutomationServer, 
+        //      LLMComposerClient, AudioAnalysisService, AudioExportService
+        // https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+    }
 }

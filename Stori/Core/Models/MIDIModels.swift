@@ -210,8 +210,9 @@ struct MIDIRegion: Identifiable, Codable, Equatable {
                 )
             }
             
-            // Clamp to valid MIDI range
-            transposed.pitch = UInt8(clamping: newPitch)
+            // Clamp to valid MIDI range (0-127, not UInt8 range 0-255)
+            let clampedPitch = max(0, min(127, newPitch))
+            transposed.pitch = UInt8(clampedPitch)
             return transposed
         }
         

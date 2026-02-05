@@ -251,11 +251,11 @@ struct PianoRollPanelContent: View {
         durationBeats: 8.0
     )
     
-    /// For auto-releasing preview notes
-    @State private var previewNoteTask: Task<Void, Never>?
+    /// For auto-releasing preview notes (one task per pitch for polyphonic preview)
+    @State private var previewNoteTasks: [UInt8: Task<Void, Never>] = [:]
     
-    /// Currently playing preview pitch (for proper note-off when switching)
-    @State private var currentPreviewPitch: UInt8? = nil
+    /// Currently playing preview pitches (for proper note-off - supports chords)
+    @State private var currentPreviewPitches: Set<UInt8> = []
     
     /// The region binding to use for PianoRollView
     private var regionBinding: Binding<MIDIRegion> {
@@ -353,32 +353,25 @@ struct PianoRollPanelContent: View {
             }
         }
         .onDisappear {
-            // Stop any playing preview note to prevent stuck notes
-            if let pitch = currentPreviewPitch {
-                stopPreviewNote(pitch)
-            }
-            previewNoteTask?.cancel()
+            // Stop all playing preview notes to prevent stuck notes
+            stopCurrentPreview()
             previewSampler.stop()
         }
     }
     
     /// Preview a note using the track's instrument (or fallback sampler in demo mode)
     private func previewNote(_ pitch: UInt8) {
-        // Cancel any pending auto-release
-        previewNoteTask?.cancel()
+        // Cancel any existing auto-release task for this specific pitch
+        previewNoteTasks[pitch]?.cancel()
         
-        // Stop the previous note immediately to prevent stuck notes
-        if let previousPitch = currentPreviewPitch, previousPitch != pitch {
-            stopPreviewNote(previousPitch)
-        }
-        
-        currentPreviewPitch = pitch
+        // Add to active preview set (supports polyphonic preview)
+        currentPreviewPitches.insert(pitch)
         
         // Use track instrument if available, otherwise use fallback sampler
         if let trackId = trackId, let instrument = instrumentManager.getInstrument(for: trackId) {
             // Play through the track's actual instrument (synth or sampler)
             instrument.noteOn(pitch: pitch, velocity: 100)
-            previewNoteTask = Task {
+            previewNoteTasks[pitch] = Task {
                 try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
                 await MainActor.run {
                     stopPreviewNote(pitch)
@@ -387,7 +380,7 @@ struct PianoRollPanelContent: View {
         } else {
             // Demo mode: use fallback acoustic piano sampler
             previewSampler.noteOn(pitch: pitch, velocity: 100)
-            previewNoteTask = Task {
+            previewNoteTasks[pitch] = Task {
                 try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for piano decay
                 await MainActor.run {
                     stopPreviewNote(pitch)
@@ -404,20 +397,28 @@ struct PianoRollPanelContent: View {
             previewSampler.noteOff(pitch: pitch)
         }
         
-        // Clear current preview if this was it
-        if currentPreviewPitch == pitch {
-            currentPreviewPitch = nil
-        }
+        // Remove from active set and clean up task
+        currentPreviewPitches.remove(pitch)
+        previewNoteTasks[pitch] = nil
     }
     
-    /// Stop the currently playing preview note (called when drag ends)
+    /// Stop all currently playing preview notes (called when drag ends)
     private func stopCurrentPreview() {
-        previewNoteTask?.cancel()
-        previewNoteTask = nil
-        
-        if let pitch = currentPreviewPitch {
-            stopPreviewNote(pitch)
+        // Cancel all auto-release tasks
+        for task in previewNoteTasks.values {
+            task.cancel()
         }
+        previewNoteTasks.removeAll()
+        
+        // Stop all active preview notes
+        for pitch in currentPreviewPitches {
+            if let trackId = trackId, let instrument = instrumentManager.getInstrument(for: trackId) {
+                instrument.noteOff(pitch: pitch)
+            } else {
+                previewSampler.noteOff(pitch: pitch)
+            }
+        }
+        currentPreviewPitches.removeAll()
     }
     
     /// Sync editableRegion from the midiRegion binding or auto-load from track
