@@ -44,8 +44,8 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         // Then: Values match the points exactly
         XCTAssertNotNil(valueAt0, "Should return value at beat 0")
         XCTAssertNotNil(valueAt4, "Should return value at beat 4")
-        assertApproximatelyEqual(valueAt0!, 0.0, tolerance: 0.001, "Value at beat 0 should be 0")
-        assertApproximatelyEqual(valueAt4!, 1.0, tolerance: 0.001, "Value at beat 4 should be 1")
+        assertApproximatelyEqual(valueAt0!, 0.0, tolerance: 0.001)
+        assertApproximatelyEqual(valueAt4!, 1.0, tolerance: 0.001)
     }
     
     func testAutomationLinearInterpolation() throws {
@@ -63,8 +63,7 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         
         // Then: Value should be interpolated linearly (0.5)
         XCTAssertNotNil(valueAt2, "Should return interpolated value")
-        assertApproximatelyEqual(valueAt2!, 0.5, tolerance: 0.01, 
-                               "Linear interpolation at midpoint should be 0.5")
+        assertApproximatelyEqual(valueAt2!, 0.5, tolerance: 0.01)
     }
     
     func testAutomationStepCurve() throws {
@@ -82,8 +81,8 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         let valueAt3_99 = processor.getVolume(for: trackId, atBeat: 3.99)
         
         // Then: Value should remain at first point until next point (step behavior)
-        assertApproximatelyEqual(valueAt2!, 0.0, tolerance: 0.001, "Step curve should hold at 0")
-        assertApproximatelyEqual(valueAt3_99!, 0.0, tolerance: 0.001, "Step curve should hold at 0 until 4.0")
+        assertApproximatelyEqual(valueAt2!, 0.0, tolerance: 0.001)
+        assertApproximatelyEqual(valueAt3_99!, 0.0, tolerance: 0.001)
     }
     
     func testAutomationSmoothCurve() throws {
@@ -106,7 +105,7 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         // At 1/2 (50%): should be ~0.5 (middle acceleration)
         // At 3/4 (75%): should be > 0.75 (slow end)
         XCTAssertLessThan(valueAt1!, 0.25, "Smooth curve should ease in slowly")
-        assertApproximatelyEqual(valueAt2!, 0.5, tolerance: 0.1, "Smooth curve should be near 0.5 at midpoint")
+        assertApproximatelyEqual(valueAt2!, 0.5, tolerance: 0.1)
         XCTAssertGreaterThan(valueAt3!, 0.75, "Smooth curve should ease out slowly")
     }
     
@@ -125,8 +124,8 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         let valueAt2 = processor.getVolume(for: trackId, atBeat: 2.0)
         
         // Then: Should use initialValue (deterministic WYSIWYG)
-        assertApproximatelyEqual(valueAt0!, 0.2, tolerance: 0.001, "Should use initialValue before first point")
-        assertApproximatelyEqual(valueAt2!, 0.2, tolerance: 0.001, "Should use initialValue before first point")
+        assertApproximatelyEqual(valueAt0!, 0.2, tolerance: 0.001)
+        assertApproximatelyEqual(valueAt2!, 0.2, tolerance: 0.001)
     }
     
     func testAutomationAfterLastPoint() throws {
@@ -144,8 +143,8 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         let valueAt100 = processor.getVolume(for: trackId, atBeat: 100.0)
         
         // Then: Should hold at last point's value
-        assertApproximatelyEqual(valueAt8!, 0.8, tolerance: 0.001, "Should hold at last point value")
-        assertApproximatelyEqual(valueAt100!, 0.8, tolerance: 0.001, "Should hold at last point value")
+        assertApproximatelyEqual(valueAt8!, 0.8, tolerance: 0.001)
+        assertApproximatelyEqual(valueAt100!, 0.8, tolerance: 0.001)
     }
     
     // MARK: - Multiple Parameter Tests
@@ -171,8 +170,8 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         XCTAssertNotNil(values, "Should return automation values")
         XCTAssertNotNil(values?.volume, "Should have volume automation")
         XCTAssertNotNil(values?.pan, "Should have pan automation")
-        assertApproximatelyEqual(values!.volume!, 0.75, tolerance: 0.05, "Volume should be interpolated")
-        assertApproximatelyEqual(values!.pan!, 0.75, tolerance: 0.05, "Pan should be interpolated")
+        assertApproximatelyEqual(values!.volume!, 0.75, tolerance: 0.05)
+        assertApproximatelyEqual(values!.pan!, 0.75, tolerance: 0.05)
     }
     
     // MARK: - Automation Mode Tests
@@ -301,8 +300,7 @@ final class AutomationSampleAccuracyTests: XCTestCase {
         let value = processor.getVolume(for: trackId, atBeat: 2.0)
         
         // Then: Value should be 0.5 at any tempo (beats-first architecture)
-        assertApproximatelyEqual(value!, 0.5, tolerance: 0.01, 
-                               "Automation should be tempo-independent (beats-first)")
+        assertApproximatelyEqual(value!, 0.5, tolerance: 0.01)
     }
     
     func testAutomationSampleToBeatsConversion() throws {
@@ -319,8 +317,7 @@ final class AutomationSampleAccuracyTests: XCTestCase {
             let beatsPerSecond = testCase.tempo / 60.0
             let beats = seconds * beatsPerSecond
             
-            assertApproximatelyEqual(beats, testCase.expectedBeats, tolerance: 0.01,
-                                   "Beat calculation should be accurate at \(testCase.tempo) BPM, \(testCase.sampleRate) Hz")
+            assertApproximatelyEqual(beats, testCase.expectedBeats, tolerance: 0.01)
         }
     }
     
