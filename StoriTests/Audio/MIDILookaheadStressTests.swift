@@ -105,8 +105,16 @@ final class MIDILookaheadStressTests: XCTestCase {
             }
         }
         
-        // Check timing after CPU load
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        // Simulate time passing so all notes enter the lookahead window
+        DispatchQueue.global().async {
+            for beat in stride(from: 0.0, through: 2.0, by: 0.1) {
+                self.currentBeat = beat
+                usleep(10000) // 10ms per 0.1 beat
+            }
+        }
+        
+        // Check timing after CPU load and time advancement
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let noteOns = self.receivedEvents.filter { $0.status & 0xF0 == 0x90 }
             
             // All 4 notes should have been scheduled despite CPU load
@@ -215,7 +223,15 @@ final class MIDILookaheadStressTests: XCTestCase {
         
         let expectation = XCTestExpectation(description: "Visual = Audio timing")
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        // Advance time so both notes enter the lookahead window
+        DispatchQueue.global().async {
+            for beat in stride(from: 0.0, through: 1.5, by: 0.1) {
+                self.currentBeat = beat
+                usleep(5000) // 5ms per 0.1 beat
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             let noteOns = self.receivedEvents.filter { $0.status & 0xF0 == 0x90 }.sorted { $0.data1 < $1.data1 }
             
             XCTAssertEqual(noteOns.count, 2, "Should have 2 note-ons")
