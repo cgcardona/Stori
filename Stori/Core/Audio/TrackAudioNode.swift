@@ -240,14 +240,70 @@ final class TrackAudioNode: @unchecked Sendable {
         panNode.pan = smoothedValue
     }
     
-    /// Reset smoothed values (call when transport stops/starts)
-    func resetSmoothing() {
+    /// Reset smoothed values to match automation at current playhead position
+    ///
+    /// BUG FIX (Issue #48): Previously initialized smoothed values from current mixer
+    /// settings, which could be stale from previous playback. Now initializes from
+    /// automation curve at the specified beat position.
+    ///
+    /// CRITICAL PROBLEM (before fix):
+    /// - Smoothed values persisted across play/stop cycles
+    /// - Volume automation starts at 1.0, but smoothed state was 0.0 from previous session
+    /// - Result: Audible ramp up over ~50ms instead of starting at 1.0
+    /// - Very noticeable on transient-heavy material (drums, percussion)
+    ///
+    /// SOLUTION:
+    /// Initialize smoothed values from the automation curve at the playhead position.
+    /// If no automation data exists, use current mixer settings as fallback.
+    ///
+    /// PROFESSIONAL STANDARD:
+    /// Logic Pro, Pro Tools, and Cubase all initialize automation from the curve
+    /// at the playhead position, ensuring instant-correct values on playback start.
+    ///
+    /// - Parameter startBeat: Beat position where playback is starting (for automation lookup)
+    /// - Parameter automationLanes: Automation data to initialize from (optional)
+    func resetSmoothing(atBeat startBeat: Double = 0, automationLanes: [AutomationLane] = []) {
         os_unfair_lock_lock(&automationLock)
-        _smoothedVolume = volume
-        _smoothedPan = pan
-        _smoothedEqLow = 0.0
-        _smoothedEqMid = 0.0
-        _smoothedEqHigh = 0.0
+        
+        // BUG FIX (Issue #48): Initialize from automation curve at playhead position
+        // If automation data exists at this beat, use it. Otherwise, use current mixer values.
+        
+        // Volume: Check automation, fallback to current mixer value
+        if let volumeLane = automationLanes.first(where: { $0.parameter == .volume }) {
+            _smoothedVolume = volumeLane.value(atBeat: startBeat)
+        } else {
+            _smoothedVolume = volume
+        }
+        
+        // Pan: Check automation, fallback to current mixer value
+        if let panLane = automationLanes.first(where: { $0.parameter == .pan }) {
+            // Automation stores pan 0–1; convert to -1..+1 for smoothed pan
+            _smoothedPan = panLane.value(atBeat: startBeat) * 2 - 1
+        } else {
+            _smoothedPan = pan
+        }
+        
+        // EQ Low: Check automation, fallback to 0.5 (0dB)
+        if let eqLowLane = automationLanes.first(where: { $0.parameter == .eqLow }) {
+            _smoothedEqLow = eqLowLane.value(atBeat: startBeat)
+        } else {
+            _smoothedEqLow = 0.5  // 0dB default
+        }
+        
+        // EQ Mid: Check automation, fallback to 0.5 (0dB)
+        if let eqMidLane = automationLanes.first(where: { $0.parameter == .eqMid }) {
+            _smoothedEqMid = eqMidLane.value(atBeat: startBeat)
+        } else {
+            _smoothedEqMid = 0.5  // 0dB default
+        }
+        
+        // EQ High: Check automation, fallback to 0.5 (0dB)
+        if let eqHighLane = automationLanes.first(where: { $0.parameter == .eqHigh }) {
+            _smoothedEqHigh = eqHighLane.value(atBeat: startBeat)
+        } else {
+            _smoothedEqHigh = 0.5  // 0dB default
+        }
+        
         os_unfair_lock_unlock(&automationLock)
     }
     
@@ -876,16 +932,48 @@ final class TrackAudioNode: @unchecked Sendable {
     ///   - cycleStartBeat: Cycle region start in beats
     ///   - cycleEndBeat: Cycle region end in beats
     ///   - iterationsAhead: Number of cycle iterations to pre-schedule (default: 2)
+    /// Schedule audio for cycle-aware playback (pre-schedules multiple iterations)
+    ///
+    /// BUG FIX (Issue #47): Added `preservePlayback` parameter to support seamless
+    /// cycle loop jumps without clearing already-scheduled audio buffers.
+    ///
+    /// SEAMLESS CYCLE LOOP ARCHITECTURE:
+    /// When cycle mode is enabled, we pre-schedule multiple iterations ahead.
+    /// This means audio for beats 5-8 might already be scheduled while playing beats 1-4.
+    ///
+    /// PARAMETERS:
+    /// - fromBeat: Starting beat position
+    /// - audioRegions: Regions to schedule
+    /// - tempo: Project tempo for beat→time conversion
+    /// - cycleStartBeat: Cycle region start
+    /// - cycleEndBeat: Cycle region end
+    /// - iterationsAhead: How many future iterations to pre-schedule (default 2)
+    /// - preservePlayback: If true, don't stop/reset player node (for seamless jumps)
+    ///
+    /// WHEN TO USE preservePlayback=true:
+    /// - Cycle loop jumps where audio is already pre-scheduled
+    /// - Player node is already playing and has future iterations queued
+    /// - We want to avoid any gap or discontinuity
+    ///
+    /// WHEN TO USE preservePlayback=false (default):
+    /// - Starting fresh playback
+    /// - Seeking to a new position (not a cycle jump)
+    /// - Need to clear old buffers and schedule new audio
     func scheduleCycleAware(
         fromBeat startBeat: Double,
         audioRegions: [AudioRegion],
         tempo: Double,
         cycleStartBeat: Double,
         cycleEndBeat: Double,
-        iterationsAhead: Int = 2
+        iterationsAhead: Int = 2,
+        preservePlayback: Bool = false
     ) throws {
-        playerNode.stop()
-        playerNode.reset()
+        // BUG FIX (Issue #47): Only stop/reset if NOT preserving playback
+        // This allows seamless cycle jumps without clearing pre-scheduled audio
+        if !preservePlayback {
+            playerNode.stop()
+            playerNode.reset()
+        }
         
         let playerSampleRate = playerNode.outputFormat(forBus: 0).sampleRate
         guard playerSampleRate > 0 else { return }
@@ -947,7 +1035,9 @@ final class TrackAudioNode: @unchecked Sendable {
             }
         }
         
-        if scheduledSomething {
+        // BUG FIX (Issue #47): Only start playback if we actually scheduled something
+        // AND we're not preserving existing playback
+        if scheduledSomething && !preservePlayback {
             playerNode.play()
         }
     }
