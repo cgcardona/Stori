@@ -224,13 +224,12 @@ struct PianoRollView: View {
                                     Divider()
                                     
                                     // Grid area (scrolls vertically, tracks offset for keyboard sync)
-                                    // FIX: noteGrid is now a BACKGROUND overlay, viewport-sized, draws in scrolled coordinates
-                                    // This prevents the huge offscreen texture that caused initial paint failures
+                                    // Grid Canvas is full-width (gridWidth), scrolls naturally with horizontal ScrollView
+                                    // Drawing code renders from 0 to size.width, matching timeRuler pattern
                                     ZStack {
-                                        // Background: viewport-sized grid lanes (draws in scrolled coordinates)
+                                        // Background: full-width grid lanes (draws absolute coordinates, scrolls with ScrollView)
                                         noteGrid
-                                            .frame(width: outerGeo.size.width, height: availableHeight)
-                                            .offset(x: horizontalScrollOffset)
+                                            .frame(width: gridWidth, height: availableHeight)
                                         
                                         // Foreground: scrollable content
                                         ScrollViewReader { scrollProxy in
@@ -868,12 +867,12 @@ struct PianoRollView: View {
             let eighthColor = Color.white.opacity(eighthOpacity)
             let sixteenthColor = Color.white.opacity(sixteenthOpacity)
             
-            // Calculate visible bars based on horizontal scroll
-            let firstBar = max(0, Int(floor(hScrollOffset / pxPerBar)))
-            let lastBar = Int(ceil((hScrollOffset + size.width) / pxPerBar)) + 1
+            // Draw all bars from 0 to size.width (full-width Canvas, scrolls naturally)
+            var barIndex = 0
+            var barX: CGFloat = 0
             
-            for barIndex in firstBar..<lastBar {
-                let barX = round(CGFloat(barIndex) * pxPerBar - hScrollOffset)
+            while barX < size.width {
+                barX = round(CGFloat(barIndex) * pxPerBar)
                 
                 // Bar line (strongest)
                 if barX >= 0 && barX < size.width {
@@ -923,9 +922,11 @@ struct PianoRollView: View {
                         }
                     }
                 }
+                
+                barIndex += 1
             }
         }
-        // FIX: Removed .drawingGroup() - with viewport-sized canvas, we don't need offscreen rasterization
+        // FIX: Removed .drawingGroup() - full-width Canvas scrolls naturally with ScrollView
     }
     
     // MARK: - Measure Ruler
