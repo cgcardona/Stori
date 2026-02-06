@@ -234,10 +234,10 @@ class TransportController {
             queue: .main
         ) { [weak self] notification in
             guard let self = self else { return }
-            if let continuation = notification.userInfo?["continuation"] as? CheckedContinuation<Bool, Never> {
-                Task { @MainActor in
-                    continuation.resume(returning: self.isPlaying)
-                }
+            // Extract coordinator and call synchronously (coordinator is thread-safe)
+            if let coordinator = notification.userInfo?["coordinator"] as? TransportQueryCoordinator {
+                let isPlaying = MainActor.assumeIsolated { self.isPlaying }
+                coordinator.resumeOnce(returning: isPlaying)
             }
         }
         
@@ -248,7 +248,8 @@ class TransportController {
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            Task { @MainActor in
+            // Already on main queue, execute synchronously
+            MainActor.assumeIsolated {
                 // Save current state and pause
                 self.savedStateBeforeSavePause = self.transportState
                 if self.isPlaying {
@@ -267,7 +268,8 @@ class TransportController {
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            Task { @MainActor in
+            // Already on main queue, execute synchronously
+            MainActor.assumeIsolated {
                 // Only resume if we were playing before save
                 if self.savedStateBeforeSavePause == .playing {
                     self.play()

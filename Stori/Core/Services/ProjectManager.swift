@@ -10,6 +10,28 @@ import SwiftUI
 import Combine
 import Observation
 
+// MARK: - Transport Query Coordinator
+/// Coordinates transport state queries to prevent double-resume of continuations
+/// Thread-safe coordinator that can be called from any queue
+final class TransportQueryCoordinator {
+    private let lock = NSLock()
+    private var hasResumed = false
+    private let continuation: CheckedContinuation<Bool, Never>
+    
+    init(continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+    
+    func resumeOnce(returning value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        guard !hasResumed else { return }
+        hasResumed = true
+        continuation.resume(returning: value)
+    }
+}
+
 // MARK: - Project Errors
 enum ProjectError: LocalizedError {
     case projectAlreadyExists(name: String)
@@ -445,10 +467,20 @@ class ProjectManager {
     /// Returns whether transport is currently playing
     private func getTransportPlayingState() async -> Bool {
         await withCheckedContinuation { continuation in
+            let coordinator = TransportQueryCoordinator(continuation: continuation)
+            
+            // Set 100ms timeout to prevent hang if no transport exists
+            // In normal operation, TransportController responds in < 1ms
+            Task {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                coordinator.resumeOnce(returning: false)
+            }
+            
+            // Post query notification with coordinator
             NotificationCenter.default.post(
                 name: .queryTransportState,
                 object: nil,
-                userInfo: ["continuation": continuation]
+                userInfo: ["coordinator": coordinator]
             )
         }
     }
@@ -457,12 +489,19 @@ class ProjectManager {
     /// Returns after transport has confirmed pause
     private func pauseTransportForSave() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Track if we've already resumed (prevent double-resume crash)
+            var hasResumed = false
+            
             var observer: NSObjectProtocol?
             observer = NotificationCenter.default.addObserver(
                 forName: .transportPausedForSave,
                 object: nil,
                 queue: .main
             ) { _ in
+                // Guard against double-resume
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 if let obs = observer {
                     NotificationCenter.default.removeObserver(obs)
                 }
@@ -472,6 +511,11 @@ class ProjectManager {
             // Set 100ms timeout to prevent hang if transport doesn't respond
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 100_000_000)
+                
+                // Guard against double-resume
+                guard !hasResumed else { return }
+                hasResumed = true
+                
                 if let obs = observer {
                     NotificationCenter.default.removeObserver(obs)
                 }

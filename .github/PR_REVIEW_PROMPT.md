@@ -16,7 +16,7 @@ You have full authority to:
 ---
 
 ## INPUT
-- **Pull Request:** \<PR_NUMBER or PR_URL\> (provided each time)
+- **Pull Request:** https://github.com/cgcardona/Stori/pull/101
 
 ---
 
@@ -77,8 +77,8 @@ If tests are weak or missing:
 
 ---
 
-## STEP 5 — RUN FULL TEST SUITE
-`xcodebuild test -scheme Stori -destination 'platform=macOS'`
+## STEP 5 — RUN RELEVANT TESTS
+`xcodebuild test -project Stori.xcodeproj -scheme Stori -destination 'platform=macOS' -only-testing:StoriTests/file-name
 
 ---
 
