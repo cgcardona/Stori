@@ -53,6 +53,9 @@ struct MIDITransformView: View {
     @Binding var selectedNotes: Set<UUID>
     @Binding var isPresented: Bool
     
+    /// Project time signature for correct quantization in odd meters (Issue #64). Defaults to 4/4.
+    var timeSignature: TimeSignature = .fourFour
+    
     @State private var selectedOperation: MIDITransformOperation = .transpose
     
     // Transpose parameters
@@ -455,9 +458,8 @@ struct MIDITransformView: View {
         for i in region.notes.indices {
             if noteIds.contains(region.notes[i].id) {
                 let original = region.notes[i].startBeat
-                let quantized = resolution.quantize(beat: original)
-                // Apply strength: lerp between original and quantized
-                region.notes[i].startBeat = original + (quantized - original) * strength
+                let quantized = resolution.quantize(beat: original, timeSignature: timeSignature, strength: Float(strength))
+                region.notes[i].startBeat = quantized
             }
         }
     }

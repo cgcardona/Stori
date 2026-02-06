@@ -442,58 +442,50 @@ final class MIDIModelsTests: XCTestCase {
     // MARK: - SnapResolution Tests (beats-based API)
     
     func testSnapResolutionStepDurationBeats() {
-        assertApproximatelyEqual(SnapResolution.bar.stepDurationBeats, 4.0)
-        assertApproximatelyEqual(SnapResolution.half.stepDurationBeats, 2.0)
-        assertApproximatelyEqual(SnapResolution.quarter.stepDurationBeats, 1.0)
-        assertApproximatelyEqual(SnapResolution.eighth.stepDurationBeats, 0.5)
-        assertApproximatelyEqual(SnapResolution.sixteenth.stepDurationBeats, 0.25)
-        assertApproximatelyEqual(SnapResolution.thirtysecond.stepDurationBeats, 0.125)
-        assertApproximatelyEqual(SnapResolution.off.stepDurationBeats, 0.0)
+        let ts = TimeSignature.fourFour
+        assertApproximatelyEqual(SnapResolution.bar.stepDurationBeats(timeSignature: ts), 4.0)
+        assertApproximatelyEqual(SnapResolution.half.stepDurationBeats(timeSignature: ts), 2.0)
+        assertApproximatelyEqual(SnapResolution.quarter.stepDurationBeats(timeSignature: ts), 1.0)
+        assertApproximatelyEqual(SnapResolution.eighth.stepDurationBeats(timeSignature: ts), 0.5)
+        assertApproximatelyEqual(SnapResolution.sixteenth.stepDurationBeats(timeSignature: ts), 0.25)
+        assertApproximatelyEqual(SnapResolution.thirtysecond.stepDurationBeats(timeSignature: ts), 0.125)
+        assertApproximatelyEqual(SnapResolution.off.stepDurationBeats(timeSignature: ts), 0.0)
     }
     
     func testSnapResolutionTripletStepDurationBeats() {
-        // Triplet quarter note = 2/3 of a beat
-        assertApproximatelyEqual(SnapResolution.tripletQuarter.stepDurationBeats, 1.0 / 1.5)
-        
-        // Triplet eighth = 1/3 of a beat
-        assertApproximatelyEqual(SnapResolution.tripletEighth.stepDurationBeats, 0.5 / 1.5)
+        let ts = TimeSignature.fourFour
+        assertApproximatelyEqual(SnapResolution.tripletQuarter.stepDurationBeats(timeSignature: ts), 1.0 / 1.5)
+        assertApproximatelyEqual(SnapResolution.tripletEighth.stepDurationBeats(timeSignature: ts), 0.5 / 1.5)
     }
     
     func testSnapResolutionQuantizeBeat() {
-        // Quantize to quarter notes (beats)
-        assertApproximatelyEqual(SnapResolution.quarter.quantize(beat: 1.3), 1.0)
-        assertApproximatelyEqual(SnapResolution.quarter.quantize(beat: 1.6), 2.0)
-        assertApproximatelyEqual(SnapResolution.quarter.quantize(beat: 1.5), 2.0)  // Round up at .5
-        
-        // Quantize to eighth notes
-        assertApproximatelyEqual(SnapResolution.eighth.quantize(beat: 0.3), 0.5)
-        assertApproximatelyEqual(SnapResolution.eighth.quantize(beat: 0.1), 0.0)
+        let ts = TimeSignature.fourFour
+        assertApproximatelyEqual(SnapResolution.quarter.quantize(beat: 1.3, timeSignature: ts), 1.0)
+        assertApproximatelyEqual(SnapResolution.quarter.quantize(beat: 1.6, timeSignature: ts), 2.0)
+        assertApproximatelyEqual(SnapResolution.quarter.quantize(beat: 1.5, timeSignature: ts), 2.0)
+        assertApproximatelyEqual(SnapResolution.eighth.quantize(beat: 0.3, timeSignature: ts), 0.5)
+        assertApproximatelyEqual(SnapResolution.eighth.quantize(beat: 0.1, timeSignature: ts), 0.0)
     }
     
     func testSnapResolutionQuantizeBeatWithStrength() {
+        let ts = TimeSignature.fourFour
         let original = 1.3
-        
-        // Full strength = full quantize
         assertApproximatelyEqual(
-            SnapResolution.quarter.quantize(beat: original, strength: 1.0),
+            SnapResolution.quarter.quantize(beat: original, timeSignature: ts, strength: 1.0),
             1.0
         )
-        
-        // Zero strength = no change
         assertApproximatelyEqual(
-            SnapResolution.quarter.quantize(beat: original, strength: 0.0),
+            SnapResolution.quarter.quantize(beat: original, timeSignature: ts, strength: 0.0),
             1.3
         )
-        
-        // Half strength = halfway
         assertApproximatelyEqual(
-            SnapResolution.quarter.quantize(beat: original, strength: 0.5),
-            1.15  // Halfway between 1.3 and 1.0
+            SnapResolution.quarter.quantize(beat: original, timeSignature: ts, strength: 0.5),
+            1.15
         )
     }
     
     func testSnapResolutionOff() {
-        XCTAssertEqual(SnapResolution.off.quantize(beat: 1.234), 1.234)
+        XCTAssertEqual(SnapResolution.off.quantize(beat: 1.234, timeSignature: .fourFour), 1.234)
     }
     
     func testSnapResolutionCodable() {

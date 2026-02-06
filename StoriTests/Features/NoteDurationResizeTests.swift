@@ -49,7 +49,7 @@ final class NoteDurationResizeTests: XCTestCase {
         let newEndBeat = note.startBeat + newDuration // 2.4
         
         // With snap, end should snap to nearest 1/16th (2.5)
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         XCTAssertEqual(snappedEndBeat, 2.5, accuracy: 0.00001)
         
         // Final duration should be calculated from snapped end
@@ -79,7 +79,7 @@ final class NoteDurationResizeTests: XCTestCase {
         let newEndBeat = note.startBeat + newDuration // 2.4
         
         // End should snap to 2.5 (nearest 1/16th)
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         XCTAssertEqual(snappedEndBeat, 2.5, accuracy: 0.00001)
         
         let expectedDuration = snappedEndBeat - note.startBeat // 1.5
@@ -94,7 +94,7 @@ final class NoteDurationResizeTests: XCTestCase {
         // Resize note
         let newDuration = 1.5
         let newEndBeat = note.startBeat + newDuration
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         let finalDuration = snappedEndBeat - note.startBeat
         
         // Start position should remain exactly the same
@@ -121,12 +121,12 @@ final class NoteDurationResizeTests: XCTestCase {
         let newEndBeat = note.startBeat + newDuration // 2.4
         
         // With snap to 1/16th (0.25), end should snap to 2.5
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         XCTAssertEqual(snappedEndBeat, 2.5, accuracy: 0.00001,
                       "End should snap to 2.5 (next 1/16th)")
         
         // Final duration should be 1.5 (snapped end - start)
-        let finalDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snappedEndBeat - note.startBeat)
         XCTAssertEqual(finalDuration, 1.5, accuracy: 0.00001,
                       "Duration should be 1.5, NOT 1.25 (old buggy behavior)")
         
@@ -146,7 +146,7 @@ final class NoteDurationResizeTests: XCTestCase {
         
         // NEW CORRECT behavior: quantize end position
         let newEndBeat = note.startBeat + newDurationWithDelta // 2.4
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // round(9.6)*0.25 = 2.5
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour) // round(9.6)*0.25 = 2.5
         let correctResult = snappedEndBeat - note.startBeat // 1.5
         
         // Verify the new behavior extends the note as expected
@@ -177,7 +177,7 @@ final class NoteDurationResizeTests: XCTestCase {
             let note = MIDINote(pitch: 60, velocity: 100, startBeat: start, durationBeats: initialDuration)
             let newDuration = initialDuration + delta
             let newEndBeat = note.startBeat + newDuration
-            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
             
             XCTAssertEqual(snappedEndBeat, expectedEnd, accuracy: 0.00001,
                           "End should snap to \(expectedEnd) for note at \(start) with delta \(delta)")
@@ -193,7 +193,7 @@ final class NoteDurationResizeTests: XCTestCase {
         let newEndBeat = note.startBeat + newDuration // 2.4
         
         // End should snap to 2.5 (nearest 1/8th)
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         XCTAssertEqual(snappedEndBeat, 2.5, accuracy: 0.00001)
     }
     
@@ -206,7 +206,7 @@ final class NoteDurationResizeTests: XCTestCase {
         let newEndBeat = note.startBeat + newDuration // 2.4
         
         // End should snap to 2.0 (nearest 1/4)
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         XCTAssertEqual(snappedEndBeat, 2.0, accuracy: 0.00001)
     }
     
@@ -219,11 +219,11 @@ final class NoteDurationResizeTests: XCTestCase {
         // User tries to resize very short (delta = -0.25)
         let newDuration = 0.05
         let newEndBeat = note.startBeat + newDuration // 1.05
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // 1.0
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour) // 1.0
         
         // Duration would be 0.0, but minimum should be enforced
         let rawDuration = snappedEndBeat - note.startBeat // 0.0
-        let finalDuration = max(snapResolution.stepDurationBeats, rawDuration) // 0.25
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), rawDuration) // 0.25
         
         XCTAssertEqual(finalDuration, 0.25, accuracy: 0.00001,
                       "Minimum duration should be one grid step (0.25)")
@@ -252,7 +252,7 @@ final class NoteDurationResizeTests: XCTestCase {
         let newEndBeat = note.startBeat + newDuration // 2.57
         
         // End should snap to 2.5 (nearest 1/16th)
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
         XCTAssertEqual(snappedEndBeat, 2.5, accuracy: 0.00001)
         
         // Duration should accommodate off-grid start (2.5 - 1.37 = 1.13)
@@ -274,11 +274,11 @@ final class NoteDurationResizeTests: XCTestCase {
             let note = MIDINote(pitch: 60, velocity: 100, startBeat: start, durationBeats: duration)
             let newDuration = duration + 0.3
             let newEndBeat = note.startBeat + newDuration
-            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
-            let finalDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
+            let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snappedEndBeat - note.startBeat)
             
             // Verify end is on grid
-            let remainder = snappedEndBeat.truncatingRemainder(dividingBy: snapResolution.stepDurationBeats)
+            let remainder = snappedEndBeat.truncatingRemainder(dividingBy: snapResolution.stepDurationBeats(timeSignature: .fourFour))
             XCTAssertEqual(remainder, 0.0, accuracy: 0.00001,
                           "End position should be on grid for note starting at \(start)")
             
@@ -300,8 +300,8 @@ final class NoteDurationResizeTests: XCTestCase {
         for increment in dragIncrements {
             let newDuration = note.durationBeats + increment
             let newEndBeat = note.startBeat + newDuration
-            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
-            let finalDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
+            let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snappedEndBeat - note.startBeat)
             
             // Note should never get shorter when dragging right
             XCTAssertGreaterThanOrEqual(finalDuration, note.durationBeats,
@@ -324,7 +324,7 @@ final class NoteDurationResizeTests: XCTestCase {
             let note = MIDINote(pitch: 60, velocity: 100, startBeat: scenario.start, durationBeats: scenario.initialDur)
             let newDuration = scenario.initialDur + scenario.delta
             let newEndBeat = note.startBeat + newDuration
-            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
             
             XCTAssertEqual(snappedEndBeat, scenario.expectedEnd, accuracy: 0.00001,
                           "Scenario: \(scenario.description)")
@@ -340,8 +340,8 @@ final class NoteDurationResizeTests: XCTestCase {
         // Try to extend by tiny amount
         let newDuration = 0.26
         let newEndBeat = note.startBeat + newDuration // 1.26
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // 1.25
-        let finalDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour) // 1.25
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snappedEndBeat - note.startBeat)
         
         XCTAssertEqual(finalDuration, 0.25, accuracy: 0.00001,
                       "Very short note should maintain minimum grid step")
@@ -354,8 +354,8 @@ final class NoteDurationResizeTests: XCTestCase {
         // Extend by small amount
         let newDuration = 64.3
         let newEndBeat = note.startBeat + newDuration // 64.3
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // 64.25
-        let finalDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour) // 64.25
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snappedEndBeat - note.startBeat)
         
         XCTAssertEqual(finalDuration, 64.25, accuracy: 0.00001,
                       "Long note should snap correctly")
@@ -368,8 +368,8 @@ final class NoteDurationResizeTests: XCTestCase {
         // Extend past typical project length
         let newDuration = 1.0
         let newEndBeat = note.startBeat + newDuration // 128.5
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat) // 128.5
-        let finalDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour) // 128.5
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snappedEndBeat - note.startBeat)
         
         XCTAssertEqual(finalDuration, 1.0, accuracy: 0.00001,
                       "Resize should work at project boundaries")
@@ -385,7 +385,7 @@ final class NoteDurationResizeTests: XCTestCase {
         
         // Start with the quantized initial end position (what the user sees when resize starts)
         let initialEnd = note.startBeat + note.durationBeats
-        var previousEnd = snapResolution.quantize(beat: initialEnd) // 2.25 (quantized from 2.3)
+        var previousEnd = snapResolution.quantize(beat: initialEnd, timeSignature: .fourFour) // 2.25 (quantized from 2.3)
         
         // Simulate multiple resize operations (user keeps dragging)
         let resizeSteps = [0.05, 0.1, 0.15, 0.2]
@@ -393,7 +393,7 @@ final class NoteDurationResizeTests: XCTestCase {
         for step in resizeSteps {
             let cumulativeDuration = note.durationBeats + step
             let newEndBeat = note.startBeat + cumulativeDuration
-            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)
             
             // End position should only move forward (or stay same), never backward
             XCTAssertGreaterThanOrEqual(snappedEndBeat, previousEnd,
@@ -432,9 +432,9 @@ final class NoteDurationResizeTests: XCTestCase {
         
         let newDuration = 1.5
         let newEndBeat = first.startBeat + newDuration  // 2.5
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)  // 2.5
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)  // 2.5
         let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: first, allNotes: allNotes, requestedEndBeat: snappedEndBeat)
-        let finalDuration = max(snapResolution.stepDurationBeats, cappedEndBeat - first.startBeat)
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), cappedEndBeat - first.startBeat)
         
         XCTAssertEqual(cappedEndBeat, 2.0, accuracy: 0.00001)
         XCTAssertEqual(finalDuration, 1.0, accuracy: 0.00001,

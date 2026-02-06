@@ -39,7 +39,7 @@ final class PianoRollTests: XCTestCase {
             var movedNote = note
             var newStartBeat = movedNote.startBeat + rawOffset
             if snapResolution != .off {
-                newStartBeat = snapResolution.quantize(beat: newStartBeat)
+                newStartBeat = snapResolution.quantize(beat: newStartBeat, timeSignature: .fourFour)
             }
             movedNote.startBeat = max(0, newStartBeat)
             movedNotes.append(movedNote)
@@ -118,7 +118,7 @@ final class PianoRollTests: XCTestCase {
         for note in region.notes {
             var movedNote = note
             var newStartBeat = movedNote.startBeat + rawOffset
-            newStartBeat = snapResolution.quantize(beat: newStartBeat)
+            newStartBeat = snapResolution.quantize(beat: newStartBeat, timeSignature: .fourFour)
             movedNote.startBeat = newStartBeat
             movedNotes.append(movedNote)
         }
@@ -139,7 +139,7 @@ final class PianoRollTests: XCTestCase {
         region.addNote(note)
         
         // Quantize to quarter notes with 100% strength
-        let quantized = SnapResolution.quarter.quantize(beat: note.startBeat, strength: 1.0)
+        let quantized = SnapResolution.quarter.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: 1.0)
         
         assertApproximatelyEqual(quantized, 1.0)
     }
@@ -150,7 +150,7 @@ final class PianoRollTests: XCTestCase {
         region.addNote(note)
         
         // Quantize to quarter notes with 50% strength
-        let quantized = SnapResolution.quarter.quantize(beat: note.startBeat, strength: 0.5)
+        let quantized = SnapResolution.quarter.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: 0.5)
         
         // Original: 1.3, Target: 1.0, Offset: -0.3
         // 50% of -0.3 = -0.15, so: 1.3 + (-0.15) = 1.15
@@ -159,7 +159,7 @@ final class PianoRollTests: XCTestCase {
     
     func testQuantizeWithStrength_0Percent() {
         let original = 1.3
-        let quantized = SnapResolution.quarter.quantize(beat: original, strength: 0.0)
+        let quantized = SnapResolution.quarter.quantize(beat: original, timeSignature: .fourFour, strength: 0.0)
         
         assertApproximatelyEqual(quantized, original)
     }
@@ -212,13 +212,13 @@ final class PianoRollTests: XCTestCase {
         
         // CORRECT: Snap the END position
         let newEndBeat = note.startBeat + newDuration  // 1.0 + 1.8 = 2.8
-        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)  // 3.0
+        let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: .fourFour)  // 3.0
         let finalDuration = snappedEndBeat - note.startBeat  // 3.0 - 1.0 = 2.0
         
         assertApproximatelyEqual(finalDuration, 2.0)
         
         // WRONG approach (old bug): Snap absolute duration
-        let wrongDuration = snapResolution.quantize(beat: newDuration)  // 2.0
+        let wrongDuration = snapResolution.quantize(beat: newDuration, timeSignature: .fourFour)  // 2.0
         // This happens to be correct here, but fails when startBeat is off-grid
     }
     
@@ -232,7 +232,7 @@ final class PianoRollTests: XCTestCase {
         let newDuration = note.durationBeats + 0.1  // 0.8 beats
         
         // CURRENT (Bug #3): Snap duration value directly
-        let snappedDuration = max(snapResolution.stepDurationBeats, snapResolution.quantize(beat: newDuration))
+        let snappedDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), snapResolution.quantize(beat: newDuration, timeSignature: .fourFour))
         // 0.8 → snaps to 1.0 (nearest quarter)
         
         assertApproximatelyEqual(snappedDuration, 1.0)
@@ -449,9 +449,9 @@ final class PianoRollTests: XCTestCase {
         
         // Try to resize to very small duration
         let newDuration = 0.01
-        let finalDuration = max(snapResolution.stepDurationBeats, newDuration)
+        let finalDuration = max(snapResolution.stepDurationBeats(timeSignature: .fourFour), newDuration)
         
-        assertApproximatelyEqual(finalDuration, snapResolution.stepDurationBeats)
+        assertApproximatelyEqual(finalDuration, snapResolution.stepDurationBeats(timeSignature: .fourFour))
     }
     
     // MARK: - Performance Tests
@@ -477,7 +477,7 @@ final class PianoRollTests: XCTestCase {
             for note in region.notes {
                 var movedNote = note
                 var newStartBeat = movedNote.startBeat + rawOffset
-                newStartBeat = snapResolution.quantize(beat: newStartBeat)
+                newStartBeat = snapResolution.quantize(beat: newStartBeat, timeSignature: .fourFour)
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNotes.append(movedNote)
             }
@@ -504,7 +504,7 @@ final class PianoRollTests: XCTestCase {
                     id: note.id,
                     pitch: note.pitch,
                     velocity: note.velocity,
-                    startBeat: snapResolution.quantize(beat: note.startBeat, strength: strength),
+                    startBeat: snapResolution.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: strength),
                     durationBeats: note.durationBeats,
                     channel: note.channel
                 )

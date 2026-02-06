@@ -16,25 +16,31 @@ enum QuantizationEngine {
     /// - Parameters:
     ///   - notes: The notes to quantize
     ///   - resolution: SnapResolution defining the grid
+    ///   - timeSignature: Current time signature for correct grid calculation
     ///   - strength: How strongly to pull notes to grid (0.0 - 1.0)
     ///   - quantizeDuration: Whether to also quantize note durations
     /// - Returns: Quantized notes
     static func quantize(
         notes: [MIDINote],
         resolution: SnapResolution,
+        timeSignature: TimeSignature,
         strength: Float,
         quantizeDuration: Bool
     ) -> [MIDINote] {
         guard resolution != .off, strength > 0 else { return notes }
         
         return notes.map { note in
-            // Quantize start position using SnapResolution's built-in method
-            let quantizedStart = resolution.quantize(beat: note.startBeat, strength: strength)
+            // Quantize start position using time-signature-aware method (Issue #64)
+            let quantizedStart = resolution.quantize(
+                beat: note.startBeat,
+                timeSignature: timeSignature,
+                strength: strength
+            )
             
             // Optionally quantize duration
             var quantizedDuration = note.durationBeats
             if quantizeDuration {
-                let gridSize = resolution.stepDurationBeats
+                let gridSize = resolution.stepDurationBeats(timeSignature: timeSignature)
                 if gridSize > 0 {
                     let gridDuration = max(gridSize, round(note.durationBeats / gridSize) * gridSize)
                     quantizedDuration = note.durationBeats + (gridDuration - note.durationBeats) * Double(strength)
