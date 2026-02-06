@@ -836,10 +836,13 @@ struct AudioFile: Identifiable, Codable, Equatable {
     /// - Validates: Path traversal prevention, project boundaries, null bytes
     /// - Fallback: Returns safe blocked path if validation fails
     var url: URL {
-        let manager = AudioFileReferenceManager.shared
+        // Access @MainActor context for AudioFileReferenceManager
+        let secureURL = MainActor.assumeIsolated {
+            let manager = AudioFileReferenceManager.shared
+            return manager.resolveURL(for: storedPath, projectDirectory: nil)
+        }
         
-        // Single unified secure resolution
-        if let secureURL = manager.resolveURL(for: storedPath, projectDirectory: nil) {
+        if let secureURL = secureURL {
             return secureURL
         }
         
