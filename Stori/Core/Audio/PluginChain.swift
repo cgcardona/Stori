@@ -523,12 +523,21 @@ class PluginChain {
     
     /// Remove the chain from the engine
     /// State transition: (any) → uninstalled
+    /// SAFETY (Issue #62): Uses deferred deallocation for plugins
     func uninstall() {
         guard let engine = engine else { return }
         
-        // Unload all plugins
+        // CRITICAL (Issue #62): Schedule plugins for deferred deallocation
+        // instead of immediate unload() to prevent use-after-free
         for slot in slots {
-            slot?.unload()
+            if let plugin = slot {
+                PluginDeferredDeallocationManager.shared.schedulePluginForDeallocation(plugin)
+            }
+        }
+        
+        // Clear slots immediately (plugins are held by deferred manager)
+        for i in 0..<maxSlots {
+            slots[i] = nil
         }
         
         // Safely detach mixers - only if they exist and are attached to this engine
@@ -567,6 +576,75 @@ class PluginChain {
         
         // Store the plugin
         slots[slot] = plugin
+    }
+    
+    // MARK: - Playback Preparation (BUG FIX Issue #54)
+    
+    /// Prepare all plugins for playback by ensuring render resources are allocated.
+    /// Prevents first-note latency caused by lazy AU initialization during first buffer callback.
+    ///
+    /// ARCHITECTURE (Issue #54):
+    /// Without this preparation, the first audio callback may be delayed 10-100ms while
+    /// Audio Units allocate render resources on-demand. This causes the first note to be
+    /// late or completely silent, especially with heavy synthesizers.
+    ///
+    /// SOLUTION:
+    /// - Explicitly call allocateRenderResources() on all active AUs before playback
+    /// - Ensure graph is fully realized with all nodes attached
+    /// - Professional standard: 0ms first-note latency (Logic Pro, Pro Tools)
+    ///
+    /// THREAD SAFETY:
+    /// Must be called from MainActor, ideally during engine stop/start mutation window
+    ///
+    /// - Returns: True if preparation succeeded, false if any plugin failed to prepare
+    func prepareForPlayback() -> Bool {
+        guard let engine = self.engine else {
+            AppLogger.shared.warning("PluginChain.prepareForPlayback: No engine reference", category: .audio)
+            return false
+        }
+        
+        // If no plugins, nothing to prepare
+        guard hasActivePlugins else {
+            return true
+        }
+        
+        // Ensure chain is realized (mixers attached)
+        if !isRealized {
+            let didRealize = realize()
+            if !didRealize {
+                AppLogger.shared.error("PluginChain.prepareForPlayback: Failed to realize chain", category: .audio)
+                return false
+            }
+        }
+        
+        var allPrepared = true
+        
+        // Allocate render resources for all active plugins
+        for plugin in activePlugins {
+            guard let au = plugin.auAudioUnit else {
+                AppLogger.shared.warning("PluginChain.prepareForPlayback: Plugin '\(plugin.descriptor.name)' has no AUAudioUnit", category: .audio)
+                allPrepared = false
+                continue
+            }
+            
+            // Skip bypassed plugins (don't need render resources if not processing)
+            if plugin.isBypassed {
+                continue
+            }
+            
+            // Allocate render resources if not already allocated
+            if !au.renderResourcesAllocated {
+                do {
+                    try au.allocateRenderResources()
+                    AppLogger.shared.info("PluginChain.prepareForPlayback: Allocated resources for '\(plugin.descriptor.name)'", category: .audio)
+                } catch {
+                    AppLogger.shared.error("PluginChain.prepareForPlayback: Failed to allocate resources for '\(plugin.descriptor.name)': \(error)", category: .audio)
+                    allPrepared = false
+                }
+            }
+        }
+        
+        return allPrepared
     }
     
     /// Rebuild chain connections - assumes engine is already stopped by caller
@@ -639,18 +717,33 @@ class PluginChain {
     
     /// Remove a plugin from a slot
     /// NOTE: Caller must rebuild the graph after calling this
+    /// SAFETY (Issue #62): Uses deferred deallocation to prevent use-after-free during hot-swap
     func removePlugin(atSlot slot: Int) {
         guard slot >= 0, slot < maxSlots, let plugin = slots[slot] else { return }
         
-        // Detach from engine if attached
+        // CRITICAL (Issue #62): Disconnect first, then schedule deferred deallocation
+        // The plugin's render callback may still be executing, so we MUST NOT
+        // immediately call unload() or detach(). Instead, we:
+        // 1. Disconnect to stop new render calls
+        // 2. Detach from engine (removes from graph)
+        // 3. Schedule plugin for deferred deallocation (0.5s delay)
+        
+        // Detach from engine if attached (safe: removes from graph, but doesn't deallocate yet)
         if let avUnit = plugin.avAudioUnit, let engine = engine {
             engine.disconnectNodeOutput(avUnit)
             engine.disconnectNodeInput(avUnit)
             engine.detach(avUnit)
         }
         
-        // Unload and remove
-        plugin.unload()
+        // Schedule for deferred deallocation instead of immediate unload
+        // This prevents use-after-free if render callback is still running
+        PluginDeferredDeallocationManager.shared.schedulePluginForDeallocation(
+            plugin,
+            trackId: nil,  // PluginChain doesn't know trackId
+            slotIndex: slot
+        )
+        
+        // Remove from slot immediately (graph rebuild will bypass it)
         slots[slot] = nil
         
         // NOTE: Caller must call rebuildChainConnections() or rebuildTrackGraph()

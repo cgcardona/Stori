@@ -1876,6 +1876,30 @@ struct PianoRollView: View {
         }
     }
     
+    /// Resize a note by dragging its right edge
+    ///
+    /// BUG FIX (Issue #32): Previously quantized the absolute duration value, causing
+    /// notes to jump unpredictably during resize. Now quantizes the END position instead.
+    ///
+    /// WYSIWYG BEHAVIOR:
+    /// When snap is enabled, the note's right edge (end position) snaps to the grid,
+    /// making resize behavior predictable and intuitive - just like Logic Pro.
+    ///
+    /// EXAMPLE:
+    /// - Note at beat 1.0, duration 1.3 (ends at 2.3)
+    /// - User drags right edge slightly (0.1 beats)
+    /// - Old behavior: Duration snaps to 1.25 - note gets SHORTER (wrong!)
+    /// - New behavior: End position snaps to 2.5 (next 1/4 beat) = duration 1.5 (correct!)
+    ///
+    /// PROFESSIONAL STANDARD:
+    /// This matches how all major DAWs handle note resize with snap enabled:
+    /// - The END position snaps to the grid
+    /// - The START position remains fixed
+    /// - Duration is calculated from the snapped end position
+    ///
+    /// BUG FIX (Issue #79): Cap resize so the note cannot overlap the next note on the same
+    /// pitch. Overlapping same-pitch notes cause invalid MIDI (Note On before Note Off) and
+    /// undefined instrument behavior (re-trigger, stuck notes, export/playback differences).
     private func resizeNote(_ note: MIDINote, by delta: CGFloat) {
         guard let index = region.notes.firstIndex(where: { $0.id == note.id }) else { return }
         
@@ -1888,10 +1912,23 @@ struct PianoRollView: View {
         var newDuration = note.durationBeats + durationDelta
         
         if snapResolution != .off {
-            newDuration = max(snapResolution.stepDurationBeats, snapResolution.quantize(beat:newDuration))
+            // BUG FIX (Issue #32): Quantize the END position, not the duration
+            // This makes resize behavior predictable and matches professional DAW standards
+            let newEndBeat = note.startBeat + newDuration
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+            
+            // Calculate duration from snapped end position
+            // Ensure minimum duration is one grid step
+            newDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
         } else {
+            // No snap: just ensure minimum duration (prevent zero-length notes)
             newDuration = max(0.01, newDuration)
         }
+        
+        // BUG FIX (Issue #79): Prevent overlapping same-pitch notes (invalid MIDI)
+        let requestedEndBeat = note.startBeat + newDuration
+        let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: note, allNotes: region.notes, requestedEndBeat: requestedEndBeat)
+        newDuration = max(snapResolution != .off ? snapResolution.stepDurationBeats : 0.01, cappedEndBeat - note.startBeat)
         
         region.notes[index].durationBeats = newDuration
         
@@ -1921,16 +1958,41 @@ struct PianoRollView: View {
         region.notes = updatedNotes
     }
     
+    /// Quantize selected notes using the current quantize strength parameter
+    ///
+    /// BUG FIX (Issue #33): Previously ignored `quantizeStrength` parameter and always
+    /// applied 100% quantization, destroying musical feel and human groove.
+    ///
+    /// PROFESSIONAL STANDARD: Respects quantize strength (0-100%) like Logic Pro:
+    /// - 100% = full snap to grid (tight, mechanical)
+    /// - 50% = halfway to grid (preserves human feel)
+    /// - 0% = no quantization (original timing)
+    ///
+    /// WYSIWYG IMPACT: Consistent behavior with "Quantize with Options" dialog.
+    /// Both code paths now use the same strength-aware quantization logic.
+    ///
+    /// MUSICALITY: Enables "soft" quantization to tighten timing without losing groove,
+    /// essential for maintaining the human feel in performances.
     private func quantizeSelected() {
         guard snapResolution != .off else { return }
+        let strength = Float(quantizeStrength / 100.0)
         
         for id in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == id }) {
-                region.notes[index].startBeat = snapResolution.quantize(beat:region.notes[index].startBeat)
-                region.notes[index].durationBeats = max(
-                    snapResolution.stepDurationBeats,
-                    snapResolution.quantize(beat:region.notes[index].durationBeats)
+                // Apply strength-aware quantization to note start time
+                region.notes[index].startBeat = snapResolution.quantize(
+                    beat: region.notes[index].startBeat,
+                    strength: strength
                 )
+                
+                // Duration quantization: Only snap if strength is very high (>90%)
+                // This preserves note lengths at lower strength settings
+                if quantizeStrength > 90 {
+                    region.notes[index].durationBeats = max(
+                        snapResolution.stepDurationBeats,
+                        snapResolution.quantize(beat: region.notes[index].durationBeats, strength: strength)
+                    )
+                }
             }
         }
     }

@@ -705,12 +705,21 @@ class SamplerEngine {
         cachedMIDIBlock = nil
         
         // Deallocate render resources - this clears any cached sample rate converters
-        sampler.auAudioUnit.deallocateRenderResources()
+        // Wrap in ObjC exception handler since auAudioUnit operations can throw NSException
+        do {
+            try tryObjC {
+                self.sampler.auAudioUnit.deallocateRenderResources()
+            }
+        } catch {
+            // Render resource deallocation failed - log but continue
+            // The sampler will re-allocate on next use
+        }
         
         // Reload the current instrument to restore proper state
         do {
             try loadInstrument(currentInstrument)
         } catch {
+            // Instrument reload failed after render reset - sampler may be in bad state
         }
     }
     
@@ -721,9 +730,26 @@ class SamplerEngine {
     
     /// Get or cache the MIDI scheduling block from the underlying AUAudioUnit
     /// This block is thread-safe and can be called from any thread for sample-accurate MIDI
+    ///
+    /// SAFETY: Guards against accessing `scheduleMIDIEventBlock` when the sampler
+    /// is not fully initialized (soundfont not loaded, node not attached to engine).
+    /// Accessing `auAudioUnit.scheduleMIDIEventBlock` on an uninitialized/detached
+    /// sampler throws an Objective-C `NSInternalInconsistencyException` that Swift
+    /// `do-catch` cannot handle, crashing the app.
     var midiEventBlock: AUScheduleMIDIEventBlock? {
         if cachedMIDIBlock == nil {
-            cachedMIDIBlock = sampler.auAudioUnit.scheduleMIDIEventBlock
+            // Guard 1: Don't access MIDI block until soundfont is loaded and instrument is ready
+            guard isReady else { return nil }
+            
+            // Guard 2: Sampler must be attached to an engine
+            guard sampler.engine != nil else { return nil }
+            
+            // Guard 3: Wrap in ObjC exception handler as a final safety net
+            // Even with the above guards, the underlying AUAudioUnit can throw
+            // ObjC exceptions in edge cases (e.g., engine stopping mid-access)
+            cachedMIDIBlock = tryObjCResult {
+                self.sampler.auAudioUnit.scheduleMIDIEventBlock
+            }
         }
         return cachedMIDIBlock
     }

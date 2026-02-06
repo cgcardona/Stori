@@ -14,6 +14,47 @@ import os.lock
 // MARK: - Plugin Latency Manager
 
 /// Manages plugin delay compensation (PDC) for the entire project
+///
+/// # Plugin Delay Compensation (PDC)
+///
+/// PDC ensures all tracks stay phase-aligned when using latency-inducing plugins.
+/// Without PDC, plugins with processing latency (like linear-phase EQs, lookahead compressors,
+/// or convolution reverbs) cause timing misalignment between tracks.
+///
+/// ## How PDC Works
+///
+/// 1. **Measure Plugin Latency**: Each AU plugin reports its processing latency via `AVAudioUnit.latency`
+/// 2. **Calculate Compensation**: Find the track with maximum latency, then delay all other tracks to match
+/// 3. **Apply Delays**: Add sample-accurate delays to tracks during audio scheduling
+///
+/// ## Example
+///
+/// ```
+/// Track 1: Linear-phase EQ (10ms latency)
+/// Track 2: Standard EQ (0ms latency)
+/// Track 3: No plugins (0ms latency)
+///
+/// PDC Compensation:
+/// Track 1: 0ms delay (highest latency)
+/// Track 2: 10ms delay (compensate for difference)
+/// Track 3: 10ms delay (compensate for difference)
+///
+/// Result: All tracks play in perfect phase alignment
+/// ```
+///
+/// ## WYHIWYG (What You Hear Is What You Get)
+///
+/// PDC is critical for WYHIWYG because:
+/// - Playback uses PDC to align tracks in real-time
+/// - Export uses the SAME PDC values to ensure the bounce matches playback exactly
+/// - Without PDC, mixed audio suffers from phase smear, flamming, and loss of clarity
+///
+/// ## Thread Safety
+///
+/// - `calculateCompensation` runs on main thread (called when plugin chain changes)
+/// - `getCompensationDelay` is thread-safe and can be called from audio thread
+/// - Uses `os_unfair_lock` for minimal overhead on compensation delay reads
+///
 @Observable
 @MainActor
 class PluginLatencyManager {
@@ -37,7 +78,7 @@ class PluginLatencyManager {
     
     /// Current sample rate for latency calculations
     @ObservationIgnored
-    private var sampleRate: Double = 48000.0
+    internal var sampleRate: Double = 48000.0  // internal for testing
     
     /// Track latency info cache
     @ObservationIgnored
@@ -133,6 +174,39 @@ class PluginLatencyManager {
         return info
     }
     
+    // MARK: - Testing Support
+    
+    /// TEST ONLY: Calculate compensation with explicit latency values
+    /// Allows testing PDC logic without loading real Audio Unit plugins
+    /// - Parameter trackLatencies: Map of track ID to total latency in samples
+    /// - Returns: Map of track ID to compensation delay in samples
+    func calculateCompensationWithExplicitLatencies(_ trackLatencies: [UUID: UInt32]) -> [UUID: UInt32] {
+        guard isEnabled else {
+            return trackLatencies.mapValues { _ in 0 }
+        }
+        
+        // Find maximum latency
+        let maxLatency = trackLatencies.values.max() ?? 0
+        self.maxLatencySamples = maxLatency
+        self.maxLatencyMs = Double(maxLatency) / sampleRate * 1000.0
+        
+        // Calculate compensation for each track
+        var compensation: [UUID: UInt32] = [:]
+        
+        for (trackId, latency) in trackLatencies {
+            // Tracks with less latency need more compensation delay
+            let needed = maxLatency - latency
+            compensation[trackId] = needed
+        }
+        
+        // Thread-safe write (same pattern as calculateCompensation)
+        os_unfair_lock_lock(&compensationLock)
+        self.compensationDelays = compensation
+        os_unfair_lock_unlock(&compensationLock)
+        
+        return compensation
+    }
+    
     /// Calculate latencies for all tracks and determine compensation delays
     func calculateCompensation(trackPlugins: [UUID: [PluginInstance]]) -> [UUID: UInt32] {
         // Calculate latency for each track
@@ -200,31 +274,12 @@ class PluginLatencyManager {
         maxLatencySamples = 0
         maxLatencyMs = 0.0
     }
-}
-
-// MARK: - TrackAudioNode Extension for PDC
-
-extension TrackAudioNode {
     
-    /// Apply delay compensation to this track
-    /// Note: This creates a simple sample delay by adjusting scheduling offsets
-    /// For a more sophisticated implementation, an actual delay node would be inserted
-    func applyCompensationDelay(samples: UInt32) {
-        // Store the compensation value for use during scheduling
-        // This is applied during scheduleFromPosition by adding to the delay
-        compensationDelaySamples = samples
-    }
+    // MARK: - Cleanup
     
-    /// Compensation delay in samples (stored in a private extension property)
-    private static var compensationDelayKey: UInt8 = 0
-    
-    var compensationDelaySamples: UInt32 {
-        get {
-            objc_getAssociatedObject(self, &Self.compensationDelayKey) as? UInt32 ?? 0
-        }
-        set {
-            objc_setAssociatedObject(self, &Self.compensationDelayKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
     }
 }
 

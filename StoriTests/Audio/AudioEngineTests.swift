@@ -27,10 +27,13 @@ final class AudioEngineTests: XCTestCase {
     }
     
     override func tearDown() async throws {
-        // Stop engine if running
+        // Stop engine if running and reset to release render resources
+        // This prevents "freed pointer was not the last allocation" warnings
+        // from AVAudioEngine's internal allocator tearing down in non-LIFO order
         if engine.sharedAVAudioEngine.isRunning {
             engine.stop()
         }
+        engine.sharedAVAudioEngine.reset()
         engine = nil
         mockProjectManager = nil
         try await super.tearDown()
@@ -62,6 +65,22 @@ final class AudioEngineTests: XCTestCase {
     func testEngineGraphReadyForPlaybackAfterInit() {
         // Graph is ready after auto-start during init
         XCTAssertTrue(engine.isGraphReadyForPlayback)
+    }
+    
+    // MARK: - Health Monitoring (issue #80: low priority to avoid CPU spikes)
+    
+    /// Engine health checks must run on low-priority queue (.utility) so they don't compete with audio.
+    func testHealthMonitorRunsOnLowPriorityQueue() {
+        XCTAssertEqual(
+            AudioEngine.healthMonitorQueueQoSForTesting,
+            DispatchQoS.QoSClass.utility,
+            "Health monitor queue must use .utility QoS to avoid periodic CPU spikes during playback"
+        )
+        XCTAssertEqual(
+            AudioEngine.healthMonitorQueueLabelForTesting,
+            "com.stori.engine.health",
+            "Health monitor queue label must be stable for diagnostics"
+        )
     }
     
     // MARK: - Start/Stop Tests
@@ -758,5 +777,110 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertEqual(engine.transportState, .stopped)
         
         XCTAssertTrue(true, "Full workflow completed successfully")
+    }
+
+    // MARK: - Track Removal Tests (Issue #81: dependency-aware disconnection order)
+
+    /// Regression test for Issue #81: Rapid track deletion must not crash or corrupt the graph.
+    /// Creates many tracks then removes all in quick succession; verifies engine stays stable.
+    func testRapidTrackDeletion() async throws {
+        var project = AudioProject(name: "Rapid Delete Test", tempo: 120.0)
+        for i in 0..<20 {
+            project.addTrack(AudioTrack(name: "Track \(i)", trackType: .audio, color: .blue))
+        }
+        let trackIds = project.tracks.map(\.id)
+
+        engine.loadProject(project)
+        try await Task.sleep(nanoseconds: 150_000_000) // 150ms for project load
+
+        XCTAssertEqual(engine.currentProject?.tracks.count, 20)
+
+        for trackId in trackIds {
+            engine.removeTrack(trackId: trackId)
+        }
+
+        XCTAssertEqual(engine.currentProject?.tracks.count, 0)
+        XCTAssertTrue(engine.isGraphStable, "Engine graph should remain stable after rapid track deletion")
+        XCTAssertTrue(engine.sharedAVAudioEngine.isRunning, "Engine should still be running")
+    }
+
+    /// Regression test for Issue #81: Deleting one track must preserve remaining tracks and graph.
+    /// Creates A, B, C then removes B; verifies A and C remain and engine is functional.
+    func testTrackDeletionPreservesRemaining() async throws {
+        var project = AudioProject(name: "Preserve Test", tempo: 120.0)
+        let trackA = AudioTrack(name: "A", trackType: .audio, color: .blue)
+        let trackB = AudioTrack(name: "B", trackType: .audio, color: .red)
+        let trackC = AudioTrack(name: "C", trackType: .audio, color: .green)
+        project.addTrack(trackA)
+        project.addTrack(trackB)
+        project.addTrack(trackC)
+
+        engine.loadProject(project)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(engine.currentProject?.tracks.count, 3)
+
+        engine.removeTrack(trackId: trackB.id)
+
+        let remaining = engine.currentProject?.tracks ?? []
+        XCTAssertEqual(remaining.count, 2)
+        XCTAssertTrue(remaining.contains(where: { $0.id == trackA.id }))
+        XCTAssertTrue(remaining.contains(where: { $0.id == trackC.id }))
+        XCTAssertFalse(remaining.contains(where: { $0.id == trackB.id }))
+        XCTAssertTrue(engine.isGraphStable, "Engine graph should remain stable after removing middle track")
+        XCTAssertTrue(engine.sharedAVAudioEngine.isRunning)
+    }
+
+    /// Regression test for Issue #81: Removing a track that has bus sends must not corrupt the graph.
+    /// Exercises removeAllSendsForTrack before teardown so pan/volume are disconnected from bus mixers.
+    func testTrackDeletionWithBusSends() async throws {
+        var project = AudioProject(name: "Bus Send Test", tempo: 120.0)
+        let trackA = AudioTrack(name: "A", trackType: .audio, color: .blue)
+        let trackB = AudioTrack(name: "B", trackType: .audio, color: .red)
+        project.addTrack(trackA)
+        project.addTrack(trackB)
+        let bus = MixerBus(name: "Reverb")
+        project.buses.append(bus)
+
+        engine.loadProject(project)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertEqual(engine.currentProject?.tracks.count, 2)
+        engine.setupTrackSend(trackA.id, to: bus.id, level: 0.5)
+
+        engine.removeTrack(trackId: trackA.id)
+
+        let remaining = engine.currentProject?.tracks ?? []
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertTrue(remaining.contains(where: { $0.id == trackB.id }))
+        XCTAssertFalse(remaining.contains(where: { $0.id == trackA.id }))
+        XCTAssertTrue(engine.isGraphStable, "Engine graph should remain stable after removing track with bus sends")
+        XCTAssertTrue(engine.sharedAVAudioEngine.isRunning)
+    }
+
+    /// Removing one track must not remove another track's bus sends.
+    /// removeAllSendsForTrack is per-track; other tracks' sends must remain.
+    func testRemoveTrackWithBusSendsLeavesOtherTrackSendsIntact() async throws {
+        var project = AudioProject(name: "Two Sends Test", tempo: 120.0)
+        let trackA = AudioTrack(name: "A", trackType: .audio, color: .blue)
+        let trackB = AudioTrack(name: "B", trackType: .audio, color: .red)
+        project.addTrack(trackA)
+        project.addTrack(trackB)
+        let bus = MixerBus(name: "Reverb")
+        project.buses.append(bus)
+
+        engine.loadProject(project)
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        engine.setupTrackSend(trackA.id, to: bus.id, level: 0.5)
+        engine.setupTrackSend(trackB.id, to: bus.id, level: 0.3)
+
+        engine.removeTrack(trackId: trackA.id)
+
+        let remaining = engine.currentProject?.tracks ?? []
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.id, trackB.id)
+        XCTAssertTrue(engine.isGraphStable, "Graph must remain stable after removing track with bus sends")
+        XCTAssertTrue(engine.sharedAVAudioEngine.isRunning)
     }
 }

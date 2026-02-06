@@ -34,6 +34,11 @@ class MIDIPlaybackEngine {
     @ObservationIgnored
     private let scheduler = SampleAccurateMIDIScheduler()
     
+    /// Public accessor for shared scheduler (used by metronome for timing synchronization)
+    var sampleAccurateScheduler: SampleAccurateMIDIScheduler {
+        scheduler
+    }
+    
     // MARK: - Thread-Safe MIDI Block Cache
     
     /// Lock for thread-safe access to MIDI blocks
@@ -228,6 +233,13 @@ class MIDIPlaybackEngine {
             self?.instrumentManager?.noteOff(pitch: pitch)
         }
     }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
+    }
 }
 
 // MARK: - MIDIPlaybackEngine + AudioEngine Integration
@@ -293,6 +305,11 @@ extension MIDIPlaybackEngine {
     // MARK: - Thread-Safe MIDI Block Management
     
     /// Cache MIDI blocks for all MIDI tracks (call from MainActor when tracks change)
+    ///
+    /// SAFETY: Instruments whose sampler is not yet ready (e.g., SoundFont still loading,
+    /// node not attached to the audio graph) will return nil from `getMIDIBlock()`.
+    /// This is safe — the dispatch path handles missing blocks gracefully — but it
+    /// means those tracks will be silent until the next `cacheMIDIBlocks()` call.
     func cacheMIDIBlocks(from tracks: [AudioTrack]) {
         var newBlocks: [UUID: AUScheduleMIDIEventBlock] = [:]
         
@@ -301,6 +318,9 @@ extension MIDIPlaybackEngine {
                let midiBlock = instrument.getMIDIBlock() {
                 newBlocks[track.id] = midiBlock
             }
+            // If getMIDIBlock() returns nil, the track is skipped.
+            // The dispatchMIDIWithSampleTime path already handles this
+            // via the missingBlockFlags mechanism.
         }
         
         // Atomically replace the cached blocks

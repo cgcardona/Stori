@@ -117,6 +117,15 @@ class AudioEngine: AudioEngineContext {
         componentFlagsMask: 0
     ))
     
+    // MARK: - Feedback Protection (Issue #57)
+    
+    /// Real-time feedback detection and auto-mute protection
+    @ObservationIgnored
+    private let feedbackMonitor = FeedbackProtectionMonitor()
+    
+    /// Whether emergency feedback mute is active
+    var isFeedbackMuted: Bool = false
+    
     // NOTE: Graph mutation coordination is now handled by AudioGraphManager
     
     @ObservationIgnored
@@ -163,11 +172,15 @@ class AudioEngine: AudioEngineContext {
     var isGraphReadyForPlayback: Bool = false
     
     // MARK: - Engine Health Watchdog
-    /// High-priority timer for health checks (immune to main thread blocking)
+    /// Low-priority timer for health checks (runs on .utility queue to avoid audio thread contention; issue #80)
     @ObservationIgnored
     private var engineHealthTimer: DispatchSourceTimer?
     
-    /// Background queue for health monitoring (utility priority - not critical path)
+    /// Queue label and QoS used for health monitoring (exposed for tests; issue #80).
+    static let healthMonitorQueueLabelForTesting = "com.stori.engine.health"
+    static let healthMonitorQueueQoSForTesting: DispatchQoS.QoSClass = .utility
+    
+    /// Background queue for health monitoring (utility priority - not critical path; issue #80).
     @ObservationIgnored
     private let healthMonitorQueue = DispatchQueue(
         label: "com.stori.engine.health",
@@ -177,6 +190,22 @@ class AudioEngine: AudioEngineContext {
     /// Whether the engine is expected to be running (for health monitoring)
     @ObservationIgnored
     private var engineExpectedToRun: Bool = false
+    
+    /// Thread-safe mirror of engineExpectedToRun for health timer (avoids MainActor hop every tick)
+    @ObservationIgnored
+    private nonisolated(unsafe) var _atomicEngineExpectedToRun: Bool = false
+    
+    /// Thread-safe cache of engine.isRunning; updated on MainActor when we run checkEngineHealth or start/stop
+    @ObservationIgnored
+    private nonisolated(unsafe) var _atomicLastKnownEngineRunning: Bool = false
+    
+    /// Tick counter for health timer (only accessed from healthMonitorQueue). Used for staggered refresh.
+    @ObservationIgnored
+    private nonisolated(unsafe) var _healthCheckTickCount: Int = 0
+    
+    /// Refresh every N ticks when engine expected running; back off when playing to reduce CPU impact (issue #80).
+    private static let healthCheckRefreshTicksWhenStopped = 6
+    private static let healthCheckRefreshTicksWhenPlaying = 15
     
     /// Count of consecutive health check failures (for escalating recovery)
     @ObservationIgnored
@@ -262,16 +291,27 @@ class AudioEngine: AudioEngineContext {
         }
         
         // Install the metronome nodes
-        metronome.install(into: engine, dawMixer: mixer, audioEngine: self, transportController: transportController)
+        metronome.install(
+            into: engine,
+            dawMixer: mixer,
+            audioEngine: self,
+            transportController: transportController,
+            midiScheduler: midiPlaybackEngine.sampleAccurateScheduler
+        )
         installedMetronome = metronome
         
         // Restart if it was running
         if wasRunning {
             do {
-                try engine.start()
+                // Wrap engine.start() in ObjC exception handler since it can throw
+                // NSException (not Swift Error) when the audio graph is inconsistent
+                try tryObjC { try? self.engine.start() }
                 // Start the metronome player node (keeps it ready for scheduling)
                 metronome.preparePlayerNode()
             } catch {
+                // Engine failed to restart after metronome install
+                // The engine will be started on next playback attempt
+                logDebug("⚠️ Engine restart after metronome install failed: \(error)", category: "METRONOME")
             }
         }
     }
@@ -468,7 +508,7 @@ class AudioEngine: AudioEngineContext {
             trackNodes: { [weak self] in self?.trackNodes ?? [:] },
             currentProject: { [weak self] in self?.currentProject },
             transportState: { [weak self] in self?.transportController?.transportState ?? .stopped },
-            modifyGraphSafely: { [weak self] work in self?.modifyGraphSafely(work) },
+            modifyGraphSafely: { [weak self] work in try self?.modifyGraphSafely(work) },
             updateSoloState: { [weak self] in self?.updateSoloState() },
             reconnectMetronome: { [weak self] in self?.installedMetronome?.reconnectNodes(dawMixer: self?.mixer ?? AVAudioMixerNode()) },
             setupPositionTimer: { [weak self] in self?.transportController?.setupPositionTimer() },
@@ -764,8 +804,13 @@ class AudioEngine: AudioEngineContext {
     }
     
     deinit {
-        // Note: Cannot access @MainActor properties in deinit
-        // TransportController's timer will be cleaned up automatically
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Root cause: @Observable classes have implicit Swift Concurrency tasks
+        // for property change notifications that can cause bad-free on deinit.
+        // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
+        // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
+        // Note: Cannot access @MainActor properties in deinit.
+        // TransportController's timer will be cleaned up automatically.
     }
     
     // MARK: - Audio Engine Setup
@@ -875,14 +920,15 @@ class AudioEngine: AudioEngineContext {
         // - Release Time: 0.001 - 0.5 seconds (parameter ID 1)
         // - Pre-Gain: -40 - +40 dB (parameter ID 2)
         
-        // Set fast attack for transparent limiting
+        // ISSUE #57 FIX: More aggressive limiting for feedback protection
+        // Set very fast attack for feedback protection (1ms)
         if let attackParam = parameterTree.parameter(withAddress: 0) {
-            attackParam.value = 0.005  // 5ms attack
+            attackParam.value = 0.001  // 1ms attack (was 5ms) - catches feedback faster
         }
         
-        // Set moderate release to avoid pumping
+        // Set fast release to recover quickly after spike
         if let releaseParam = parameterTree.parameter(withAddress: 1) {
-            releaseParam.value = 0.1  // 100ms release
+            releaseParam.value = 0.05  // 50ms release (was 100ms) - faster recovery
         }
         
         // Pre-gain at 0 dB (unity)
@@ -890,14 +936,24 @@ class AudioEngine: AudioEngineContext {
             preGainParam.value = 0.0
         }
         
-        AppLogger.shared.debug("Master limiter configured for safe headroom", category: .audio)
+        AppLogger.shared.debug("Master limiter configured for feedback protection (1ms attack, 50ms release)", category: .audio)
     }
     
     /// Install audio taps to detect clipping at various points in the signal chain (DEBUG only)
     private func installClippingDetectionTaps() {
-        // Tap after mixer (before EQ/limiter)
+        // Tap after mixer (before EQ/limiter) - includes feedback protection monitoring
         mixer.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
-            self?.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
+            guard let self = self else { return }
+            
+            // Check for feedback (Issue #57)
+            if self.feedbackMonitor.processBuffer(buffer) {
+                // Feedback detected! Trigger emergency protection on main thread
+                Task { @MainActor in
+                    self.triggerFeedbackProtection()
+                }
+            }
+            
+            self.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
         }
         
         // Tap after limiter (final output)
@@ -905,6 +961,10 @@ class AudioEngine: AudioEngineContext {
             self?.detectClipping(in: buffer, location: "MASTER OUTPUT (post-limiter)")
         }
         
+        // Start feedback monitoring
+        feedbackMonitor.startMonitoring()
+        
+        AppLogger.shared.info("Feedback protection: Monitoring enabled", category: .audio)
         // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
     }
     
@@ -932,6 +992,56 @@ class AudioEngine: AudioEngineContext {
         if clippedFrames > 0 || maxSample > 0.95 {
             print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
         }
+    }
+    
+    // MARK: - Feedback Protection (Issue #57)
+    
+    /// Trigger emergency feedback protection
+    /// Called when feedback loop is detected - mutes master output immediately
+    private func triggerFeedbackProtection() {
+        guard !isFeedbackMuted else { return }
+        
+        // Emergency mute
+        isFeedbackMuted = true
+        let previousVolume = mixer.outputVolume
+        mixer.outputVolume = 0.0
+        
+        // Stop playback
+        stop()
+        
+        // Log the event
+        AppLogger.shared.error("FEEDBACK PROTECTION: Emergency mute triggered! Previous volume: \(previousVolume)", category: .audio)
+        
+        // Show warning to user
+        let message = """
+        ⚠️ FEEDBACK LOOP DETECTED
+        
+        Audio has been automatically muted to protect your speakers and hearing.
+        
+        Possible causes:
+        • Bus routing feedback loop
+        • Plugin feedback (delay/reverb with high feedback %)
+        • Parallel routing creating feedback path
+        • Excessive automation gain
+        
+        Please check your routing and reduce gain/feedback levels before unmuting.
+        
+        To unmute: Lower master volume, fix routing, then unmute manually.
+        """
+        
+        // Notify user (could be shown in UI as alert)
+        feedbackMonitor.triggerEmergencyProtection(currentLevel: previousVolume)
+        
+        // Could add UI notification here via SwiftUI @Published if needed
+        print("🚨 \(message)")
+    }
+    
+    /// Reset feedback protection and allow unmuting
+    /// Call after user fixes routing issues
+    func resetFeedbackProtection() {
+        isFeedbackMuted = false
+        feedbackMonitor.resetFeedbackState()
+        AppLogger.shared.info("Feedback protection: Reset by user", category: .audio)
     }
     
     // MARK: - Engine Start Recovery
@@ -965,6 +1075,8 @@ class AudioEngine: AudioEngineContext {
             if engine.isRunning {
                 isGraphReadyForPlayback = true
                 engineExpectedToRun = true
+                _atomicEngineExpectedToRun = true
+                _atomicLastKnownEngineRunning = true
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
                 // Validate engine health after start (only if monitor is initialized)
@@ -1023,6 +1135,7 @@ class AudioEngine: AudioEngineContext {
         
         // Stop and reset before retry
         engine.stop()
+        _atomicLastKnownEngineRunning = false
         engine.reset()
         engine.prepare()
         
@@ -1040,6 +1153,8 @@ class AudioEngine: AudioEngineContext {
                 if self.engine.isRunning {
                     self.isGraphReadyForPlayback = true
                     self.engineExpectedToRun = true
+                    self._atomicEngineExpectedToRun = true
+                    self._atomicLastKnownEngineRunning = true
                     self.engineStartRetryAttempt = 0
                     AppLogger.shared.info("Engine recovery successful on attempt \(self.engineStartRetryAttempt)", category: .audio)
                 } else {
@@ -1055,39 +1170,68 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Engine Health Monitoring
     
-    /// Setup periodic engine health checks using DispatchSourceTimer
-    /// This timer runs on a background queue and is immune to main thread blocking
+    /// Setup periodic engine health checks using DispatchSourceTimer.
+    /// Runs on low-priority queue (.utility); only dispatches to MainActor when cache indicates
+    /// possible desync or when due for a staggered refresh. Backs off refresh rate during
+    /// playback to avoid periodic CPU spikes (issue #80).
     private func setupEngineHealthMonitoring() {
+        // Mirror state for timer (timer runs on healthMonitorQueue, cannot touch MainActor every tick)
+        _atomicEngineExpectedToRun = engineExpectedToRun
+        _atomicLastKnownEngineRunning = engine.isRunning
+        _healthCheckTickCount = 0
+        
         // Cancel existing timer
         engineHealthTimer?.cancel()
         engineHealthTimer = nil
         
-        // Create timer on background queue
+        // Timer on utility queue; relaxed leeway to avoid aligning with buffer boundaries
         let timer = DispatchSource.makeTimerSource(queue: healthMonitorQueue)
         timer.schedule(
             deadline: .now() + 2.0,
             repeating: 2.0,
-            leeway: .seconds(1)  // Relaxed leeway since health checks are not time-critical
+            leeway: .milliseconds(400)
         )
         timer.setEventHandler { [weak self] in
-            // Dispatch to MainActor for engine access
-            Task { @MainActor in
-                self?.checkEngineHealth()
+            guard let self = self else { return }
+            // Stay on healthMonitorQueue: avoid MainActor hop when cache says engine is healthy
+            if !self._atomicEngineExpectedToRun {
+                self._healthCheckTickCount = 0
+                return
+            }
+            self._healthCheckTickCount += 1
+            let isPlaying = self._transportControllerRef?.atomicIsPlaying ?? false
+            let ticksUntilRefresh = isPlaying
+                ? Self.healthCheckRefreshTicksWhenPlaying
+                : Self.healthCheckRefreshTicksWhenStopped
+            let dueForRefresh = self._healthCheckTickCount >= ticksUntilRefresh
+            if dueForRefresh {
+                self._healthCheckTickCount = 0
+            }
+            let needCheck = !self._atomicLastKnownEngineRunning || dueForRefresh
+            if needCheck {
+                Task { @MainActor in
+                    self.checkEngineHealth()
+                }
             }
         }
         timer.resume()
         engineHealthTimer = timer
     }
     
-    /// Check engine health and attempt recovery if needed
+    /// Check engine health and attempt recovery if needed.
+    /// Updates thread-safe cache so next health timer tick can avoid MainActor if still healthy (issue #80).
     private func checkEngineHealth() {
         // Only check if we expect the engine to be running
         guard engineExpectedToRun else {
             healthCheckFailureCount = 0
+            _atomicLastKnownEngineRunning = false
             return
         }
         
-        if !engine.isRunning {
+        let running = engine.isRunning
+        _atomicLastKnownEngineRunning = running
+        
+        if !running {
             healthCheckFailureCount += 1
             AppLogger.shared.warning("Engine health: Not running (failure #\(healthCheckFailureCount))", category: .audio)
             
@@ -1111,6 +1255,7 @@ class AudioEngine: AudioEngineContext {
         guard healthCheckFailureCount <= 3 else {
             AppLogger.shared.error("Engine health: Max recovery attempts reached, stopping monitoring", category: .audio)
             engineExpectedToRun = false
+            _atomicEngineExpectedToRun = false
             return
         }
         
@@ -1387,32 +1532,72 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Track Send Management (Delegated to BusManager)
     // trackSendIds and trackSendInputBus are now managed by BusManager
     
-    // MARK: [BUGFIX] Safe Node Disconnection
-    /// Disconnects and detaches track nodes. Must run inside graph mutation serialization to avoid races.
+    // MARK: [BUGFIX] Safe Node Disconnection (Issue #81)
+    /// Disconnects and detaches track nodes in downstream-first order to avoid EXC_BAD_ACCESS
+    /// and graph corruption. Order: stop player → uninstall plugin chain → disconnect outputs
+    /// (pan → volume → eq) → disconnect/detach instrument source → disconnect/detach player.
+    /// Caller must have removed track from all bus sends first (so pan isn't connected to buses).
     private func safeDisconnectTrackNode(_ trackNode: TrackAudioNode) {
         modifyGraphSafely {
-            // Uninstall plugin chain first (this unloads all plugins and detaches mixers)
+            let trackId = trackNode.id
+
+            // Stop player before any disconnection
+            if trackNode.playerNode.isPlaying {
+                trackNode.playerNode.stop()
+            }
+
+            // 1. Uninstall plugin chain first (unloads plugins, disconnects and detaches chain mixers)
             trackNode.pluginChain.uninstall()
 
-            let nodesToDisconnect: [(node: AVAudioNode, name: String)] = [
-                (trackNode.panNode, "panNode"),
-                (trackNode.volumeNode, "volumeNode"),
-                (trackNode.eqNode, "eqNode"),
-                (trackNode.timePitchUnit, "timePitchUnit"),
-                (trackNode.playerNode, "playerNode")
-            ]
+            // 2. Disconnect in downstream-first order (same as rebuildTrackGraphInternal).
+            //    Each node: disconnect output, then input, then detach.
+            self.engine.disconnectNodeOutput(trackNode.panNode)
+            self.engine.disconnectNodeInput(trackNode.panNode)
+            if self.engine.attachedNodes.contains(trackNode.panNode) {
+                self.engine.detach(trackNode.panNode)
+            }
 
-            for (node, _) in nodesToDisconnect {
-                if engine.attachedNodes.contains(node) {
-                    do {
-                        if let playerNode = node as? AVAudioPlayerNode, playerNode.isPlaying {
-                            playerNode.stop()
-                        }
-                        engine.disconnectNodeInput(node)
-                        engine.detach(node)
-                    } catch {
-                    }
+            self.engine.disconnectNodeOutput(trackNode.volumeNode)
+            self.engine.disconnectNodeInput(trackNode.volumeNode)
+            if self.engine.attachedNodes.contains(trackNode.volumeNode) {
+                self.engine.detach(trackNode.volumeNode)
+            }
+
+            self.engine.disconnectNodeOutput(trackNode.eqNode)
+            self.engine.disconnectNodeInput(trackNode.eqNode)
+            if self.engine.attachedNodes.contains(trackNode.eqNode) {
+                self.engine.detach(trackNode.eqNode)
+            }
+
+            // 3. Disconnect and detach instrument source (sampler or timePitch)
+            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+               let sampler = instrument.samplerEngine?.sampler {
+                if self.engine.attachedNodes.contains(sampler) {
+                    self.engine.disconnectNodeOutput(sampler)
+                    self.engine.disconnectNodeInput(sampler)
+                    self.engine.detach(sampler)
                 }
+            } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+                      let auNode = instrument.audioUnitNode,
+                      self.engine.attachedNodes.contains(auNode) {
+                self.engine.disconnectNodeOutput(auNode)
+                self.engine.disconnectNodeInput(auNode)
+                self.engine.detach(auNode)
+            } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+                      let drumKit = instrument.drumKitEngine {
+                drumKit.detach()
+            }
+
+            self.engine.disconnectNodeOutput(trackNode.timePitchUnit)
+            self.engine.disconnectNodeInput(trackNode.timePitchUnit)
+            if self.engine.attachedNodes.contains(trackNode.timePitchUnit) {
+                self.engine.detach(trackNode.timePitchUnit)
+            }
+
+            self.engine.disconnectNodeOutput(trackNode.playerNode)
+            self.engine.disconnectNodeInput(trackNode.playerNode)
+            if self.engine.attachedNodes.contains(trackNode.playerNode) {
+                self.engine.detach(trackNode.playerNode)
             }
         }
     }
@@ -1421,19 +1606,19 @@ class AudioEngine: AudioEngineContext {
     
     /// Performs a structural graph mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphSafely(_ work: () throws -> Void) rethrows {
+    func modifyGraphSafely(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphSafely(work)
     }
     
     /// Performs a connection-only graph mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphConnections(_ work: () throws -> Void) rethrows {
+    func modifyGraphConnections(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphConnections(work)
     }
     
     /// Performs a track-scoped hot-swap mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
+    func modifyGraphForTrack(_ trackId: UUID, _ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphForTrack(trackId, work)
     }
     
@@ -1570,9 +1755,18 @@ class AudioEngine: AudioEngineContext {
         
         // Start/stop automation engine based on transport state
         if state.isPlaying {
-            // Reset smoothing values for all tracks before starting
+            // BUG FIX (Issue #48): Reset smoothing values for all tracks before starting
+            // Initialize from automation curves at current playhead position
+            let currentBeat = transportController?.positionBeats ?? 0
+            
             for (_, trackNode) in trackNodes {
-                trackNode.resetSmoothing()
+                // Find the track's automation lanes
+                if let track = currentProject?.tracks.first(where: { $0.id == trackNode.id }) {
+                    trackNode.resetSmoothing(atBeat: currentBeat, automationLanes: track.automationLanes)
+                } else {
+                    // Fallback: reset without automation data
+                    trackNode.resetSmoothing(atBeat: currentBeat, automationLanes: [])
+                }
             }
             automationEngine.start()
         } else {
@@ -1947,14 +2141,21 @@ class AudioEngine: AudioEngineContext {
     func removeTrack(trackId: UUID) {
         guard var project = currentProject else { return }
         
-        // Remove from project
+        // 1. Remove track from all bus sends first (while track and trackNode still exist).
+        //    This disconnects pan/volume from bus mixers so teardown doesn't leave dangling refs.
+        busManager.removeAllSendsForTrack(trackId)
+        
+        // 2. Remove from project
         project.tracks.removeAll { $0.id == trackId }
         currentProject = project
         
-        // Remove track node (handles disconnection internally)
+        // 3. Remove track node (disconnects and detaches in downstream-first order)
         trackNodeManager.removeTrackNode(for: trackId)
         
-        // Update mixer controller's solo tracking
+        // 4. Clean up instrument so it stops and is removed from InstrumentManager
+        InstrumentManager.shared.removeInstrument(for: trackId)
+        
+        // 5. Update mixer controller's solo tracking
         mixerController.removeTrackFromMixer(trackId: trackId)
     }
     

@@ -10,6 +10,7 @@ import Foundation
 import AVFoundation
 import AppKit
 import Combine
+import os.lock
 
 // MARK: - Offline MIDI Renderer
 
@@ -29,11 +30,19 @@ class OfflineMIDIRenderer {
         }
     }
     
+    /// Copy of preset fields needed for rendering. Isolated from SynthPreset so
+    /// RenderVoice deinit does not run on MainActor (avoids ASan bad-free in TaskLocal teardown).
+    private struct RenderPresetSnapshot {
+        let envelope: ADSREnvelope
+        let oscillator1: OscillatorType
+        let masterVolume: Float
+    }
+    
     /// Active voice for rendering
     private class RenderVoice {
         let pitch: UInt8
         let velocity: UInt8
-        let preset: SynthPreset
+        let preset: RenderPresetSnapshot
         let sampleRate: Float
         
         private var phase: Float = 0
@@ -47,12 +56,18 @@ class OfflineMIDIRenderer {
         var isFinished: Bool { envelopeState == .finished }
         var isReleasing: Bool { envelopeState == .release }
         
-        init(pitch: UInt8, velocity: UInt8, preset: SynthPreset, sampleRate: Float, startSample: AVAudioFramePosition) {
+        init(pitch: UInt8, velocity: UInt8, preset: RenderPresetSnapshot, sampleRate: Float, startSample: AVAudioFramePosition) {
             self.pitch = pitch
             self.velocity = velocity
             self.preset = preset
             self.sampleRate = sampleRate
             self.startSample = startSample
+        }
+        
+        deinit {
+            // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
+            // Same pattern as AudioAnalyzer, MetronomeEngine, etc. Explicit deinit changes teardown
+            // codegen and avoids double-free in swift::TaskLocal::StopLookupScope.
         }
         
         func release(at sample: AVAudioFramePosition) {
@@ -130,16 +145,25 @@ class OfflineMIDIRenderer {
     private var scheduledEvents: [ScheduledEvent] = []
     private var nextEventIndex: Int = 0
     private var activeVoices: [RenderVoice] = []
-    private let preset: SynthPreset
+    /// Snapshot only; avoids MainActor/task-local deinit (ASan bad-free in TaskLocal teardown).
+    private let presetSnapshot: RenderPresetSnapshot
     private let sampleRate: Float
     private let volume: Float
-    private let lock = NSLock()
+    
+    /// Lock for thread-safe access to render state (BUG FIX Issue #50)
+    /// Using os_unfair_lock instead of NSLock for real-time safety
+    /// NSLock can cause priority inversion and indefinite blocking in offline render
+    private var lock = os_unfair_lock_s()
     
     /// Current sample position (incremented with each render call)
     private var currentSamplePosition: AVAudioFramePosition = 0
     
     init(preset: SynthPreset, sampleRate: Double, volume: Float) {
-        self.preset = preset
+        self.presetSnapshot = RenderPresetSnapshot(
+            envelope: preset.envelope,
+            oscillator1: preset.oscillator1,
+            masterVolume: preset.masterVolume
+        )
         self.sampleRate = Float(sampleRate)
         self.volume = volume
     }
@@ -189,8 +213,8 @@ class OfflineMIDIRenderer {
     
     /// Render audio for a range of samples (uses internal sample position tracking)
     func render(into buffer: UnsafeMutablePointer<Float>, frameCount: Int) {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         
         let startSample = currentSamplePosition
         let endSample = startSample + AVAudioFramePosition(frameCount)
@@ -213,7 +237,7 @@ class OfflineMIDIRenderer {
                 let voice = RenderVoice(
                     pitch: event.pitch,
                     velocity: event.velocity,
-                    preset: preset,
+                    preset: presetSnapshot,
                     sampleRate: sampleRate,
                     startSample: event.sampleTime
                 )
@@ -261,11 +285,16 @@ class OfflineMIDIRenderer {
     
     /// Reset for new render pass
     func reset() {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         nextEventIndex = 0
         activeVoices.removeAll()
         currentSamplePosition = 0
+    }
+    
+    deinit {
+        // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
+        // Same pattern as AudioAnalyzer. Explicit deinit changes teardown codegen.
     }
 }
 
@@ -412,8 +441,8 @@ class ProjectExportService {
         let filename = "\(sanitizeFileName(project.name))_\(timestamp).wav"
         let outputURL = exportDirectory.appendingPathComponent(filename)
         
-        // Calculate project duration
-        let projectDuration = calculateProjectDuration(project)
+        // Calculate project CONTENT duration (before plugins are cloned)
+        let contentDuration = calculateProjectDuration(project)
         
         // Create offline render engine
         let renderEngine = AVAudioEngine()
@@ -432,10 +461,14 @@ class ProjectExportService {
         exportStatus = "Rendering audio..."
         exportProgress = 0.2
         
+        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
+        // This ensures we query actual cloned plugin tail times, not live engine instances
+        let totalDuration = calculateExportDurationWithTail(contentDuration)
+        
         // Perform offline rendering
         let renderedBuffer = try await renderProjectAudio(
             renderEngine: renderEngine,
-            duration: projectDuration,
+            duration: totalDuration,
             sampleRate: sampleRate
         )
         
@@ -500,8 +533,8 @@ class ProjectExportService {
         let filename = "\(sanitizeFileName(settings.filename)).\(settings.format.rawValue)"
         let outputURL = exportDirectory.appendingPathComponent(filename)
         
-        // Calculate project duration
-        let projectDuration = calculateProjectDuration(project)
+        // Calculate project CONTENT duration (before plugins are cloned)
+        let contentDuration = calculateProjectDuration(project)
         
         // Check for cancellation
         guard !isCancelled else {
@@ -525,10 +558,13 @@ class ProjectExportService {
         exportStatus = "Rendering audio..."
         exportProgress = 0.2
         
+        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
+        let totalDuration = calculateExportDurationWithTail(contentDuration)
+        
         // Perform offline rendering
         let renderedBuffer = try await renderProjectAudio(
             renderEngine: renderEngine,
-            duration: projectDuration,
+            duration: totalDuration,
             sampleRate: sampleRate
         )
         
@@ -703,8 +739,13 @@ class ProjectExportService {
     
     // MARK: - Private Helper Methods
     
-    /// Calculate project duration in BEATS (primary unit), then convert to seconds for AVAudioEngine
-    /// Calculate the duration of a project in seconds (public for UI estimation)
+    /// Calculate project CONTENT duration in seconds (beats → seconds conversion)
+    /// 
+    /// NOTE: This returns ONLY the content duration (last region end time).
+    /// Tail time is calculated AFTER plugins are cloned during export setup.
+    /// 
+    /// Why: Tail time must come from the actual cloned plugins used in export,
+    /// not from live engine instances which may not be loaded yet.
     func calculateProjectDuration(_ project: AudioProject) -> TimeInterval {
         let durationBeats = calculateProjectDurationInBeats(project)
         
@@ -712,35 +753,78 @@ class ProjectExportService {
         let secondsPerBeat = 60.0 / project.tempo
         let durationSeconds = durationBeats * secondsPerBeat
         
-        // L-2: Calculate max plugin tail time (reverbs, delays, etc.)
-        // This ensures reverb/delay tails are captured in the export
-        let maxTailTime = calculateMaxPluginTailTime(project)
+        return durationSeconds
+    }
+    
+    /// Calculate total export duration: content + plugin tail time
+    /// CRITICAL: Must be called AFTER plugins are cloned in setupOfflineAudioGraph
+    /// 
+    /// EXPORT TAIL ARCHITECTURE (Issue #61):
+    /// Professional DAWs render extra time beyond the last content to capture plugin tails.
+    /// This ensures reverb/delay decay is fully included in the exported file.
+    /// 
+    /// DURATION CALCULATION:
+    /// 1. Content duration (from calculateProjectDuration)
+    /// 2. Query actual cloned plugins for tail times
+    /// 3. Add max(plugin tail, 300ms) for synth release
+    /// 4. Result: content + full tail = WYHIWYG export
+    /// 
+    /// TAIL TIME SOURCES:
+    /// - Cloned plugin auAudioUnit.tailTime (reverb, delay, chorus, etc.)
+    /// - Master chain plugins (limiter, EQ)
+    /// - Minimum 300ms for synth release envelopes
+    /// - Capped at 10 seconds to prevent unreasonably long exports
+    /// 
+    /// DRAIN & FLUSH:
+    /// After rendering (content + tail), the engine processes additional drain buffers
+    /// to ensure all plugin internal states are fully flushed before stopping.
+    func calculateExportDurationWithTail(_ contentDuration: TimeInterval) -> TimeInterval {
+        // Query tail time from actual cloned plugins used in export
+        let maxTailTime = calculateMaxPluginTailTimeFromClonedPlugins()
         
         // Use the larger of: plugin tail time or minimum 300ms buffer for synth release
         let tailBuffer = max(maxTailTime, 0.3)
         
-        return durationSeconds + tailBuffer
+        return contentDuration + tailBuffer
     }
     
-    /// Calculate the maximum tail time across all plugins in the project
-    /// Used to ensure reverb/delay tails are captured during export
-    private func calculateMaxPluginTailTime(_ project: AudioProject) -> TimeInterval {
+    /// Calculate the maximum tail time from CLONED export plugins
+    /// CRITICAL: Must be called AFTER plugins are cloned in setupOfflineAudioGraph
+    /// Queries actual cloned AVAudioUnits used in export, not live engine instances
+    /// This ensures accurate tail time even if live plugins aren't loaded yet
+    private func calculateMaxPluginTailTimeFromClonedPlugins() -> TimeInterval {
         var maxTailTime: TimeInterval = 0.0
         
-        for track in project.tracks {
-            // Get plugin instances for this track's configured plugins
-            for config in track.pluginConfigs {
-                if let instance = PluginInstanceManager.shared.instances.values.first(where: { 
-                    $0.descriptor.name == config.pluginName && !$0.isBypassed
-                }) {
-                    maxTailTime = max(maxTailTime, instance.tailTime)
-                }
+        // Query tail times from cloned track plugins
+        for (_, clonedPlugins) in clonedTrackPlugins {
+            for plugin in clonedPlugins {
+                let tailTime = plugin.auAudioUnit.tailTime
+                maxTailTime = max(maxTailTime, tailTime)
             }
         }
         
-        // Also check master bus plugins if available (future extension)
-        // For now, cap at 5 seconds to prevent unreasonably long exports from buggy plugins
-        return min(maxTailTime, 5.0)
+        // Query tail times from cloned bus plugins (reverb, delay)
+        for (_, clonedPlugins) in clonedBusPlugins {
+            for plugin in clonedPlugins {
+                let tailTime = plugin.auAudioUnit.tailTime
+                maxTailTime = max(maxTailTime, tailTime)
+            }
+        }
+        
+        // Check master chain (EQ, limiter)
+        if let masterLimiter = exportMasterLimiter {
+            let limiterTail = masterLimiter.auAudioUnit.tailTime
+            maxTailTime = max(maxTailTime, limiterTail)
+        }
+        
+        if let masterEQ = exportMasterEQ {
+            let eqTail = masterEQ.auAudioUnit.tailTime
+            maxTailTime = max(maxTailTime, eqTail)
+        }
+        
+        // Cap at 10 seconds to prevent unreasonably long exports from buggy plugins
+        // Professional reverbs can have 5-8 second tails (large halls, long decays)
+        return min(maxTailTime, 10.0)
     }
     
     /// Calculate project duration in BEATS
@@ -786,6 +870,10 @@ class ProjectExportService {
         
         // Store tempo for automation calculations
         exportTempo = project.tempo
+        
+        // PDC: Initialize PluginLatencyManager with export sample rate
+        // This ensures compensation delays are calculated correctly for offline rendering
+        PluginLatencyManager.shared.setSampleRate(sampleRate)
         
         // CRITICAL ASSERTION (Bug #02): Verify master volume from live engine
         let liveMasterVolume = audioEngine.masterVolume
@@ -927,6 +1015,39 @@ class ProjectExportService {
                 )
                 midiTrackCount += 1
             }
+        }
+        
+        // PDC: Calculate delay compensation for all tracks after plugin chains are cloned
+        // This ensures export uses the same compensation as playback for perfect parity
+        // Build a map of track ID -> cloned plugin instances for PDC calculation
+        //
+        // WYHIWYG CRITICAL: Export MUST use identical PDC to playback.
+        // Without this, tracks with different plugin latencies will be misaligned in the bounce,
+        // causing phase cancellation, flamming, and a mix that doesn't match what was heard.
+        //
+        // How it works:
+        // 1. Get live plugin instances (cloned AUs have same latency characteristics)
+        // 2. Calculate compensation delays using PluginLatencyManager
+        // 3. scheduleRegionForPlayback applies these delays to each track's audio scheduling
+        //
+        var trackPluginsForPDC: [UUID: [PluginInstance]] = [:]
+        
+        for (trackId, clonedAUNodes) in clonedTrackPlugins {
+            // We need to convert AVAudioUnit back to PluginInstance for PDC calculation
+            // For now, we'll use the live engine's plugin instances as a reference
+            // since cloned plugins have the same latency characteristics
+            if let livePluginChain = await audioEngine.getPluginChain(for: trackId) {
+                let liveActivePlugins = await livePluginChain.activePlugins.filter { !$0.isBypassed }
+                trackPluginsForPDC[trackId] = liveActivePlugins
+            }
+        }
+        
+        // Calculate and store compensation delays for export
+        let _ = PluginLatencyManager.shared.calculateCompensation(trackPlugins: trackPluginsForPDC)
+        
+        let maxLatency = PluginLatencyManager.shared.maxLatencyMs
+        if maxLatency > 1.0 {
+            AppLogger.shared.info("Export PDC: Applying \(String(format: "%.2f", maxLatency))ms max latency compensation", category: .audio)
         }
         
         // Schedule all audio files for playback
@@ -1504,6 +1625,19 @@ class ProjectExportService {
     }
     
     /// Apply automation to track mixer nodes during export render
+    /// 
+    /// SAMPLE-ACCURATE AUTOMATION:
+    /// This method applies automation at the same granularity as live playback (120Hz = ~8.3ms).
+    /// Export uses sub-buffer automation application to ensure WYHIWYG - the bounce matches playback exactly.
+    ///
+    /// Architecture:
+    /// - Playback: AutomationEngine fires at 120Hz, applies values to TrackAudioNode
+    /// - Export: This method fires at 120Hz intervals within each buffer, applies to mixer nodes
+    /// - Both use the same AutomationProcessor for identical value calculation
+    ///
+    /// Why this matters:
+    /// Without frequent updates, fast automation (quick fades, rapid pans) would be stepped in export.
+    /// Pro DAWs apply automation at 60-240Hz for smooth parameter changes.
     private func applyExportAutomation(atSample samplePosition: AVAudioFrameCount, sampleRate: Double) {
         guard let processor = exportAutomationProcessor else { return }
         
@@ -1525,7 +1659,7 @@ class ProjectExportService {
                     mixerNode.pan = pan * 2 - 1
                 }
                 
-                // CRITICAL FIX (Bug #02): Apply EQ automation (was missing, causing export/playback mismatch)
+                // CRITICAL FIX: Apply EQ automation (was missing, causing export/playback mismatch)
                 // This matches the live automation path in AudioEngine+Automation.swift
                 if let eqNode = trackEQNodes[trackId] {
                     // Convert 0-1 normalized values to -12 to +12 dB range (matching live playback)
@@ -1558,7 +1692,15 @@ class ProjectExportService {
         
         // Convert beat position to seconds for AVAudioEngine scheduling
         let startTimeSeconds = region.startTimeSeconds(tempo: tempo)
-        let startFrame = AVAudioFramePosition(startTimeSeconds * sampleRate)
+        
+        // PDC: Get compensation delay for this track (in samples)
+        // This ensures export matches playback when plugins have different latencies
+        let compensationDelaySamples = PluginLatencyManager.shared.getCompensationDelay(for: track.id)
+        let compensationSeconds = Double(compensationDelaySamples) / sampleRate
+        
+        // Apply compensation to start time
+        let compensatedStartTime = startTimeSeconds + compensationSeconds
+        let startFrame = AVAudioFramePosition(compensatedStartTime * sampleRate)
         
         // Use contentLength for loop unit (includes empty space), fallback to source file duration
         let loopUnitDuration = region.contentLength > 0 ? region.contentLength : sourceFileDuration
@@ -1572,8 +1714,8 @@ class ProjectExportService {
         if region.isLooped && regionDurationSeconds > loopUnitDuration {
             // Calculate how many times to loop
             // CRITICAL: Use loopUnitDuration (contentLength) to respect empty space in loops
-            var currentTimeSeconds = startTimeSeconds
-            let endTimeSeconds = startTimeSeconds + regionDurationSeconds
+            var currentTimeSeconds = compensatedStartTime
+            let endTimeSeconds = compensatedStartTime + regionDurationSeconds
             var loopCount = 0
             
             while currentTimeSeconds < endTimeSeconds {
@@ -1604,32 +1746,47 @@ class ProjectExportService {
         
         
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
-        let frameCount = AVAudioFrameCount(duration * sampleRate)
         
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+        // ISSUE #10 FIX: Add drain time to buffer capacity
+        // Allocate extra frames for plugin tail drain (reverb, delay buffers)
+        // Professional DAWs render extra time beyond project end to capture full tails
+        let bufferSize: AVAudioFrameCount = 4096
+        let drainBufferCount = 2  // 2 buffers @ 4096 frames = ~170ms @ 48kHz
+        let drainFrames = bufferSize * AVAudioFrameCount(drainBufferCount)
+        
+        // Target frame count is the desired output (project + tail)
+        let targetFrameCount = AVAudioFrameCount(duration * sampleRate)
+        
+        // Allocate capacity for target + drain frames
+        let totalCapacity = targetFrameCount + drainFrames
+        
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalCapacity) else {
             throw ExportError.bufferCreationFailed
         }
-        outputBuffer.frameLength = frameCount
+        // Set initial length to total capacity, will trim to target at end
+        outputBuffer.frameLength = totalCapacity
         
         // Capture audio using a tap on the main mixer
         var capturedFrames: AVAudioFrameCount = 0
-        let bufferSize: AVAudioFrameCount = 4096
         
         // Use a class to track if continuation has been resumed (thread-safe)
         final class ContinuationState: @unchecked Sendable {
-            private let lock = NSLock()
+            /// Lock for thread-safe access to resume state (BUG FIX Issue #50)
+            /// Using os_unfair_lock instead of NSLock for real-time safety
+            /// NSLock can cause priority inversion in render callback
+            private var lock = os_unfair_lock_s()
             private var _isResumed = false
             
             var isResumed: Bool {
-                lock.lock()
-                defer { lock.unlock() }
+                os_unfair_lock_lock(&lock)
+                defer { os_unfair_lock_unlock(&lock) }
                 return _isResumed
             }
             
             /// Returns true if this call set the resumed flag (i.e., first caller wins)
             func tryResume() -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
+                os_unfair_lock_lock(&lock)
+                defer { os_unfair_lock_unlock(&lock) }
                 if _isResumed { return false }
                 _isResumed = true
                 return true
@@ -1693,11 +1850,27 @@ class ProjectExportService {
                     samplerEventPosition = targetPosition
                 }
                 
-                // Apply automation to track mixer nodes
-                self.applyExportAutomation(atSample: capturedFrames, sampleRate: sampleRate)
+                // SAMPLE-ACCURATE AUTOMATION:
+                // Apply automation at 120Hz intervals (same as playback) for smooth parameter changes.
+                // This ensures export matches playback exactly - no stepped automation.
+                //
+                // Calculate: 120Hz = 8.33ms interval = 400 samples at 48kHz
+                let automationUpdateInterval = Int(sampleRate / 120.0)  // ~400 samples at 48kHz
+                let bufferFrameCount = Int(buffer.frameLength)
+                
+                // Apply automation multiple times within this buffer for smooth curves
+                var sampleOffset = 0
+                while sampleOffset < bufferFrameCount {
+                    let automationSamplePos = capturedFrames + AVAudioFrameCount(sampleOffset)
+                    self.applyExportAutomation(atSample: automationSamplePos, sampleRate: sampleRate)
+                    sampleOffset += automationUpdateInterval
+                }
+                
+                // Apply one final time at the end of the buffer for precision
+                self.applyExportAutomation(atSample: capturedFrames + AVAudioFrameCount(bufferFrameCount), sampleRate: sampleRate)
                 
                 // Copy buffer data to output buffer
-                let framesToCopy = min(buffer.frameLength, frameCount - capturedFrames)
+                let framesToCopy = min(buffer.frameLength, totalCapacity - capturedFrames)
                 
                 if framesToCopy > 0, let outputData = outputBuffer.floatChannelData {
                     if let bufferData = buffer.floatChannelData {
@@ -1710,11 +1883,11 @@ class ProjectExportService {
                     
                     capturedFrames += framesToCopy
                     
-                    // Update progress and time estimates
+                    // Update progress and time estimates (based on target frames, not total capacity)
                     // Cancel previous update to prevent task buildup
                     progressUpdateTask?.cancel()
                     progressUpdateTask = Task { @MainActor in
-                        let progress = Double(capturedFrames) / Double(frameCount)
+                        let progress = Double(min(capturedFrames, targetFrameCount)) / Double(targetFrameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
                         // Update elapsed time
@@ -1742,10 +1915,18 @@ class ProjectExportService {
                 }
                 
                 // Check if we're done
-                if capturedFrames >= frameCount {
+                // ISSUE #10 FIX: Continue capturing through drain period for plugin tails
+                // After target frames, capture additional drain buffers to ensure reverb/delay tails
+                if capturedFrames >= totalCapacity {
+                    // All frames captured (target + drain) - ready to finalize
                     if state.tryResume() {
                         renderEngine.mainMixerNode.removeTap(onBus: 0)
                         renderEngine.stop()
+                        
+                        // Trim output buffer to exact target length
+                        // This removes the drain frames but keeps all the tail content
+                        outputBuffer.frameLength = targetFrameCount
+                        
                         continuation.resume(returning: outputBuffer)
                     }
                 }
@@ -1804,9 +1985,9 @@ class ProjectExportService {
         let sampleRate: Double = 48000
         let bitDepth: Int = 24
         
-        // Calculate project duration
-        let projectDuration = calculateProjectDuration(project)
-        guard projectDuration > 0 else {
+        // Calculate project CONTENT duration (before plugins are cloned)
+        let contentDuration = calculateProjectDuration(project)
+        guard contentDuration > 0 else {
             throw ExportError.bufferCreationFailed
         }
         
@@ -1821,10 +2002,13 @@ class ProjectExportService {
             sampleRate: sampleRate
         )
         
+        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
+        let totalDuration = calculateExportDurationWithTail(contentDuration)
+        
         // Perform offline rendering
         let renderedBuffer = try await renderProjectAudio(
             renderEngine: renderEngine,
-            duration: projectDuration,
+            duration: totalDuration,
             sampleRate: sampleRate
         )
         

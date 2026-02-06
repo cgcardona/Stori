@@ -126,6 +126,24 @@ final class DeviceConfigurationManager {
     
     /// Handle audio hardware configuration change (e.g., switching to Bluetooth speakers).
     /// Rebuilds the audio graph with the new device's format to ensure proper sample rate matching.
+    ///
+    /// BUG FIX (Issue #51): Device Sample Rate Change Handling
+    /// ========================================================
+    /// When audio device changes, ALL scheduled events with sample times must be invalidated.
+    /// Sample times are calculated at a specific sample rate and become invalid when rate changes.
+    ///
+    /// Example: Audio scheduled at 44.1kHz will play at nearly 2x speed if interpreted at 96kHz
+    /// because the same sample time represents half the duration.
+    ///
+    /// This function ensures:
+    /// 1. All pending audio is cleared (engine.reset())
+    /// 2. All nodes reconnected with new format
+    /// 3. MIDI scheduler regenerates timing reference at new rate
+    /// 4. Metronome updates sample rate and regenerates click buffers
+    /// 5. Playback resumes at same BEAT position (not sample position)
+    ///
+    /// The beats-first architecture helps here: transport position is stored in beats (musical time)
+    /// which remains constant across sample rate changes.
     func handleConfigurationChange() {
         let wasPlaying = getTransportState?().isPlaying ?? false
         let savedPosition = getCurrentPosition?() ?? PlaybackPosition()
@@ -216,5 +234,12 @@ final class DeviceConfigurationManager {
             )
         }
         transportController?.setupPositionTimer()
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
     }
 }

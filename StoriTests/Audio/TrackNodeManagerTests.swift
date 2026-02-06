@@ -552,4 +552,59 @@ final class TrackNodeManagerTests: XCTestCase {
         
         XCTAssertEqual(manager.getAllTrackNodes().count, 10)
     }
+
+    // MARK: - Issue #81: Rapid / bulk removal (disconnect order)
+
+    /// Stress test: create many tracks then remove all in rapid succession.
+    /// Ensures manager and disconnect callback handle bulk removal without crash or wrong order.
+    func testRapidTrackDeletionStress() {
+        let trackCount = 20
+        var project = AudioProject(name: "Stress", tempo: 120.0)
+        for i in 0..<trackCount {
+            project.addTrack(AudioTrack(name: "Track \(i)", trackType: .audio, color: .blue))
+        }
+        manager.setupTracksForProject(project)
+        XCTAssertEqual(manager.getAllTrackNodes().count, trackCount)
+
+        let ids = project.tracks.map(\.id)
+        for trackId in ids {
+            manager.removeTrackNode(for: trackId)
+        }
+
+        XCTAssertEqual(manager.getAllTrackNodes().count, 0)
+    }
+
+    /// Clear-all with many tracks; verifies no crash and all nodes removed from manager.
+    func testClearAllTracksWithManyTracks() {
+        var project = AudioProject(name: "Clear All Stress", tempo: 120.0)
+        for i in 0..<15 {
+            project.addTrack(AudioTrack(name: "Track \(i)", trackType: .audio, color: .blue))
+        }
+        manager.setupTracksForProject(project)
+        XCTAssertEqual(manager.getAllTrackNodes().count, 15)
+
+        manager.clearAllTracks()
+
+        XCTAssertEqual(manager.getAllTrackNodes().count, 0)
+    }
+
+    /// Issue #81: Removing one track must leave other track nodes intact in the manager.
+    func testRemoveMiddleTrackPreservesOthers() {
+        var project = AudioProject(name: "Preserve Others", tempo: 120.0)
+        let trackA = AudioTrack(name: "A", trackType: .audio, color: .blue)
+        let trackB = AudioTrack(name: "B", trackType: .audio, color: .red)
+        let trackC = AudioTrack(name: "C", trackType: .audio, color: .green)
+        project.addTrack(trackA)
+        project.addTrack(trackB)
+        project.addTrack(trackC)
+        manager.setupTracksForProject(project)
+        XCTAssertEqual(manager.getAllTrackNodes().count, 3)
+
+        manager.removeTrackNode(for: trackB.id)
+
+        XCTAssertEqual(manager.getAllTrackNodes().count, 2)
+        XCTAssertNotNil(manager.getTrackNode(for: trackA.id))
+        XCTAssertNotNil(manager.getTrackNode(for: trackC.id))
+        XCTAssertNil(manager.getTrackNode(for: trackB.id))
+    }
 }

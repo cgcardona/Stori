@@ -163,6 +163,74 @@ final class AudioEngineHealthMonitorTests: XCTestCase {
         XCTAssertFalse(monitor.quickValidate(), "Quick validate should fail when mixer not attached")
     }
     
+    // MARK: - CPU Budget Tests (health monitoring must have negligible CPU impact)
+    
+    /// quickValidate() is used on hot paths; must complete in under 0.1ms average to avoid audio glitches.
+    func testHealthMonitorQuickValidateCPUBudget() throws {
+        engine.attach(mixer)
+        engine.connect(mixer, to: engine.outputNode, format: graphFormat)
+        try engine.start()
+        
+        let iterations = 1000
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            _ = monitor.quickValidate()
+        }
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        let avgMs = elapsedMs / Double(iterations)
+        
+        XCTAssertLessThan(
+            avgMs,
+            0.1,
+            "quickValidate() average \(String(format: "%.3f", avgMs))ms must be < 0.1ms per call to avoid audio thread impact"
+        )
+    }
+    
+    /// Full validateState() touches the graph; must stay under 1ms average so periodic checks don't spike CPU.
+    func testHealthMonitorValidateStateCPUBudget() throws {
+        engine.attach(mixer)
+        engine.attach(masterEQ)
+        engine.attach(masterLimiter)
+        engine.connect(mixer, to: masterEQ, format: graphFormat)
+        engine.connect(masterEQ, to: masterLimiter, format: graphFormat)
+        engine.connect(masterLimiter, to: engine.outputNode, format: graphFormat)
+        try engine.start()
+        
+        let iterations = 500
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            _ = monitor.validateState()
+        }
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        let avgMs = elapsedMs / Double(iterations)
+        
+        XCTAssertLessThan(
+            avgMs,
+            1.0,
+            "validateState() average \(String(format: "%.3f", avgMs))ms must be < 1ms per call so health checks don't cause periodic CPU spikes"
+        )
+    }
+    
+    /// Repeated validation must not block main thread for long (main-thread occupancy budget).
+    func testHealthMonitorDoesNotBlockMainThreadLong() throws {
+        engine.attach(mixer)
+        engine.connect(mixer, to: engine.outputNode, format: graphFormat)
+        try engine.start()
+        
+        let iterations = 200
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            _ = monitor.validateState()
+        }
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        
+        XCTAssertLessThan(
+            elapsedMs,
+            200,
+            "200 validateState() calls must complete in under 200ms total to avoid blocking main thread"
+        )
+    }
+    
     // MARK: - Recovery Suggestions Tests
     
     func testProvidesRecoverySuggestions() throws {

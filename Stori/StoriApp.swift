@@ -69,7 +69,6 @@ struct StoriApp: App {
     @NSApplicationDelegateAdaptor(StoriAppDelegate.self) var appDelegate
     
     @State private var showingUpdateSheet = false
-    @State private var showingModelDownloadSheet = false
     
     var body: some Scene {
         // Main DAW Window - uses id for programmatic opening via openWindow(id:)
@@ -78,34 +77,16 @@ struct StoriApp: App {
                 .environment(AppState())
                 .task {
                     // Start background update checks
-                    UpdateManager.shared.startBackgroundChecks()
+                    UpdateService.shared.startBackgroundChecks()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .checkForUpdates)) { _ in
                     Task {
-                        await UpdateManager.shared.checkForUpdates()
-                        if case .available = UpdateManager.shared.state {
-                            showingUpdateSheet = true
-                        } else if case .upToDate = UpdateManager.shared.state {
-                            // Show "up to date" alert
-                            let alert = NSAlert()
-                            alert.messageText = "You're Up to Date"
-                            alert.informativeText = "Stori \(UpdateManager.shared.currentVersion) is the latest version."
-                            alert.alertStyle = .informational
-                            alert.addButton(withTitle: "OK")
-                            alert.runModal()
-                        }
+                        await UpdateService.shared.checkNow()
+                        showingUpdateSheet = true
                     }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .showModelDownload)) { _ in
-                    showingModelDownloadSheet = true
                 }
                 .sheet(isPresented: $showingUpdateSheet) {
-                    if case .available(let release) = UpdateManager.shared.state {
-                        UpdateAvailableView(updateManager: UpdateManager.shared, release: release)
-                    }
-                }
-                .sheet(isPresented: $showingModelDownloadSheet) {
-                    SetupWizardView(setupManager: SetupManager.shared)
+                    UpdateSheetView(updateService: UpdateService.shared)
                 }
         }
         .windowToolbarStyle(.unifiedCompact)
@@ -120,14 +101,11 @@ struct StoriApp: App {
                 
                 Divider()
                 
-                Button("Check for Updates...") {
+                Button(UpdateService.shared.menuItemTitle) {
                     NotificationCenter.default.post(name: .checkForUpdates, object: nil)
                 }
+                .disabled(!UpdateService.shared.menuItemEnabled)
                 .keyboardShortcut("u", modifiers: [.command, .shift])
-                
-                Button("Download AI Models...") {
-                    NotificationCenter.default.post(name: .showModelDownload, object: nil)
-                }
             }
             
             // File menu commands
@@ -929,6 +907,12 @@ extension Notification.Name {
     static let willSaveProject = Notification.Name("willSaveProject")  // Posted before save to collect plugin states
     static let pluginConfigsSaved = Notification.Name("pluginConfigsSaved")  // Posted when AudioEngine finishes saving plugin configs
     static let saveProject = Notification.Name("saveProject")
+    
+    // Issue #63: Transport-ProjectManager save coordination notifications
+    static let queryTransportState = Notification.Name("queryTransportState")  // Query if transport is playing
+    static let pauseTransportForSave = Notification.Name("pauseTransportForSave")  // Request transport pause for save
+    static let transportPausedForSave = Notification.Name("transportPausedForSave")  // Transport confirms pause
+    static let resumeTransportAfterSave = Notification.Name("resumeTransportAfterSave")  // Resume transport after save
     static let exportProject = Notification.Name("exportProject")
     static let importAudio = Notification.Name("importAudio")
     static let importMIDIFile = Notification.Name("importMIDIFile")
@@ -1002,5 +986,4 @@ extension Notification.Name {
     
     // Update and setup notifications
     static let checkForUpdates = Notification.Name("checkForUpdates")
-    static let showModelDownload = Notification.Name("showModelDownload")
 }

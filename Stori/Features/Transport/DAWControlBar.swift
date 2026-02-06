@@ -381,8 +381,19 @@ struct DAWControlBar: View {
             
             Spacer()
             
-            // MARK: - Right Section: Master Volume & Inspector
+            // MARK: - Right Section: Update Indicator, Master Volume & Inspector
             HStack(spacing: 6) {
+                // Update Indicator
+                UpdateIndicatorView(updateService: UpdateService.shared)
+                
+                // Separator (only when update indicator is visible)
+                if UpdateService.shared.hasUpdate || { if case .aheadOfRelease = UpdateService.shared.state { return true } else { return false } }() {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.2))
+                        .frame(width: 1, height: 24)
+                        .padding(.horizontal, 2)
+                }
+                
                 // Master Volume
                 HStack(spacing: 6) {
                     Image(systemName: "speaker.fill")

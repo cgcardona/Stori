@@ -65,6 +65,10 @@ class TransportController {
     
     /// Thread-safe read of current beat position (for MIDI scheduler)
     /// Calculates position from wall-clock delta for maximum accuracy
+    /// Thread-safe read of current beat position (for MIDI scheduler, metronome, recording)
+    /// CRITICAL: This is accessed from audio threads - must be real-time safe!
+    /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    /// NOTE: This calculation MUST match calculateCurrentBeat() to maintain consistency
     nonisolated var atomicBeatPosition: Double {
         os_unfair_lock_lock(&beatPositionLock)
         defer { os_unfair_lock_unlock(&beatPositionLock) }
@@ -74,6 +78,7 @@ class TransportController {
         }
         
         // Calculate position from wall-clock delta (avoids timer jitter)
+        // FORMULA: Same as calculateCurrentBeat() - DO NOT DIVERGE!
         let elapsedSeconds = CACurrentMediaTime() - _atomicPlaybackStartWallTime
         let beatsPerSecond = _atomicTempo / 60.0
         return _atomicPlaybackStartBeat + (elapsedSeconds * beatsPerSecond)
@@ -208,6 +213,69 @@ class TransportController {
         self.onTransportStateChanged = onTransportStateChanged
         self.onPositionChanged = onPositionChanged
         self.onCycleJump = onCycleJump
+        
+        // Setup save coordination notifications (Issue #63)
+        setupSaveCoordinationObservers()
+    }
+    
+    // MARK: - Save Coordination (Issue #63)
+    
+    /// Temporary pause state for save operation
+    @ObservationIgnored
+    private var savedStateBeforeSavePause: TransportState = .stopped
+    
+    /// Setup notification observers for save coordination
+    /// CRITICAL (Issue #63): These ensure consistent project state during save
+    private func setupSaveCoordinationObservers() {
+        // Query transport state
+        NotificationCenter.default.addObserver(
+            forName: .queryTransportState,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self else { return }
+            // Extract coordinator and call synchronously (coordinator is thread-safe)
+            if let coordinator = notification.userInfo?["coordinator"] as? TransportQueryCoordinator {
+                let isPlaying = MainActor.assumeIsolated { self.isPlaying }
+                coordinator.resumeOnce(returning: isPlaying)
+            }
+        }
+        
+        // Pause transport for save
+        NotificationCenter.default.addObserver(
+            forName: .pauseTransportForSave,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            // Already on main queue, execute synchronously
+            MainActor.assumeIsolated {
+                // Save current state and pause
+                self.savedStateBeforeSavePause = self.transportState
+                if self.isPlaying {
+                    self.pause()
+                }
+                
+                // Confirm pause to ProjectManager
+                NotificationCenter.default.post(name: .transportPausedForSave, object: nil)
+            }
+        }
+        
+        // Resume transport after save
+        NotificationCenter.default.addObserver(
+            forName: .resumeTransportAfterSave,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            // Already on main queue, execute synchronously
+            MainActor.assumeIsolated {
+                // Only resume if we were playing before save
+                if self.savedStateBeforeSavePause == .playing {
+                    self.play()
+                }
+            }
+        }
     }
     
     nonisolated deinit {
@@ -483,23 +551,22 @@ class TransportController {
             return
         }
         
-        // Calculate elapsed time since playback started using captured wall time
-        // (captured on background queue when timer fired, not when this runs on MainActor)
-        let elapsedSeconds = capturedWallTime - playbackStartWallTime
-        
-        // Convert elapsed seconds to elapsed beats
-        let beatsPerSecond = project.tempo / 60.0
-        let elapsedBeats = elapsedSeconds * beatsPerSecond
-        
-        // Current position = start position + elapsed beats
-        let currentBeat = playbackStartBeat + elapsedBeats
+        // CRITICAL FIX: Use atomic position calculation (single source of truth)
+        // This ensures timer-based position matches MIDI scheduler's position exactly
+        // Previous approach duplicated calculation logic → potential for divergence
+        let currentBeat = calculateCurrentBeat(
+            startBeat: playbackStartBeat,
+            startWallTime: playbackStartWallTime,
+            currentWallTime: capturedWallTime,
+            tempo: project.tempo
+        )
         
         // Track state changes for debugging (no console output)
         if lastStartBeat != playbackStartBeat {
             let position = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
             lastStartBeat = playbackStartBeat
         }
-        
+
         currentPosition = PlaybackPosition(beats: currentBeat, timeSignature: project.timeSignature, tempo: project.tempo)
         
         // Update atomic state for MIDI scheduler
@@ -509,6 +576,26 @@ class TransportController {
         
         // Check for cycle loop
         checkCycleLoop()
+    }
+    
+    /// Calculate current beat position from wall-clock time (shared calculation logic)
+    /// This is the SINGLE SOURCE OF TRUTH for beat position calculation
+    /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
+    /// 
+    /// This method is nonisolated because it's a pure calculation with no state access,
+    /// making it safe to call from both MainActor and audio thread contexts.
+    /// 
+    /// - Parameters:
+    ///   - startBeat: The beat position where playback started
+    ///   - startWallTime: The wall-clock time when playback started (from CACurrentMediaTime())
+    ///   - currentWallTime: The current wall-clock time (from CACurrentMediaTime())
+    ///   - tempo: The current tempo in BPM
+    /// - Returns: The current beat position
+    nonisolated internal func calculateCurrentBeat(startBeat: Double, startWallTime: TimeInterval, currentWallTime: TimeInterval, tempo: Double) -> Double {
+        let elapsedSeconds = currentWallTime - startWallTime
+        let beatsPerSecond = tempo / 60.0
+        let elapsedBeats = elapsedSeconds * beatsPerSecond
+        return startBeat + elapsedBeats
     }
     
     private func checkCycleLoop() {
@@ -558,6 +645,36 @@ class TransportController {
     
     /// Jump to a beat position while transport is running (for cycle loops)
     /// Uses generation counter to avoid race conditions with position timer.
+    /// Jump to a specific beat position during playback (thread-safe)
+    /// 
+    /// BUG FIX (Issue #47): Cycle loop jumps now use seamless pre-scheduled audio
+    /// instead of stop/start sequence which caused audible gaps.
+    /// 
+    /// CRITICAL PROBLEM (before fix):
+    /// - Stop playback → clears all scheduled audio buffers
+    /// - Restart playback → schedules new audio from scratch
+    /// - Gap of silence during the stop/start transition
+    /// - Audible click or discontinuity at loop boundary
+    /// 
+    /// SOLUTION:
+    /// For cycle jumps, we rely on pre-scheduled iterations that are already
+    /// queued in the AVAudioPlayerNode. We only update timing state and position,
+    /// but DON'T stop/restart the player nodes.
+    /// 
+    /// PROFESSIONAL STANDARD:
+    /// - Logic Pro: Pre-schedules 2-3 cycle iterations ahead
+    /// - Pro Tools: Uses "loop cache" to avoid gaps
+    /// - Ableton Live: Seamless looping with pre-scheduled blocks
+    /// 
+    /// SEAMLESS CYCLE LOOP ARCHITECTURE:
+    /// 1. Audio tracks pre-schedule 2 iterations ahead (scheduleCycleAware)
+    /// 2. On cycle jump, player nodes are ALREADY playing future iterations
+    /// 3. We only update timing state to reflect the new position
+    /// 4. No stop/start → no gap → seamless loop
+    /// 
+    /// NON-CYCLE JUMPS:
+    /// For regular seeks (not cycle jumps), we still need stop/start because
+    /// the pre-scheduled audio is for the wrong position.
     func transportSafeJump(toBeat targetBeat: Double) {
         guard transportState.isPlaying else { return }
         guard let project = getProject() else { return }
@@ -589,11 +706,26 @@ class TransportController {
         // Metronome can also pre-schedule clicks at the target position
         onCycleJump(targetBeat)
         
-        // Stop current playback (will stop scheduled audio)
-        onStopPlayback()
+        // BUG FIX (Issue #47): For cycle jumps, DON'T stop/restart audio
+        // Audio tracks have already pre-scheduled multiple iterations ahead.
+        // Stopping would clear these buffers and cause an audible gap.
+        // 
+        // The pre-scheduled audio is already playing, we just updated the timing
+        // state above so position tracking reflects the new location.
+        // 
+        // MIDI and metronome were notified via onCycleJump above and can handle
+        // the jump independently (they don't use pre-scheduled buffers).
+        //
+        // NOTE: This assumes we're jumping to the cycle start beat. For jumps
+        // to arbitrary positions (non-cycle), we would need stop/restart.
+        let isCycleJump = isCycleEnabled && abs(targetBeat - cycleStartBeat) < 0.001
         
-        // Restart playback from the target beat
-        onStartPlayback(targetBeat)
+        if !isCycleJump {
+            // Not a cycle jump - need to stop and reschedule for new position
+            onStopPlayback()
+            onStartPlayback(targetBeat)
+        }
+        // else: Cycle jump - audio already pre-scheduled, no action needed
         
         // Update the position timer's generation to match
         positionUpdateGeneration = cycleGeneration
