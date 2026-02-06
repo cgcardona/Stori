@@ -13,7 +13,7 @@ Assume audiophile users with advanced hardware.
 ---
 
 ## INPUT
-- **GitHub Issue URL:** https://github.com/cgcardona/Stori/issues/123
+- **GitHub Issue URL:** https://github.com/cgcardona/Stori/issues/122
 
 ---
 
