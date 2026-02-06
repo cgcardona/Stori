@@ -69,7 +69,6 @@ struct StoriApp: App {
     @NSApplicationDelegateAdaptor(StoriAppDelegate.self) var appDelegate
     
     @State private var showingUpdateSheet = false
-    @State private var showingModelDownloadSheet = false
     
     var body: some Scene {
         // Main DAW Window - uses id for programmatic opening via openWindow(id:)
@@ -96,16 +95,10 @@ struct StoriApp: App {
                         }
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .showModelDownload)) { _ in
-                    showingModelDownloadSheet = true
-                }
                 .sheet(isPresented: $showingUpdateSheet) {
                     if case .available(let release) = UpdateManager.shared.state {
                         UpdateAvailableView(updateManager: UpdateManager.shared, release: release)
                     }
-                }
-                .sheet(isPresented: $showingModelDownloadSheet) {
-                    SetupWizardView(setupManager: SetupManager.shared)
                 }
         }
         .windowToolbarStyle(.unifiedCompact)
@@ -120,14 +113,11 @@ struct StoriApp: App {
                 
                 Divider()
                 
-                Button("Check for Updates...") {
-                    NotificationCenter.default.post(name: .checkForUpdates, object: nil)
-                }
-                .keyboardShortcut("u", modifiers: [.command, .shift])
-                
-                Button("Download AI Models...") {
-                    NotificationCenter.default.post(name: .showModelDownload, object: nil)
-                }
+                // Not yet active – keep for future implementation
+                // Button("Check for Updates...") {
+                //     NotificationCenter.default.post(name: .checkForUpdates, object: nil)
+                // }
+                // .keyboardShortcut("u", modifiers: [.command, .shift])
             }
             
             // File menu commands
@@ -1002,5 +992,4 @@ extension Notification.Name {
     
     // Update and setup notifications
     static let checkForUpdates = Notification.Name("checkForUpdates")
-    static let showModelDownload = Notification.Name("showModelDownload")
 }

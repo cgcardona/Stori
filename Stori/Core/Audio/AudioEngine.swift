@@ -790,8 +790,13 @@ class AudioEngine: AudioEngineContext {
     }
     
     deinit {
-        // Note: Cannot access @MainActor properties in deinit
-        // TransportController's timer will be cleaned up automatically
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Root cause: @Observable classes have implicit Swift Concurrency tasks
+        // for property change notifications that can cause bad-free on deinit.
+        // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
+        // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
+        // Note: Cannot access @MainActor properties in deinit.
+        // TransportController's timer will be cleaned up automatically.
     }
     
     // MARK: - Audio Engine Setup

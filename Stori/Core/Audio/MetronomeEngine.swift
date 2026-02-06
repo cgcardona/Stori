@@ -199,6 +199,14 @@ class MetronomeEngine {
             format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         }
         
+        // BUG FIX (Issue #51): Update sample rate when device changes
+        // This ensures metronome timing calculations use the correct device sample rate
+        self.sampleRate = format.sampleRate
+        
+        // BUG FIX (Issue #51): Regenerate click sounds at new sample rate
+        // Click buffers contain sample data at specific sample rate and must be regenerated
+        generateClickSounds(format: format)
+        
         // Nodes are still attached after reset, just disconnected
         // Reconnect: player → metronome mixer → DAW mixer
         engine.connect(player, to: metroMix, format: format)
