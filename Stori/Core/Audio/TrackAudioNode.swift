@@ -13,12 +13,12 @@ import Accelerate
 
 /// Audio node representation for individual tracks with real-time safe level metering.
 ///
-/// REAL-TIME SAFETY: Level metering uses `os_unfair_lock` protected storage.
-/// The audio tap callback writes levels with lock (never blocks), and the main thread
-/// reads via public properties with lock. This avoids `DispatchQueue.main.async` which
-/// can cause priority inversion and audio dropouts when the main thread is busy.
+/// REAL-TIME SAFETY: Level metering uses lock-free atomic operations (Issue #59 fix).
+/// The audio tap callback writes levels with atomic stores (UnsafeMutablePointer), and the
+/// main thread reads via atomic loads. No locks, no contention, scales to unlimited tracks.
+/// Bit-casting Float ↔ UInt32 for atomic storage (IEEE-754 safe).
 ///
-/// This pattern matches `AutomationProcessor` and `RecordingBufferPool` in the codebase.
+/// Automation uses `os_unfair_lock` (acceptable - not in metering hot path).
 final class TrackAudioNode: @unchecked Sendable {
     
     // MARK: - Properties
