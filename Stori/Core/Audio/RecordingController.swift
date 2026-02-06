@@ -786,10 +786,17 @@ final class RecordingController: @unchecked Sendable {
                         NotificationCenter.default.post(name: .projectUpdated, object: project)
                         NotificationCenter.default.post(name: .saveProject, object: nil)
                         
-                        loadProjectCopy(project)
-                    }
+                    loadProjectCopy(project)
                 }
+            }
             } catch {}
         }
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
     }
 }

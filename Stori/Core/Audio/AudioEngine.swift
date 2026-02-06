@@ -303,10 +303,15 @@ class AudioEngine: AudioEngineContext {
         // Restart if it was running
         if wasRunning {
             do {
-                try engine.start()
+                // Wrap engine.start() in ObjC exception handler since it can throw
+                // NSException (not Swift Error) when the audio graph is inconsistent
+                try tryObjC { try? self.engine.start() }
                 // Start the metronome player node (keeps it ready for scheduling)
                 metronome.preparePlayerNode()
             } catch {
+                // Engine failed to restart after metronome install
+                // The engine will be started on next playback attempt
+                logDebug("⚠️ Engine restart after metronome install failed: \(error)", category: "METRONOME")
             }
         }
     }

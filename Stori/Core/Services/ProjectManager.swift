@@ -1658,6 +1658,13 @@ class ProjectManager {
         // Thumbnail found successfully (no log spam - this is the happy path)
         return thumbnailURL
     }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
+    }
 }
 
 // MARK: - Export Quality

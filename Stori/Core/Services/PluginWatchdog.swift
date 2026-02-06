@@ -205,6 +205,13 @@ class PluginWatchdog {
             UserDefaults.standard.set(data, forKey: "plugin.disabled")
         }
     }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
+    }
 }
 
 // MARK: - PluginInstance Extension for Watchdog Integration

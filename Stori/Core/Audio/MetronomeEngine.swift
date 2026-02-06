@@ -216,9 +216,13 @@ class MetronomeEngine {
     /// Prepare the player node for playback (called after engine starts)
     /// This starts the player node so it's ready to receive scheduled buffers
     func preparePlayerNode() {
-        guard let player = clickPlayer else { return }
+        guard let player = clickPlayer, player.engine != nil else { return }
         if !player.isPlaying {
-            player.play()
+            do {
+                try tryObjC { player.play() }
+            } catch {
+                // play() threw ObjC exception - engine may not be fully ready
+            }
         }
     }
     
@@ -311,12 +315,29 @@ class MetronomeEngine {
         // Verify engine is running
         guard engine.isRunning else { return }
         
+        // SAFETY: Verify player node is still attached to the engine graph.
+        // During graph mutations (track add/remove, engine reset), nodes can
+        // become detached. Calling stop()/play() on a detached node throws an
+        // ObjC NSInternalInconsistencyException that Swift cannot catch.
+        guard player.engine != nil else { return }
+        
         isPlaying = true
         
-        // Re-arm the player on transport play
-        // isPlaying can lie after engine timeline changes
-        player.stop()   // Clear stale state
-        player.play()   // Re-join current render timeline
+        // Re-arm the player on transport play.
+        // Wrapped in ObjC exception handler because stop()/play() are graph
+        // operations that can throw NSException if the graph is being mutated
+        // concurrently (e.g., by installMetronome or track node reconnection).
+        do {
+            try tryObjC {
+                player.stop()   // Clear stale state
+                player.play()   // Re-join current render timeline
+            }
+        } catch {
+            // Graph operation failed - metronome won't play this time
+            // The user can retry by toggling transport
+            isPlaying = false
+            return
+        }
         player.prepare(withFrameCount: 2048)  // Reduce first-click glitches
         
         // Get current render time as our anchor
@@ -368,8 +389,14 @@ class MetronomeEngine {
         fillTimer?.cancel()
         fillTimer = nil
         
-        // Stop the player
-        clickPlayer?.stop()
+        // Stop the player (guard against detached node)
+        if let player = clickPlayer, player.engine != nil {
+            do {
+                try tryObjC { player.stop() }
+            } catch {
+                // stop() threw ObjC exception - node may already be stopped/detached
+            }
+        }
     }
     
     // MARK: - Sample-Accurate Scheduling
@@ -416,11 +443,17 @@ class MetronomeEngine {
               let player = clickPlayer,
               let accentBuf = accentBuffer,
               let normalBuf = normalBuffer,
-              let dawEngine = dawAudioEngine else { return }
+              let dawEngine = dawAudioEngine,
+              player.engine != nil else { return }
         
         // Ensure player is still playing
         if !player.isPlaying {
-            player.play()
+            do {
+                try tryObjC { player.play() }
+            } catch {
+                // Can't restart player - skip this fill cycle
+                return
+            }
         }
         
         // Get current beat position from the DAW
