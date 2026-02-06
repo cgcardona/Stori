@@ -81,7 +81,7 @@ final class AudioPerformanceMonitor {
     
     static let shared = AudioPerformanceMonitor()
     
-    private init() {}
+    init() {}
     
     // MARK: - Timing Measurement
     

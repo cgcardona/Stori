@@ -85,7 +85,7 @@ final class AudioResourcePool {
     
     static let shared = AudioResourcePool()
     
-    private init() {}
+    init() {}
     
     // MARK: - Buffer Borrowing
     
