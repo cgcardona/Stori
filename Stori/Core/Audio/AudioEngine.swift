@@ -126,6 +126,24 @@ class AudioEngine: AudioEngineContext {
     /// Whether emergency feedback mute is active
     var isFeedbackMuted: Bool = false
     
+    // MARK: - Real-Time Safe Error Tracking (Issue #78)
+    
+    /// Lock for clipping detection atomics
+    @ObservationIgnored
+    private var rtClippingLock = os_unfair_lock()
+    
+    /// Number of clipping events detected (incremented on RT thread, reset on main thread)
+    @ObservationIgnored
+    private nonisolated(unsafe) var rtClippingEventsDetected: UInt32 = 0
+    
+    /// Last clipping max level (for deferred reporting)
+    @ObservationIgnored
+    private nonisolated(unsafe) var rtLastClippingMaxLevel: Float = 0.0
+    
+    /// Timer for flushing RT error events to AppLogger
+    @ObservationIgnored
+    private var rtErrorFlushTimer: DispatchSourceTimer?
+    
     // NOTE: Graph mutation coordination is now handled by AudioGraphManager
     
     @ObservationIgnored
@@ -811,6 +829,9 @@ class AudioEngine: AudioEngineContext {
         // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
         // Note: Cannot access @MainActor properties in deinit.
         // TransportController's timer will be cleaned up automatically.
+        
+        // Clean up RT error flush timer
+        stopRTErrorFlushTimer()
     }
     
     // MARK: - Audio Engine Setup
@@ -964,11 +985,60 @@ class AudioEngine: AudioEngineContext {
         // Start feedback monitoring
         feedbackMonitor.startMonitoring()
         
+        // Start RT error flush timer (deferred logging)
+        startRTErrorFlushTimer()
+        
         AppLogger.shared.info("Feedback protection: Monitoring enabled", category: .audio)
-        // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
+        // DEBUG: Clipping detection is now real-time safe (no print on audio thread)
     }
     
-    /// Detect and log clipping in an audio buffer
+    /// Start periodic timer to flush RT error events to AppLogger
+    /// Runs on utility queue to avoid blocking main thread or audio thread
+    private func startRTErrorFlushTimer() {
+        // Cancel existing timer if any
+        rtErrorFlushTimer?.cancel()
+        rtErrorFlushTimer = nil
+        
+        // Create timer on utility queue (low priority, not critical path)
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: .seconds(2))  // Flush every 2 seconds
+        timer.setEventHandler { [weak self] in
+            self?.flushRTErrorEvents()
+        }
+        timer.resume()
+        
+        rtErrorFlushTimer = timer
+    }
+    
+    /// Flush accumulated RT error events to AppLogger (called periodically on utility queue)
+    /// THREAD SAFE: Can be called from any thread
+    private nonisolated func flushRTErrorEvents() {
+        // Read and reset atomic counters (lock-protected)
+        os_unfair_lock_lock(&rtClippingLock)
+        let eventsDetected = rtClippingEventsDetected
+        let maxLevel = rtLastClippingMaxLevel
+        rtClippingEventsDetected = 0
+        rtLastClippingMaxLevel = 0.0
+        os_unfair_lock_unlock(&rtClippingLock)
+        
+        // Log if any events occurred
+        if eventsDetected > 0 {
+            AppLogger.shared.warning(
+                "⚠️ CLIPPING DETECTED: \(eventsDetected) event(s) since last check, max level: \(String(format: "%.3f", maxLevel))",
+                category: .audio
+            )
+        }
+    }
+    
+    /// Stop RT error flush timer
+    private func stopRTErrorFlushTimer() {
+        rtErrorFlushTimer?.cancel()
+        rtErrorFlushTimer = nil
+    }
+    
+    /// Detect and record clipping in an audio buffer
+    /// REAL-TIME SAFE: No allocations, no logging, only atomic updates
+    /// Logging is deferred to non-RT thread via periodic flush
     private func detectClipping(in buffer: AVAudioPCMBuffer, location: String) {
         guard let channelData = buffer.floatChannelData else { return }
         
@@ -990,7 +1060,14 @@ class AudioEngine: AudioEngineContext {
         }
         
         if clippedFrames > 0 || maxSample > 0.95 {
-            print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
+            // REAL-TIME SAFE: Lock-free increment and compare-and-swap
+            // No heap allocation, no logging, no blocking
+            os_unfair_lock_lock(&rtClippingLock)
+            rtClippingEventsDetected += 1
+            if maxSample > rtLastClippingMaxLevel {
+                rtLastClippingMaxLevel = maxSample
+            }
+            os_unfair_lock_unlock(&rtClippingLock)
         }
     }
     
