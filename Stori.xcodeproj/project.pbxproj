@@ -55,6 +55,7 @@
 				Core/Audio/DeviceConfigurationManager.swift,
 				Core/Audio/DrumKitEngine.swift,
 				Core/Audio/EffectTypeMapping.swift,
+				Core/Audio/FeedbackProtectionMonitor.swift,
 				Core/Audio/InstrumentPluginHost.swift,
 				Core/Audio/MeteringService.swift,
 				Core/Audio/MetronomeEngine.swift,

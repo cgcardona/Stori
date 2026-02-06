@@ -117,6 +117,15 @@ class AudioEngine: AudioEngineContext {
         componentFlagsMask: 0
     ))
     
+    // MARK: - Feedback Protection (Issue #57)
+    
+    /// Real-time feedback detection and auto-mute protection
+    @ObservationIgnored
+    private let feedbackMonitor = FeedbackProtectionMonitor()
+    
+    /// Whether emergency feedback mute is active
+    var isFeedbackMuted: Bool = false
+    
     // NOTE: Graph mutation coordination is now handled by AudioGraphManager
     
     @ObservationIgnored
@@ -906,14 +915,15 @@ class AudioEngine: AudioEngineContext {
         // - Release Time: 0.001 - 0.5 seconds (parameter ID 1)
         // - Pre-Gain: -40 - +40 dB (parameter ID 2)
         
-        // Set fast attack for transparent limiting
+        // ISSUE #57 FIX: More aggressive limiting for feedback protection
+        // Set very fast attack for feedback protection (1ms)
         if let attackParam = parameterTree.parameter(withAddress: 0) {
-            attackParam.value = 0.005  // 5ms attack
+            attackParam.value = 0.001  // 1ms attack (was 5ms) - catches feedback faster
         }
         
-        // Set moderate release to avoid pumping
+        // Set fast release to recover quickly after spike
         if let releaseParam = parameterTree.parameter(withAddress: 1) {
-            releaseParam.value = 0.1  // 100ms release
+            releaseParam.value = 0.05  // 50ms release (was 100ms) - faster recovery
         }
         
         // Pre-gain at 0 dB (unity)
@@ -921,14 +931,24 @@ class AudioEngine: AudioEngineContext {
             preGainParam.value = 0.0
         }
         
-        AppLogger.shared.debug("Master limiter configured for safe headroom", category: .audio)
+        AppLogger.shared.debug("Master limiter configured for feedback protection (1ms attack, 50ms release)", category: .audio)
     }
     
     /// Install audio taps to detect clipping at various points in the signal chain (DEBUG only)
     private func installClippingDetectionTaps() {
-        // Tap after mixer (before EQ/limiter)
+        // Tap after mixer (before EQ/limiter) - includes feedback protection monitoring
         mixer.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
-            self?.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
+            guard let self = self else { return }
+            
+            // Check for feedback (Issue #57)
+            if self.feedbackMonitor.processBuffer(buffer) {
+                // Feedback detected! Trigger emergency protection on main thread
+                Task { @MainActor in
+                    self.triggerFeedbackProtection()
+                }
+            }
+            
+            self.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
         }
         
         // Tap after limiter (final output)
@@ -936,6 +956,10 @@ class AudioEngine: AudioEngineContext {
             self?.detectClipping(in: buffer, location: "MASTER OUTPUT (post-limiter)")
         }
         
+        // Start feedback monitoring
+        feedbackMonitor.startMonitoring()
+        
+        AppLogger.shared.info("Feedback protection: Monitoring enabled", category: .audio)
         // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
     }
     
@@ -963,6 +987,56 @@ class AudioEngine: AudioEngineContext {
         if clippedFrames > 0 || maxSample > 0.95 {
             print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
         }
+    }
+    
+    // MARK: - Feedback Protection (Issue #57)
+    
+    /// Trigger emergency feedback protection
+    /// Called when feedback loop is detected - mutes master output immediately
+    private func triggerFeedbackProtection() {
+        guard !isFeedbackMuted else { return }
+        
+        // Emergency mute
+        isFeedbackMuted = true
+        let previousVolume = mixer.outputVolume
+        mixer.outputVolume = 0.0
+        
+        // Stop playback
+        stop()
+        
+        // Log the event
+        AppLogger.shared.error("FEEDBACK PROTECTION: Emergency mute triggered! Previous volume: \(previousVolume)", category: .audio)
+        
+        // Show warning to user
+        let message = """
+        ⚠️ FEEDBACK LOOP DETECTED
+        
+        Audio has been automatically muted to protect your speakers and hearing.
+        
+        Possible causes:
+        • Bus routing feedback loop
+        • Plugin feedback (delay/reverb with high feedback %)
+        • Parallel routing creating feedback path
+        • Excessive automation gain
+        
+        Please check your routing and reduce gain/feedback levels before unmuting.
+        
+        To unmute: Lower master volume, fix routing, then unmute manually.
+        """
+        
+        // Notify user (could be shown in UI as alert)
+        feedbackMonitor.triggerEmergencyProtection(currentLevel: previousVolume)
+        
+        // Could add UI notification here via SwiftUI @Published if needed
+        print("🚨 \(message)")
+    }
+    
+    /// Reset feedback protection and allow unmuting
+    /// Call after user fixes routing issues
+    func resetFeedbackProtection() {
+        isFeedbackMuted = false
+        feedbackMonitor.resetFeedbackState()
+        AppLogger.shared.info("Feedback protection: Reset by user", category: .audio)
     }
     
     // MARK: - Engine Start Recovery
