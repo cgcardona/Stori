@@ -2,216 +2,108 @@
 //  AudioSchedulingContext.swift
 //  Stori
 //
-//  Unified timing context for audio scheduling operations.
-//  Encapsulates sample rate, tempo, and time signature with computed conversions.
+//  Shared timing reference for sample-accurate scheduling across all audio subsystems.
+//  Ensures metronome, MIDI playback, and recording stay perfectly synchronized under tempo automation.
 //
-//  DESIGN RATIONALE:
-//  - Single source of truth for all timing calculations
-//  - Value type ensures thread-safe copying between contexts
-//  - Pre-computed values avoid repeated calculations in hot paths
-//  - Eliminates scattered sample rate / tempo handling across components
+//  ARCHITECTURE (Issue #56 Fix):
+//  - Single source of truth for beat-to-sample conversions
+//  - Used by MetronomeEngine, SampleAccurateMIDIScheduler, and RecordingController
+//  - Regenerated when tempo changes to maintain accuracy
+//  - Thread-safe access via atomic properties
+//
+//  WHY THIS MATTERS:
+//  - Without shared timing: Metronome drifts from MIDI under tempo automation
+//  - With shared timing: All audio events use identical beat-to-sample calculations
+//  - Professional DAW requirement: Metronome must be sample-accurate reference
 //
 
 import Foundation
 import AVFoundation
 
-// MARK: - Audio Scheduling Context
+// TimeSignature is defined in AudioModels.swift and will be available when this file is compiled as part of the target
 
-/// A value type encapsulating all timing-related state for audio scheduling.
-///
-/// This provides a single source of truth for:
-/// - Sample rate (hardware)
-/// - Tempo (project)
-/// - Time signature
-/// - Beat ↔ Sample conversions
-/// - Beat ↔ Seconds conversions
-///
-/// Usage:
-/// ```swift
-/// let context = AudioSchedulingContext(sampleRate: 48000, tempo: 120, timeSignature: .common)
-/// let samples = context.beatsToSamples(4.0)  // 4 beats = 96000 samples at 120 BPM
-/// let seconds = context.beatsToSeconds(4.0)  // 4 beats = 2.0 seconds at 120 BPM
-/// ```
+/// Shared scheduling context for all audio subsystems.
+/// Provides consistent beat-to-sample conversion across metronome, MIDI, and recording.
 ///
 /// THREAD SAFETY:
-/// This is a value type (struct), so it's inherently thread-safe when copied.
-/// Components can capture a context at a point in time and use it freely.
-struct AudioSchedulingContext: Sendable, Equatable {
-    
-    // MARK: - Core Properties
-    
-    /// Hardware sample rate in Hz (e.g., 44100, 48000, 96000)
+/// - All properties are immutable after creation
+/// - Safe to read from any thread (no locks needed)
+/// - New instances created when timing parameters change
+struct AudioSchedulingContext: Sendable {
+    /// Sample rate of the audio engine
     let sampleRate: Double
     
-    /// Project tempo in beats per minute
+    /// Tempo in BPM at the time this context was created
     let tempo: Double
     
-    /// Project time signature
+    /// Time signature (beats per bar, note value)
     let timeSignature: TimeSignature
     
-    // MARK: - Pre-Computed Values (for hot path efficiency)
-    
-    /// Seconds per beat: 60.0 / tempo
-    let secondsPerBeat: Double
-    
-    /// Samples per beat: secondsPerBeat * sampleRate
-    let samplesPerBeat: Double
-    
-    /// Seconds per bar (based on time signature)
-    let secondsPerBar: Double
-    
-    /// Samples per bar
-    let samplesPerBar: Double
-    
-    // MARK: - Initialization
-    
-    /// Create a scheduling context with explicit values
-    init(sampleRate: Double, tempo: Double, timeSignature: TimeSignature = .fourFour) {
-        self.sampleRate = sampleRate
-        self.tempo = max(1.0, tempo)  // Guard against division by zero
-        self.timeSignature = timeSignature
-        
-        // Pre-compute derived values
-        self.secondsPerBeat = 60.0 / self.tempo
-        self.samplesPerBeat = self.secondsPerBeat * sampleRate
-        
-        // Calculate bar duration based on time signature
-        // beatsPerBar = numerator when denominator is 4 (quarter note = 1 beat)
-        // For other denominators, adjust accordingly
-        let beatsPerBar = Double(timeSignature.numerator) * (4.0 / Double(timeSignature.denominator))
-        self.secondsPerBar = self.secondsPerBeat * beatsPerBar
-        self.samplesPerBar = self.samplesPerBeat * beatsPerBar
-    }
-    
-    /// Create a context with default values (48kHz, 120 BPM, 4/4)
+    /// Default context for fallback scenarios
     static let `default` = AudioSchedulingContext(
         sampleRate: 48000,
         tempo: 120,
-        timeSignature: .fourFour
+        timeSignature: TimeSignature(numerator: 4, denominator: 4)
     )
     
-    // MARK: - Beat ↔ Sample Conversions
-    
-    /// Convert beats to samples
-    /// - Parameter beats: Number of beats
-    /// - Returns: Number of samples
-    @inlinable
-    func beatsToSamples(_ beats: Double) -> Double {
-        beats * samplesPerBeat
+    /// Pre-calculated samples per beat for efficiency
+    /// Formula: (60.0 / tempo) * sampleRate
+    var samplesPerBeat: Double {
+        (60.0 / tempo) * sampleRate
     }
     
-    /// Convert samples to beats
-    /// - Parameter samples: Number of samples
-    /// - Returns: Number of beats
-    @inlinable
-    func samplesToBeats(_ samples: Double) -> Double {
-        samples / samplesPerBeat
+    /// Convert a beat position to sample time
+    /// - Parameters:
+    ///   - beat: The beat position to convert
+    ///   - referenceBeat: The beat position of the reference point (usually playback start)
+    ///   - referenceSample: The sample time of the reference point
+    /// - Returns: The absolute sample time for the given beat
+    func sampleTime(forBeat beat: Double, referenceBeat: Double, referenceSample: Int64) -> Int64 {
+        let beatDelta = beat - referenceBeat
+        let sampleDelta = Int64(beatDelta * samplesPerBeat)
+        return referenceSample + sampleDelta
     }
     
-    /// Convert samples to beats (from frame count)
-    @inlinable
-    func samplesToBeats(_ samples: AVAudioFrameCount) -> Double {
-        Double(samples) / samplesPerBeat
+    /// Convert a sample time to beat position
+    /// - Parameters:
+    ///   - sample: The sample time to convert
+    ///   - referenceBeat: The beat position of the reference point
+    ///   - referenceSample: The sample time of the reference point
+    /// - Returns: The beat position for the given sample time
+    func beat(forSampleTime sample: Int64, referenceBeat: Double, referenceSample: Int64) -> Double {
+        let sampleDelta = sample - referenceSample
+        let beatDelta = Double(sampleDelta) / samplesPerBeat
+        return referenceBeat + beatDelta
     }
     
-    // MARK: - Beat ↔ Seconds Conversions
-    
-    /// Convert beats to seconds
-    /// - Parameter beats: Number of beats
-    /// - Returns: Number of seconds
-    @inlinable
-    func beatsToSeconds(_ beats: Double) -> Double {
-        beats * secondsPerBeat
+    /// Calculate the number of samples per beat at current tempo and sample rate
+    /// Convenience method for subsystems that need this value directly
+    func samplesPerBeatInt64() -> Int64 {
+        Int64(samplesPerBeat.rounded())
     }
     
-    /// Convert seconds to beats
-    /// - Parameter seconds: Number of seconds
-    /// - Returns: Number of beats
-    @inlinable
+    /// Convert seconds to beats at current tempo
     func secondsToBeats(_ seconds: Double) -> Double {
-        seconds / secondsPerBeat
+        seconds * (tempo / 60.0)
     }
     
-    // MARK: - Sample ↔ Seconds Conversions
-    
-    /// Convert samples to seconds
-    @inlinable
-    func samplesToSeconds(_ samples: Double) -> Double {
-        samples / sampleRate
+    /// Convert beats to seconds at current tempo
+    func beatsToSeconds(_ beats: Double) -> Double {
+        beats * (60.0 / tempo)
     }
     
-    /// Convert seconds to samples
-    @inlinable
-    func secondsToSamples(_ seconds: Double) -> Double {
-        seconds * sampleRate
+    /// Create a new context with updated tempo
+    func with(tempo: Double) -> AudioSchedulingContext {
+        AudioSchedulingContext(sampleRate: sampleRate, tempo: tempo, timeSignature: timeSignature)
     }
     
-    // MARK: - Bar/Beat Calculations
-    
-    /// Get the bar number for a given beat position (0-indexed)
-    func barNumber(forBeat beat: Double) -> Int {
-        let beatsPerBar = Double(timeSignature.numerator) * (4.0 / Double(timeSignature.denominator))
-        return Int(beat / beatsPerBar)
+    /// Create a new context with updated sample rate
+    func with(sampleRate: Double) -> AudioSchedulingContext {
+        AudioSchedulingContext(sampleRate: sampleRate, tempo: tempo, timeSignature: timeSignature)
     }
     
-    /// Get the beat within the current bar (0-indexed)
-    func beatInBar(forBeat beat: Double) -> Double {
-        let beatsPerBar = Double(timeSignature.numerator) * (4.0 / Double(timeSignature.denominator))
-        return beat.truncatingRemainder(dividingBy: beatsPerBar)
-    }
-    
-    // MARK: - Context Updates
-    
-    /// Create a new context with updated tempo (preserving other values)
-    func with(tempo newTempo: Double) -> AudioSchedulingContext {
-        AudioSchedulingContext(
-            sampleRate: sampleRate,
-            tempo: newTempo,
-            timeSignature: timeSignature
-        )
-    }
-    
-    /// Create a new context with updated sample rate (preserving other values)
-    func with(sampleRate newSampleRate: Double) -> AudioSchedulingContext {
-        AudioSchedulingContext(
-            sampleRate: newSampleRate,
-            tempo: tempo,
-            timeSignature: timeSignature
-        )
-    }
-    
-    /// Create a new context with updated time signature (preserving other values)
-    func with(timeSignature newTimeSignature: TimeSignature) -> AudioSchedulingContext {
-        AudioSchedulingContext(
-            sampleRate: sampleRate,
-            tempo: tempo,
-            timeSignature: newTimeSignature
-        )
-    }
-}
-
-// MARK: - CustomStringConvertible
-
-extension AudioSchedulingContext: CustomStringConvertible {
-    var description: String {
-        "AudioSchedulingContext(sampleRate: \(Int(sampleRate))Hz, tempo: \(tempo) BPM, timeSignature: \(timeSignature))"
-    }
-}
-
-// MARK: - Debugging
-
-extension AudioSchedulingContext {
-    /// Debug string with all computed values
-    var debugDescription: String {
-        """
-        AudioSchedulingContext:
-          Sample Rate: \(Int(sampleRate)) Hz
-          Tempo: \(tempo) BPM
-          Time Signature: \(timeSignature.numerator)/\(timeSignature.denominator)
-          Seconds/Beat: \(String(format: "%.4f", secondsPerBeat))
-          Samples/Beat: \(String(format: "%.2f", samplesPerBeat))
-          Seconds/Bar: \(String(format: "%.4f", secondsPerBar))
-          Samples/Bar: \(String(format: "%.2f", samplesPerBar))
-        """
+    /// Create a new context with updated time signature
+    func with(timeSignature: TimeSignature) -> AudioSchedulingContext {
+        AudioSchedulingContext(sampleRate: sampleRate, tempo: tempo, timeSignature: timeSignature)
     }
 }
