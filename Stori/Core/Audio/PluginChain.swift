@@ -523,12 +523,21 @@ class PluginChain {
     
     /// Remove the chain from the engine
     /// State transition: (any) → uninstalled
+    /// SAFETY (Issue #62): Uses deferred deallocation for plugins
     func uninstall() {
         guard let engine = engine else { return }
         
-        // Unload all plugins
+        // CRITICAL (Issue #62): Schedule plugins for deferred deallocation
+        // instead of immediate unload() to prevent use-after-free
         for slot in slots {
-            slot?.unload()
+            if let plugin = slot {
+                PluginDeferredDeallocationManager.shared.schedulePluginForDeallocation(plugin)
+            }
+        }
+        
+        // Clear slots immediately (plugins are held by deferred manager)
+        for i in 0..<maxSlots {
+            slots[i] = nil
         }
         
         // Safely detach mixers - only if they exist and are attached to this engine
@@ -708,18 +717,33 @@ class PluginChain {
     
     /// Remove a plugin from a slot
     /// NOTE: Caller must rebuild the graph after calling this
+    /// SAFETY (Issue #62): Uses deferred deallocation to prevent use-after-free during hot-swap
     func removePlugin(atSlot slot: Int) {
         guard slot >= 0, slot < maxSlots, let plugin = slots[slot] else { return }
         
-        // Detach from engine if attached
+        // CRITICAL (Issue #62): Disconnect first, then schedule deferred deallocation
+        // The plugin's render callback may still be executing, so we MUST NOT
+        // immediately call unload() or detach(). Instead, we:
+        // 1. Disconnect to stop new render calls
+        // 2. Detach from engine (removes from graph)
+        // 3. Schedule plugin for deferred deallocation (0.5s delay)
+        
+        // Detach from engine if attached (safe: removes from graph, but doesn't deallocate yet)
         if let avUnit = plugin.avAudioUnit, let engine = engine {
             engine.disconnectNodeOutput(avUnit)
             engine.disconnectNodeInput(avUnit)
             engine.detach(avUnit)
         }
         
-        // Unload and remove
-        plugin.unload()
+        // Schedule for deferred deallocation instead of immediate unload
+        // This prevents use-after-free if render callback is still running
+        PluginDeferredDeallocationManager.shared.schedulePluginForDeallocation(
+            plugin,
+            trackId: nil,  // PluginChain doesn't know trackId
+            slotIndex: slot
+        )
+        
+        // Remove from slot immediately (graph rebuild will bypass it)
         slots[slot] = nil
         
         // NOTE: Caller must call rebuildChainConnections() or rebuildTrackGraph()
