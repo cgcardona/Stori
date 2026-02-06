@@ -692,29 +692,6 @@ class SynthEngine {
     private var smoothedMixesPool: [Float]
     private let maxBufferSize = 512
     
-    // MARK: - Adaptive Smoothing (Issue #102 optimization)
-    
-    /// Previous parameter values for rate-of-change detection
-    private var previousFilterCutoff: Float = 1.0
-    private var previousMasterVolume: Float = 0.7
-    
-    /// Adaptive time constant: faster for large changes, slower for fine adjustments
-    private func adaptiveTimeConstant(currentValue: Float, targetValue: Float, baseTimeConstant: Float = 0.005) -> Float {
-        let delta = abs(targetValue - currentValue)
-        
-        // For very fast changes (>0.3 normalized units), use faster smoothing
-        if delta > 0.3 {
-            return baseTimeConstant * 0.5  // 2.5ms for fast sweeps
-        }
-        // For medium changes (0.1-0.3), use base time constant
-        else if delta > 0.1 {
-            return baseTimeConstant  // 5ms standard
-        }
-        // For fine adjustments (<0.1), use slower smoothing for precision
-        else {
-            return baseTimeConstant * 1.5  // 7.5ms for fine control
-        }
-    }
     
     // MARK: - Initialization
     
@@ -737,10 +714,6 @@ class SynthEngine {
         self.filterResonanceSmoother.reset(to: preset.filter.resonance)
         self.masterVolumeSmoother.reset(to: preset.masterVolume)
         self.oscillatorMixSmoother.reset(to: preset.oscillatorMix)
-        
-        // Initialize previous values for adaptive smoothing
-        self.previousFilterCutoff = preset.filter.cutoff
-        self.previousMasterVolume = preset.masterVolume
         
         // Source node is created lazily when attached to engine
     }
@@ -887,25 +860,10 @@ class SynthEngine {
         // stepping on very fast sweeps. This per-sample approach achieves zero artifacts.
         // OPTIMIZATIONS:
         // - Memory pool: Zero per-buffer allocations
-        // - SIMD vectorization: Accelerate framework for cache efficiency
-        // - Adaptive smoothing: Time constant adjusts to automation speed
+        // - Cache-friendly sequential access patterns
         // CPU overhead: <0.03% on Apple Silicon (elite-tier efficiency)
         
-        // OPTIMIZATION: Adaptive time constant based on parameter change rate
-        // Fast sweeps get faster smoothing, fine adjustments get slower smoothing
-        let cutoffDelta = abs(targetFilterCutoff - previousFilterCutoff)
-        let volumeDelta = abs(targetMasterVolume - previousMasterVolume)
-        
-        // Update adaptive smoothing if significant change detected
-        if cutoffDelta > 0.01 {
-            // Fast cutoff changes detected - adjust smoother
-            previousFilterCutoff = targetFilterCutoff
-        }
-        if volumeDelta > 0.01 {
-            previousMasterVolume = targetMasterVolume
-        }
-        
-        // OPTIMIZATION: SIMD-vectorized smoothing calculation with memory pool
+        // Pre-compute smoothed parameter values for all samples in this buffer
         // Calculate smoothed values directly into pre-allocated pool arrays
         // Cache-friendly sequential writes for optimal memory bandwidth
         for frame in 0..<frameCount {
@@ -915,27 +873,18 @@ class SynthEngine {
             smoothedMixesPool[frame] = oscillatorMixSmoother.next(target: targetOscillatorMix)
         }
         
-        // Note: Further SIMD optimization possible with vDSP_vgen/vDSP_vramp for linear interpolation
-        // Current exponential smoothing requires sequential calculation (state-dependent)
-        // However, the memory pool + unsafe pointers provide cache-optimal access patterns
-        
         // Render each voice with per-sample smoothed parameters
-        // OPTIMIZATION: Memory pool arrays are reused across buffer renders
-        // Array slicing creates lightweight views without allocation
-        let cutoffsSlice = Array(smoothedCutoffsPool.prefix(frameCount))
-        let resonancesSlice = Array(smoothedResonancesPool.prefix(frameCount))
-        let volumesSlice = Array(smoothedVolumesPool.prefix(frameCount))
-        let mixesSlice = Array(smoothedMixesPool.prefix(frameCount))
-        
+        // REAL-TIME SAFE: Pass memory pool arrays directly (no copying)
+        // ArraySlice provides zero-cost abstraction over the pool arrays
         for voice in voices where voice.isActive {
             voice.renderPerSample(
                 into: buffer,
                 frameCount: frameCount,
                 startTime: currentTime,
-                smoothedCutoffs: cutoffsSlice,
-                smoothedResonances: resonancesSlice,
-                smoothedVolumes: volumesSlice,
-                smoothedMixes: mixesSlice
+                smoothedCutoffs: smoothedCutoffsPool,
+                smoothedResonances: smoothedResonancesPool,
+                smoothedVolumes: smoothedVolumesPool,
+                smoothedMixes: smoothedMixesPool
             )
         }
         
