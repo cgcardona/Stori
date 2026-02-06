@@ -1041,7 +1041,6 @@ struct IntegratedTimelineView: View {
             // Professional DAW feature: Scroll timeline to reveal a specific beat position
             // Used by Piano Roll "Reveal in Timeline" button
             if let beat = notification.userInfo?["beat"] as? Double {
-                let pixelsPerBeat = CGFloat(100.0 * horizontalZoom)
                 scrollSync.scrollToBeat(beat, pixelsPerBeat: pixelsPerBeat, viewportWidth: viewportWidth)
             }
         }

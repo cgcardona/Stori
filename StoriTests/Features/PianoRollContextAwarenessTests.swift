@@ -111,8 +111,8 @@ final class PianoRollContextAwarenessTests: XCTestCase {
     /// Test bar position calculation for standard 4/4 time
     func testBarPositionCalculation4_4() {
         // Given: Region in 4/4 time
-        let timeSignature = TimeSignature(upper: 4, lower: 4)
-        let beatsPerBar = Double(timeSignature.upper) // 4.0
+        let timeSignature = TimeSignature(numerator: 4, denominator: 4)
+        let beatsPerBar = Double(timeSignature.numerator) // 4.0
         
         let testCases: [(startBeat: Double, duration: Double, expectedStartBar: Int, expectedEndBar: Int)] = [
             (0.0, 4.0, 1, 1),      // Beat 0-4 = Bar 1 (exactly one bar)
@@ -138,8 +138,8 @@ final class PianoRollContextAwarenessTests: XCTestCase {
     /// Test bar position calculation for odd time signatures
     func testBarPositionCalculationOddTime() {
         // Given: Region in 7/8 time
-        let timeSignature = TimeSignature(upper: 7, lower: 8)
-        let beatsPerBar = Double(timeSignature.upper) // 7.0
+        let timeSignature = TimeSignature(numerator: 7, denominator: 8)
+        let beatsPerBar = Double(timeSignature.numerator) // 7.0
         
         let region = MIDIRegion(
             name: "Test",
@@ -184,20 +184,20 @@ final class PianoRollContextAwarenessTests: XCTestCase {
             (.fourFour, 0.0, 4.0, "1-1"),        // 4/4: bars 1-1 (one bar)
             (.fourFour, 0.0, 8.0, "1-2"),        // 4/4: bars 1-2 (two bars)
             (.fourFour, 16.0, 8.0, "5-6"),       // 4/4: bars 5-6
-            (TimeSignature(upper: 3, lower: 4), 0.0, 3.0, "1-1"),   // 3/4: one bar
-            (TimeSignature(upper: 7, lower: 8), 0.0, 7.0, "1-1"),   // 7/8: one bar
-            (TimeSignature(upper: 5, lower: 4), 0.0, 15.0, "1-3"),  // 5/4: three bars
+            (TimeSignature(numerator: 3, denominator: 4), 0.0, 3.0, "1-1"),   // 3/4: one bar
+            (TimeSignature(numerator: 7, denominator: 8), 0.0, 7.0, "1-1"),   // 7/8: one bar
+            (TimeSignature(numerator: 5, denominator: 4), 0.0, 15.0, "1-3"),  // 5/4: three bars
         ]
         
         for testCase in testCases {
-            let beatsPerBar = Double(testCase.timeSignature.upper)
+            let beatsPerBar = Double(testCase.timeSignature.numerator)
             let startBar = Int(testCase.startBeat / beatsPerBar) + 1
             let endBeat = testCase.startBeat + testCase.duration
             let endBar = Int(ceil((endBeat - 0.001) / beatsPerBar))
             
             let display = "\(startBar)-\(endBar)"
             XCTAssertEqual(display, testCase.expectedDisplay,
-                           "Bar display for \(testCase.timeSignature.upper)/\(testCase.timeSignature.lower) should be correct")
+                           "Bar display for \(testCase.timeSignature.numerator)/\(testCase.timeSignature.denominator) should be correct")
         }
     }
     
@@ -239,7 +239,7 @@ final class PianoRollContextAwarenessTests: XCTestCase {
     /// Test region spanning multiple bars
     func testRegionSpanningMultipleBars() {
         // Given: Long region spanning many bars
-        let timeSignature = TimeSignature(upper: 4, lower: 4)
+        let timeSignature = TimeSignature(numerator: 4, denominator: 4)
         let beatsPerBar = 4.0
         
         let region = MIDIRegion(
@@ -249,7 +249,9 @@ final class PianoRollContextAwarenessTests: XCTestCase {
         )
         
         let startBar = Int(region.startBeat / beatsPerBar) + 1
-        let endBar = Int((region.startBeat + region.durationBeats) / beatsPerBar) + 1
+        let endBeat = region.startBeat + region.durationBeats
+        // Use same epsilon logic as production code to handle exact bar boundaries
+        let endBar = Int(ceil((endBeat - 0.001) / beatsPerBar))
         
         XCTAssertEqual(startBar, 3, "Should start at bar 3")
         XCTAssertEqual(endBar, 10, "Should end at bar 10 (8 bars long)")

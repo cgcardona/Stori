@@ -471,7 +471,7 @@ struct PianoRollPanelContent: View {
                 // Bar position (professional DAW standard)
                 let tempo = projectManager.currentProject?.tempo ?? 120.0
                 let timeSignature = projectManager.currentProject?.timeSignature ?? .fourFour
-                let beatsPerBar = Double(timeSignature.upper)
+                let beatsPerBar = Double(timeSignature.numerator)
                 let startBar = Int(region.startBeat / beatsPerBar) + 1  // 1-indexed
                 let endBeat = region.startBeat + region.durationBeats
                 // Calculate end bar: if endBeat is exactly on a bar boundary, don't count next bar
