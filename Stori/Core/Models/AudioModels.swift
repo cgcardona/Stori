@@ -835,16 +835,37 @@ struct AudioFile: Identifiable, Codable, Equatable {
     /// - Security: All path validation handled by AudioFileReferenceManager
     /// - Validates: Path traversal prevention, project boundaries, null bytes
     /// - Fallback: Returns safe blocked path if validation fails
+    ///
+    /// - Important: **MainActor contract.** This property uses `MainActor.assumeIsolated`
+    ///   because `AudioFileReferenceManager.shared` is MainActor-isolated. You **must** read
+    ///   `url` only from the MainActor (e.g. from main thread, `@MainActor` code, or
+    ///   `await MainActor.run { ... }`). Reading from a non-MainActor context is undefined
+    ///   behavior. From non-MainActor contexts (e.g. async tasks, `Task.detached`), use
+    ///   `resolvedURL(projectDirectory:)` instead.
     var url: URL {
-        let manager = AudioFileReferenceManager.shared
+        // Access @MainActor context for AudioFileReferenceManager (caller must be on MainActor)
+        let secureURL = MainActor.assumeIsolated {
+            let manager = AudioFileReferenceManager.shared
+            return manager.resolveURL(for: storedPath, projectDirectory: nil)
+        }
         
-        // Single unified secure resolution
-        if let secureURL = manager.resolveURL(for: storedPath, projectDirectory: nil) {
+        if let secureURL = secureURL {
             return secureURL
         }
         
         // Security fallback: blocked path instead of potentially malicious path
         return URL(fileURLWithPath: "/tmp/blocked-audio-path-\(id.uuidString)")
+    }
+    
+    /// Resolve the file URL on the MainActor. Use from non-MainActor contexts (e.g. async tasks,
+    /// `Task.detached`, background queues) instead of reading the synchronous `url` property.
+    /// - Parameter projectDirectory: Optional project root for relative path resolution.
+    /// - Returns: Resolved absolute URL, or a safe blocked path if resolution fails.
+    func resolvedURL(projectDirectory: URL? = nil) async -> URL {
+        await MainActor.run {
+            AudioFileReferenceManager.shared.resolveURL(for: storedPath, projectDirectory: projectDirectory)
+                ?? URL(fileURLWithPath: "/tmp/blocked-audio-path-\(id.uuidString)")
+        }
     }
     
     // MARK: - Initialization

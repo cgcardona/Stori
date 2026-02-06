@@ -826,7 +826,9 @@ extension TrackAudioNode {
     
     /// Create a plugin chain for this track
     /// Note: This is called from AudioEngine when setting up a track
-    static func createPluginChain() -> PluginChain {
-        return PluginChain(maxSlots: 8)
+    nonisolated static func createPluginChain() -> PluginChain {
+        return MainActor.assumeIsolated {
+            PluginChain(maxSlots: 8)
+        }
     }
 }

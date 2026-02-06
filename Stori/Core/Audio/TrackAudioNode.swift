@@ -636,12 +636,14 @@ final class TrackAudioNode: @unchecked Sendable {
             let error = NSError(domain: "TrackAudioNode", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid or unsupported audio file format"])
             
             // Track the error so users know why audio isn't playing
-            AudioEngineErrorTracker.shared.recordError(
-                severity: .error,
-                component: "TrackAudioNode[\(id)]",
-                message: "Invalid audio file: \(url.lastPathComponent)",
-                context: ["path": url.path]
-            )
+            Task { @MainActor in
+                AudioEngineErrorTracker.shared.recordError(
+                    severity: .error,
+                    component: "TrackAudioNode[\(id)]",
+                    message: "Invalid audio file: \(url.lastPathComponent)",
+                    context: ["path": url.path]
+                )
+            }
             
             throw error
         }
@@ -656,12 +658,14 @@ final class TrackAudioNode: @unchecked Sendable {
                 cachedAudioFiles[url] = audioFileRef
             } catch {
                 // Track file load failures
-                AudioEngineErrorTracker.shared.recordError(
-                    severity: .error,
-                    component: "TrackAudioNode[\(id)]",
-                    message: "Failed to load audio file: \(url.lastPathComponent)",
-                    error: error
-                )
+                Task { @MainActor in
+                    AudioEngineErrorTracker.shared.recordError(
+                        severity: .error,
+                        component: "TrackAudioNode[\(id)]",
+                        message: "Failed to load audio file: \(url.lastPathComponent)",
+                        error: error
+                    )
+                }
                 throw error
             }
         }
@@ -767,15 +771,17 @@ final class TrackAudioNode: @unchecked Sendable {
                 // SECURITY (H-1): Validate header before passing to AVAudioFile
                 guard AudioFileHeaderValidator.validateHeader(at: region.audioFile.url) else {
                     // Track validation failures so user knows why region isn't playing
-                    AudioEngineErrorTracker.shared.recordError(
-                        severity: .error,
-                        component: "TrackAudioNode[\(id)]",
-                        message: "Skipping region: Invalid audio file header",
-                        context: [
-                            "file": region.audioFile.url.lastPathComponent,
-                            "regionId": region.id.uuidString
-                        ]
-                    )
+                    Task { @MainActor in
+                        AudioEngineErrorTracker.shared.recordError(
+                            severity: .error,
+                            component: "TrackAudioNode[\(id)]",
+                            message: "Skipping region: Invalid audio file header",
+                            context: [
+                                "file": region.audioFile.url.lastPathComponent,
+                                "regionId": region.id.uuidString
+                            ]
+                        )
+                    }
                     continue
                 }
                 
@@ -785,13 +791,15 @@ final class TrackAudioNode: @unchecked Sendable {
                     audioFile = newFile
                 } catch {
                     // Track file load failures
-                    AudioEngineErrorTracker.shared.recordError(
-                        severity: .error,
-                        component: "TrackAudioNode[\(id)]",
-                        message: "Failed to load audio file during scheduling",
-                        error: error,
-                        additionalContext: ["file": region.audioFile.url.lastPathComponent]
-                    )
+                    Task { @MainActor in
+                        AudioEngineErrorTracker.shared.recordError(
+                            severity: .error,
+                            component: "TrackAudioNode[\(id)]",
+                            message: "Failed to load audio file during scheduling",
+                            error: error,
+                            additionalContext: ["file": region.audioFile.url.lastPathComponent]
+                        )
+                    }
                     continue
                 }
             }
@@ -800,15 +808,17 @@ final class TrackAudioNode: @unchecked Sendable {
             
             // CRITICAL: Protect against empty audio files (0 duration)
             guard fileDuration > 0 else {
-                AudioEngineErrorTracker.shared.recordError(
-                    severity: .warning,
-                    component: "TrackAudioNode[\(id)]",
-                    message: "Skipping region: Audio file has zero duration",
-                    context: [
-                        "file": region.audioFile.url.lastPathComponent,
-                        "fileLength": String(audioFile.length)
-                    ]
-                )
+                Task { @MainActor in
+                    AudioEngineErrorTracker.shared.recordError(
+                        severity: .warning,
+                        component: "TrackAudioNode[\(id)]",
+                        message: "Skipping region: Audio file has zero duration",
+                        context: [
+                            "file": region.audioFile.url.lastPathComponent,
+                            "fileLength": String(audioFile.length)
+                        ]
+                    )
+                }
                 continue
             }
 
