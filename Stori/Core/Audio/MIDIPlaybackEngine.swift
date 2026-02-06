@@ -34,6 +34,11 @@ class MIDIPlaybackEngine {
     @ObservationIgnored
     private let scheduler = SampleAccurateMIDIScheduler()
     
+    /// Public accessor for shared scheduler (used by metronome for timing synchronization)
+    var sampleAccurateScheduler: SampleAccurateMIDIScheduler {
+        scheduler
+    }
+    
     // MARK: - Thread-Safe MIDI Block Cache
     
     /// Lock for thread-safe access to MIDI blocks

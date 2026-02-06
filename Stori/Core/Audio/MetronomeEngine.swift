@@ -86,9 +86,11 @@ class MetronomeEngine {
     @ObservationIgnored
     private weak var avAudioEngine: AVAudioEngine?
     @ObservationIgnored
-    private weak var dawAudioEngine: AudioEngine?
+    private weak var dawAudioEngine: AudioEngineContext?
     @ObservationIgnored
     private weak var transportController: TransportController?
+    @ObservationIgnored
+    private weak var midiScheduler: SampleAccurateMIDIScheduler?
     
     // MARK: - Scheduling State (ignored for observation)
     
@@ -134,13 +136,14 @@ class MetronomeEngine {
     
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
-    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine, transportController: TransportController) {
+    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngineContext, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
         // Idempotent: only install once
         guard !isInstalled else { return }
         
         self.avAudioEngine = engine
         self.dawAudioEngine = audioEngine
         self.transportController = transportController
+        self.midiScheduler = midiScheduler
         
         // Create nodes
         let player = AVAudioPlayerNode()
@@ -372,8 +375,17 @@ class MetronomeEngine {
     // MARK: - Sample-Accurate Scheduling
     
     /// Compute the sample time of the next beat boundary
+    /// Uses shared scheduling context when available for perfect sync with MIDI
     private func computeNextBeatSampleTime(from currentSampleTime: AVAudioFramePosition, currentBeat: Double) -> AVAudioFramePosition {
-        let framesPerBeat = self.framesPerBeat()
+        // Use shared scheduling context if available (for perfect sync with MIDI)
+        let framesPerBeat: Int64
+        if let scheduler = midiScheduler {
+            let context = scheduler.schedulingContext
+            framesPerBeat = context.samplesPerBeatInt64()
+        } else {
+            // Fallback: calculate from local tempo
+            framesPerBeat = self.framesPerBeat()
+        }
         
         // Find the next whole beat
         let nextWholeBeat = ceil(currentBeat)
@@ -386,6 +398,13 @@ class MetronomeEngine {
     }
     
     private func framesPerBeat() -> AVAudioFramePosition {
+        // Use shared scheduling context if available
+        if let scheduler = midiScheduler {
+            let context = scheduler.schedulingContext
+            return context.samplesPerBeatInt64()
+        }
+        
+        // Fallback: calculate from local tempo
         let secondsPerBeat = 60.0 / tempo
         return AVAudioFramePosition((secondsPerBeat * sampleRate).rounded())
     }
