@@ -229,7 +229,7 @@ struct PianoRollView: View {
                                     ZStack {
                                         // Background: viewport-sized grid lanes (draws in scrolled coordinates)
                                         noteGrid
-                                            .frame(width: gridWidth, height: availableHeight)
+                                            .frame(width: outerGeo.size.width, height: availableHeight)
                                         
                                         // Foreground: scrollable content
                                         ScrollViewReader { scrollProxy in
