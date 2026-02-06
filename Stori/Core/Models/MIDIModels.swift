@@ -508,19 +508,47 @@ enum SnapResolution: String, CaseIterable, Codable {
     case off = "Off"
     
     /// Step duration in beats (assuming 4/4 time). Use for musical grid, not seconds.
+    /// **DEPRECATED**: Use `stepDurationBeats(timeSignature:)` for time-signature-aware quantization.
+    /// This property remains for backward compatibility but assumes 4/4 time.
     var stepDurationBeats: Double {
+        return stepDurationBeats(timeSignature: .fourFour)
+    }
+    
+    /// Step duration in beats adjusted for time signature.
+    /// **CRITICAL (Issue #64)**: This method correctly handles odd/compound time signatures.
+    /// - Parameter timeSignature: The current time signature
+    /// - Returns: Step duration in beats for the given time signature
+    func stepDurationBeats(timeSignature: TimeSignature) -> Double {
+        // Calculate beats per bar based on time signature
+        // numerator = number of beats, denominator = beat unit
+        // e.g., 7/8 = 7 eighth notes = 3.5 quarter-note beats
+        // e.g., 5/4 = 5 quarter notes = 5.0 quarter-note beats
+        let beatsPerBar = Double(timeSignature.numerator) * (4.0 / Double(timeSignature.denominator))
+        
         switch self {
-        case .bar: return 4.0
-        case .half: return 2.0
-        case .quarter: return 1.0
-        case .eighth: return 0.5
-        case .sixteenth: return 0.25
-        case .thirtysecond: return 0.125
-        case .sixtyfourth: return 0.0625
-        case .tripletQuarter: return 1.0 / 1.5
-        case .tripletEighth: return 0.5 / 1.5
-        case .tripletSixteenth: return 0.25 / 1.5
-        case .off: return 0
+        case .bar:
+            return beatsPerBar
+        case .half:
+            return beatsPerBar / 2.0
+        case .quarter:
+            // Quarter note is always 1.0 beat (our base unit)
+            return 1.0
+        case .eighth:
+            return 0.5
+        case .sixteenth:
+            return 0.25
+        case .thirtysecond:
+            return 0.125
+        case .sixtyfourth:
+            return 0.0625
+        case .tripletQuarter:
+            return 1.0 / 1.5
+        case .tripletEighth:
+            return 0.5 / 1.5
+        case .tripletSixteenth:
+            return 0.25 / 1.5
+        case .off:
+            return 0
         }
     }
     
@@ -536,15 +564,41 @@ enum SnapResolution: String, CaseIterable, Codable {
     }
     
     /// Quantize a beat value to this resolution (beats in, beats out).
+    /// **DEPRECATED**: Use `quantize(beat:timeSignature:)` for time-signature-aware quantization.
+    /// This method assumes 4/4 time for backward compatibility.
     func quantize(beat: Double) -> Double {
-        guard stepDurationBeats > 0 else { return beat }
-        return round(beat / stepDurationBeats) * stepDurationBeats
+        return quantize(beat: beat, timeSignature: .fourFour)
+    }
+    
+    /// Quantize a beat value to this resolution with time signature support.
+    /// **CRITICAL (Issue #64)**: This method correctly handles odd/compound time signatures.
+    /// - Parameters:
+    ///   - beat: The beat position to quantize
+    ///   - timeSignature: The current time signature
+    /// - Returns: Quantized beat position
+    func quantize(beat: Double, timeSignature: TimeSignature) -> Double {
+        let gridSize = stepDurationBeats(timeSignature: timeSignature)
+        guard gridSize > 0 else { return beat }
+        return round(beat / gridSize) * gridSize
     }
     
     /// Quantize with strength (0 = no change, 1 = full quantize).
+    /// **DEPRECATED**: Use `quantize(beat:timeSignature:strength:)` for time-signature-aware quantization.
+    /// This method assumes 4/4 time for backward compatibility.
     func quantize(beat: Double, strength: Float) -> Double {
-        guard stepDurationBeats > 0, strength > 0 else { return beat }
-        let quantized = quantize(beat: beat)
+        return quantize(beat: beat, timeSignature: .fourFour, strength: strength)
+    }
+    
+    /// Quantize with strength and time signature support.
+    /// **CRITICAL (Issue #64)**: This method correctly handles odd/compound time signatures.
+    /// - Parameters:
+    ///   - beat: The beat position to quantize
+    ///   - timeSignature: The current time signature
+    ///   - strength: Quantize strength (0.0 = no change, 1.0 = full snap to grid)
+    /// - Returns: Quantized beat position
+    func quantize(beat: Double, timeSignature: TimeSignature, strength: Float) -> Double {
+        guard strength > 0 else { return beat }
+        let quantized = quantize(beat: beat, timeSignature: timeSignature)
         let offset = quantized - beat
         return beat + (offset * Double(strength))
     }
