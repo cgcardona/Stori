@@ -325,9 +325,9 @@ extension AudioEngine {
             // Clean up any existing AU node if switching from AU to sampler
             if let oldAuNode = existing.audioUnitNode {
                 modifyGraphSafely {
-                    engine.disconnectNodeInput(oldAuNode)
-                    engine.disconnectNodeOutput(oldAuNode)
-                    engine.detach(oldAuNode)
+                    self.engine.disconnectNodeInput(oldAuNode)
+                    self.engine.disconnectNodeOutput(oldAuNode)
+                    self.engine.detach(oldAuNode)
                 }
             }
             // If it was a different type, we need to reconfigure

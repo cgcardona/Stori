@@ -53,7 +53,7 @@ class BusManager {
     private let transportStateAccessor: () -> TransportState
     
     /// Safe graph modification callback
-    private let modifyGraphSafely: (@escaping () -> Void) -> Void
+    private let modifyGraphSafely: (@escaping () throws -> Void) throws -> Void
     
     /// Callback to update solo state after bus changes
     private let updateSoloState: () -> Void
@@ -76,7 +76,7 @@ class BusManager {
         trackNodes: @escaping () -> [UUID: TrackAudioNode],
         currentProject: @escaping () -> AudioProject?,
         transportState: @escaping () -> TransportState,
-        modifyGraphSafely: @escaping (@escaping () -> Void) -> Void,
+        modifyGraphSafely: @escaping (@escaping () throws -> Void) throws -> Void,
         updateSoloState: @escaping () -> Void,
         reconnectMetronome: @escaping () -> Void,
         setupPositionTimer: @escaping () -> Void,
@@ -445,11 +445,12 @@ class BusManager {
         // Post-fader: Tap AFTER volume/pan (normal behavior)
         let tapNode = isPreFader ? trackNode.volumeNode : trackNode.panNode
         
-        modifyGraphSafely { [self] in
-            let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: trackBusNumber)
-            let sendConnectionPoint = AVAudioConnectionPoint(node: sendMixer, bus: inBus)
-            
-            if isPreFader {
+        do {
+            try modifyGraphSafely { [self] in
+                let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: trackBusNumber)
+                let sendConnectionPoint = AVAudioConnectionPoint(node: sendMixer, bus: inBus)
+                
+                if isPreFader {
                 // Pre-fader: Split signal after volumeNode
                 // volumeNode → [panNode (normal flow), sendBus]
                 engine.disconnectNodeOutput(trackNode.volumeNode)
@@ -476,6 +477,9 @@ class BusManager {
             
             trackSendIds[sendKey] = UUID()
             trackSendInputBus[sendKey] = inBus
+            }
+        } catch {
+            AppLogger.shared.error("BusManager: Failed to add track send: \(error)", category: .audio)
         }
         
         // Set send level immediately after graph mutation completes
@@ -510,16 +514,20 @@ class BusManager {
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
         let trackBusNumber = AVAudioNodeBus(trackIndex)
         
-        modifyGraphSafely { [self] in
-            let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: trackBusNumber)
-            
-            engine.disconnectNodeOutput(trackNode.panNode)
-            engine.connect(
-                trackNode.panNode,
-                to: [mainConnectionPoint],
-                fromBus: 0,
-                format: deviceFormat
-            )
+        do {
+            try modifyGraphSafely { [self] in
+                let mainConnectionPoint = AVAudioConnectionPoint(node: mixer, bus: trackBusNumber)
+                
+                engine.disconnectNodeOutput(trackNode.panNode)
+                engine.connect(
+                    trackNode.panNode,
+                    to: [mainConnectionPoint],
+                    fromBus: 0,
+                    format: deviceFormat
+                )
+            }
+        } catch {
+            AppLogger.shared.error("BusManager: Failed to remove track send: \(error)", category: .audio)
         }
         
         trackSendIds.removeValue(forKey: sendKey)
@@ -583,35 +591,39 @@ class BusManager {
         }
         
         
-        modifyGraphSafely { [self] in
-            engine.disconnectNodeOutput(trackNode.panNode)
-            engine.connect(trackNode.panNode, to: connectionPoints, fromBus: 0, format: deviceFormat)
-            
-            // Rebuild bus chains INSIDE the same stopped state
-            for (idx, send) in sends.enumerated() {
-                guard let busNode = busNodes[send.busId] else { continue }
+        do {
+            try modifyGraphSafely { [self] in
+                engine.disconnectNodeOutput(trackNode.panNode)
+                engine.connect(trackNode.panNode, to: connectionPoints, fromBus: 0, format: deviceFormat)
                 
-                let inNode = busNode.getInputNode()
-                let outNode = busNode.getOutputNode()
-                let busFormat = engine.outputNode.inputFormat(forBus: 0)
-                
-                engine.disconnectNodeOutput(inNode)
-                engine.disconnectNodeOutput(outNode)
-                
-                // Bus plugins are managed via pluginChain
-                let pluginChainInstalled = busNode.pluginChain.inputMixer.engine != nil
-                
-                if pluginChainInstalled {
-                    // Connect through plugin chain
-                    engine.connect(inNode, to: busNode.pluginChain.inputMixer, format: busFormat)
-                    engine.connect(busNode.pluginChain.outputMixer, to: outNode, format: busFormat)
-                } else {
-                    // Direct connection
-                    engine.connect(inNode, to: outNode, format: busFormat)
+                // Rebuild bus chains INSIDE the same stopped state
+                for (idx, send) in sends.enumerated() {
+                    guard let busNode = busNodes[send.busId] else { continue }
+                    
+                    let inNode = busNode.getInputNode()
+                    let outNode = busNode.getOutputNode()
+                    let busFormat = engine.outputNode.inputFormat(forBus: 0)
+                    
+                    engine.disconnectNodeOutput(inNode)
+                    engine.disconnectNodeOutput(outNode)
+                    
+                    // Bus plugins are managed via pluginChain
+                    let pluginChainInstalled = busNode.pluginChain.inputMixer.engine != nil
+                    
+                    if pluginChainInstalled {
+                        // Connect through plugin chain
+                        engine.connect(inNode, to: busNode.pluginChain.inputMixer, format: busFormat)
+                        engine.connect(busNode.pluginChain.outputMixer, to: outNode, format: busFormat)
+                    } else {
+                        // Direct connection
+                        engine.connect(inNode, to: outNode, format: busFormat)
+                    }
+                    
+                    engine.connect(outNode, to: mixer, format: busFormat)
                 }
-                
-                engine.connect(outNode, to: mixer, format: busFormat)
             }
+        } catch {
+            AppLogger.shared.error("BusManager: Failed to reconnect track with sends: \(error)", category: .audio)
         }
         
         // Set per-destination volumes AFTER the engine restarts
@@ -693,8 +705,12 @@ class BusManager {
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
         
         if transportStateAccessor().isPlaying {
-            modifyGraphSafely { [self] in
-                rebuildBusChainInternal(bus, format: deviceFormat)
+            do {
+                try modifyGraphSafely { [self] in
+                    rebuildBusChainInternal(bus, format: deviceFormat)
+                }
+            } catch {
+                AppLogger.shared.error("BusManager: Failed to rebuild bus chain: \(error)", category: .audio)
             }
         } else {
             rebuildBusChainInternal(bus, format: deviceFormat)
