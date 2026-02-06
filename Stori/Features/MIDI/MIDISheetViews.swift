@@ -301,6 +301,7 @@ struct PianoRollPanelContent: View {
             // Piano Roll with note preview through track instrument or fallback sampler
             // [PHASE-4] Convert cycle times from seconds to beats
             let tempo = projectManager.currentProject?.tempo ?? 120.0
+            let timeSignature = projectManager.currentProject?.timeSignature ?? .fourFour
             let beatsPerSecond = tempo / 60.0
             let secondsPerBeat = 60.0 / tempo
             
@@ -309,6 +310,7 @@ struct PianoRollPanelContent: View {
             PianoRollView(
                 region: regionBinding,
                 tempo: tempo,  // [PHASE-3] Project tempo for measure display
+                timeSignature: timeSignature,  // Issue #64: odd-meter quantization
                 cycleEnabled: audioEngine.isCycleEnabled,  // [PHASE-4] Cycle region from audio engine
                 cycleStartBeats: audioEngine.cycleStartBeat,
                 cycleEndBeats: audioEngine.cycleEndBeat,

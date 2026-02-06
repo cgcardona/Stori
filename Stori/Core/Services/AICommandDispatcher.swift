@@ -1121,7 +1121,7 @@ class AICommandDispatcher {
                 }
                 
                 let amount = params["amount"]?.doubleValue ?? 0.2  // Default 20% swing
-                let gridResolution = SnapResolution.eighth.stepDurationBeats  // Convert to beats (0.5)
+                let gridResolution = SnapResolution.eighth.stepDurationBeats(timeSignature: project.timeSignature)
                 
                 // Find and update the region
                 for trackIndex in project.tracks.indices {
@@ -1172,6 +1172,7 @@ class AICommandDispatcher {
                         let quantizedNotes = QuantizationEngine.quantize(
                             notes: originalNotes,
                             resolution: resolution,
+                            timeSignature: project.timeSignature,
                             strength: strength,
                             quantizeDuration: true
                         )
