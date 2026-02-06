@@ -18,7 +18,7 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
     var instrumentManager: InstrumentManager!
     var audioEngine: AudioEngine!
     var projectManager: ProjectManager!
-    var testProject: Project!
+    var testProject: AudioProject!
     var testTrack: AudioTrack!
     
     override func setUp() async throws {
@@ -30,10 +30,10 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
         instrumentManager = InstrumentManager()
         
         // Create test project with MIDI track
-        testProject = Project(
+        testProject = AudioProject(
             name: "Test Project",
             tempo: 120.0,
-            timeSignature: TimeSignature(upper: 4, lower: 4)
+            timeSignature: TimeSignature(numerator: 4, denominator: 4)
         )
         testTrack = AudioTrack(name: "Test MIDI Track", trackType: .midi)
         testProject.tracks.append(testTrack)
@@ -137,7 +137,6 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
         for testCase in testCases {
             // Given: Project at specific tempo
             testProject.tempo = testCase.tempo
-            audioEngine.setTempo(testCase.tempo)
             
             let recordingStartBeat = 0.0
             audioEngine.currentPosition.beats = recordingStartBeat
@@ -239,7 +238,7 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
     /// (Only recording timestamps should be compensated)
     func testAudioFeedbackIsImmediate() throws {
         // Given: Instrument manager configured
-        let instrument = try XCTUnwrap(instrumentManager.activeInstrument)
+        _ = try XCTUnwrap(instrumentManager.activeInstrument)
         
         // When: Note triggered with compensation
         let compensation = 0.06
@@ -259,7 +258,7 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
     /// Test compensation with odd time signatures
     func testLatencyCompensationOddTimeSignatures() throws {
         // Given: Project in 7/8 time
-        testProject.timeSignature = TimeSignature(upper: 7, lower: 8)
+        testProject.timeSignature = TimeSignature(numerator: 7, denominator: 8)
         
         let recordingStartBeat = 0.0
         audioEngine.currentPosition.beats = recordingStartBeat
@@ -286,7 +285,6 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
     func testLatencyCompensationDuringTempoChange() throws {
         // Given: Recording at 120 BPM
         testProject.tempo = 120.0
-        audioEngine.setTempo(120.0)
         
         let recordingStartBeat = 0.0
         audioEngine.currentPosition.beats = recordingStartBeat
@@ -299,7 +297,6 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
         
         // Tempo changes mid-note (realistic scenario)
         testProject.tempo = 180.0
-        audioEngine.setTempo(180.0)
         
         // Note off uses NEW tempo compensation
         let compensation180 = 0.090 // 30ms at 180 BPM

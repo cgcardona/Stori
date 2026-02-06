@@ -510,7 +510,7 @@ class VirtualKeyboardState {
     /// This converts the fixed latency compensation time (seconds) to musical time (beats)
     private var latencyCompensationBeats: Double {
         // Get current tempo from audio engine (default to 120 BPM if not available)
-        let tempo = audioEngine?.tempo ?? 120.0
+        let tempo = audioEngine?.currentProject?.tempo ?? 120.0
         
         // Convert seconds to beats: beats = seconds * (BPM / 60)
         let beatsPerSecond = tempo / 60.0
