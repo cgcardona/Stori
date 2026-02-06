@@ -494,6 +494,10 @@ class VirtualKeyboardState {
     var sustainEnabled: Bool = false
     var pressedNotes: Set<UInt8> = []
     
+    /// Notes being sustained by sustain pedal (but not currently pressed)
+    @ObservationIgnored
+    private var sustainedNotes: Set<UInt8> = []
+    
     /// UI latency compensation in seconds (measured/estimated UI event loop delay)
     /// This represents the delay between physical user action (click/keypress) and note trigger
     /// Typical values: 20-50ms depending on system load and event processing latency
@@ -638,11 +642,15 @@ class VirtualKeyboardState {
             keyUpMonitor = nil
         }
         
-        // Release all notes
+        // Release all notes (both pressed and sustained)
         for pitch in pressedNotes {
             sendNoteOff(pitch)
         }
+        for pitch in sustainedNotes {
+            sendNoteOff(pitch)
+        }
         pressedNotes.removeAll()
+        sustainedNotes.removeAll()
     }
     
     private func handleKeyDown(_ char: Character) -> Bool {
@@ -669,9 +677,9 @@ class VirtualKeyboardState {
         
         // Check for note keys
         if let pitch = pitchForKey(char) {
-            if !pressedNotes.contains(pitch) {
-                noteOn(pitch)
-            }
+            // ALWAYS allow noteOn, even if note is currently sustained
+            // This enables piano-style retriggering while sustain is active
+            noteOn(pitch)
             return true
         }
         
@@ -719,34 +727,58 @@ class VirtualKeyboardState {
     }
     
     func noteOn(_ pitch: UInt8) {
+        // Remove from sustained notes if retriggering a sustained note
+        sustainedNotes.remove(pitch)
+        
+        // If note is already pressed, send noteOff first (retrigger)
+        if pressedNotes.contains(pitch) {
+            sendNoteOff(pitch)
+        }
+        
+        // Add to pressed notes and send noteOn
         pressedNotes.insert(pitch)
         sendNoteOn(pitch)
     }
     
     func noteOff(_ pitch: UInt8) {
-        if !sustainEnabled {
-            pressedNotes.remove(pitch)
+        // Remove from currently pressed notes
+        pressedNotes.remove(pitch)
+        
+        if sustainEnabled {
+            // Sustain is active: add to sustained notes, don't send noteOff yet
+            sustainedNotes.insert(pitch)
+        } else {
+            // No sustain: send noteOff immediately
             sendNoteOff(pitch)
         }
     }
     
     func octaveUp() {
         if octave < 8 {
-            // Release current notes before changing octave
+            // Release all notes (pressed and sustained) before changing octave
             for pitch in pressedNotes {
                 sendNoteOff(pitch)
             }
+            for pitch in sustainedNotes {
+                sendNoteOff(pitch)
+            }
             pressedNotes.removeAll()
+            sustainedNotes.removeAll()
             octave += 1
         }
     }
     
     func octaveDown() {
         if octave > 0 {
+            // Release all notes (pressed and sustained) before changing octave
             for pitch in pressedNotes {
                 sendNoteOff(pitch)
             }
+            for pitch in sustainedNotes {
+                sendNoteOff(pitch)
+            }
             pressedNotes.removeAll()
+            sustainedNotes.removeAll()
             octave -= 1
         }
     }
@@ -766,12 +798,16 @@ class VirtualKeyboardState {
         // Also update InstrumentManager's sustain state
         instrumentManager.isSustainActive = enabled
         
-        // When sustain is released, stop all held notes
+        // When sustain is released, send noteOff for all sustained notes
+        // (but NOT for currently pressed notes - they should keep playing)
         if wasEnabled && !enabled {
-            for pitch in pressedNotes {
-                sendNoteOff(pitch)
+            for pitch in sustainedNotes {
+                // Only send noteOff if key is not currently pressed
+                if !pressedNotes.contains(pitch) {
+                    sendNoteOff(pitch)
+                }
             }
-            pressedNotes.removeAll()
+            sustainedNotes.removeAll()
         }
     }
     
