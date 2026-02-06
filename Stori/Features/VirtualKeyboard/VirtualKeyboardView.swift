@@ -594,7 +594,7 @@ class VirtualKeyboardState {
         self.audioEngine = audioEngine
     }
     
-    /// Configure audio engine reference for tempo-aware latency compensation
+    /// Configure audio engine reference for tempo-aware latency compensation and transport key forwarding
     func configure(audioEngine: AudioEngine) {
         self.audioEngine = audioEngine
     }
@@ -603,6 +603,54 @@ class VirtualKeyboardState {
         // Monitor key down events
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            
+            // CRITICAL FIX (Issue #121): Forward DAW transport keys to AudioEngine
+            // SwiftUI keyboard shortcuts are window-scoped. When Virtual Keyboard window
+            // has focus, keyboard shortcuts in the main window don't receive events.
+            // Solution: Check for transport keys and trigger actions directly.
+            //
+            // TRANSPORT KEYS (no modifiers):
+            // - 'r': Record/Stop Recording
+            // - Return: Go to Beginning
+            // - ',': Rewind
+            // - '.': Fast Forward
+            //
+            // This ensures recording workflow is never blocked by Virtual Keyboard.
+            if !event.modifierFlags.contains(.command) && 
+               !event.modifierFlags.contains(.control) &&
+               !event.modifierFlags.contains(.option) {
+                if let char = event.characters?.lowercased().first {
+                    switch char {
+                    case "r":
+                        // Forward to AudioEngine for recording control
+                        Task { @MainActor in
+                            if self.audioEngine?.isRecording == true {
+                                self.audioEngine?.stopRecording()
+                            } else {
+                                self.audioEngine?.record()
+                            }
+                        }
+                        return nil // Consume - we handled it
+                    case "\r": // Return key
+                        Task { @MainActor in
+                            self.audioEngine?.seek(toBeat: 0)
+                        }
+                        return nil
+                    case ",": // Rewind
+                        Task { @MainActor in
+                            self.audioEngine?.rewindBeats(1)
+                        }
+                        return nil
+                    case ".": // Fast Forward
+                        Task { @MainActor in
+                            self.audioEngine?.fastForwardBeats(1)
+                        }
+                        return nil
+                    default:
+                        break
+                    }
+                }
+            }
             
             // Ignore if modifier keys are pressed (except shift for uppercase)
             if event.modifierFlags.contains(.command) || 
@@ -622,6 +670,19 @@ class VirtualKeyboardState {
         // Monitor key up events
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
             guard let self = self else { return event }
+            
+            // CRITICAL FIX (Issue #121): Ignore transport keys in keyUp
+            // Transport keys are handled entirely in keyDown (above) - don't interfere here
+            if !event.modifierFlags.contains(.command) && 
+               !event.modifierFlags.contains(.control) &&
+               !event.modifierFlags.contains(.option) {
+                if let char = event.characters?.lowercased().first {
+                    let transportKeys: Set<Character> = ["r", "\r", ",", "."]
+                    if transportKeys.contains(char) {
+                        return nil // Consume - already handled in keyDown
+                    }
+                }
+            }
             
             if let char = event.characters?.lowercased().first {
                 if self.handleKeyUp(char) {
@@ -694,7 +755,8 @@ class VirtualKeyboardState {
         return false
     }
     
-    private func pitchForKey(_ char: Character) -> UInt8? {
+    /// Map keyboard character to MIDI pitch (internal for testing)
+    internal func pitchForKey(_ char: Character) -> UInt8? {
         let basePitch = UInt8(octave * 12)
         
         // White keys
