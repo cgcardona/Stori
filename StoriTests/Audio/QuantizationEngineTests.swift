@@ -30,6 +30,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -50,6 +51,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .eighth,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -70,6 +72,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .sixteenth,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -88,6 +91,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .off,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -106,6 +110,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,  // 100% strength
             quantizeDuration: false
         )
@@ -122,6 +127,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 0.5,  // 50% strength
             quantizeDuration: false
         )
@@ -138,6 +144,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 0.0,  // 0% strength
             quantizeDuration: false
         )
@@ -154,6 +161,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 0.75,  // 75% strength
             quantizeDuration: false
         )
@@ -172,6 +180,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: true
         )
@@ -188,6 +197,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -204,6 +214,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 0.5,
             quantizeDuration: true
         )
@@ -345,6 +356,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .eighth,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -371,6 +383,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -388,6 +401,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -405,6 +419,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -422,6 +437,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -456,6 +472,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -483,6 +500,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -502,6 +520,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .sixteenth,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -520,6 +539,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .quarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -543,6 +563,7 @@ final class QuantizationEngineTests: XCTestCase {
             _ = QuantizationEngine.quantize(
                 notes: notes,
                 resolution: .sixteenth,
+                timeSignature: .fourFour,
                 strength: 0.8,
                 quantizeDuration: false
             )
@@ -576,6 +597,7 @@ final class QuantizationEngineTests: XCTestCase {
             _ = QuantizationEngine.quantize(
                 notes: notes,
                 resolution: .eighth,
+                timeSignature: .fourFour,
                 strength: 1.0,
                 quantizeDuration: true
             )
@@ -607,6 +629,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .sixteenth,
+            timeSignature: .fourFour,
             strength: 0.75,  // 75% correction (preserve some human feel)
             quantizeDuration: false
         )
@@ -636,6 +659,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .eighth,
+            timeSignature: .fourFour,
             strength: 0.8,
             quantizeDuration: false
         )
@@ -661,6 +685,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .half,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -679,6 +704,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .bar,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -696,6 +722,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .thirtysecond,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -714,6 +741,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .tripletEighth,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -731,6 +759,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .tripletQuarter,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )
@@ -757,6 +786,7 @@ final class QuantizationEngineTests: XCTestCase {
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: .sixteenth,
+            timeSignature: .fourFour,
             strength: 1.0,
             quantizeDuration: false
         )

@@ -507,13 +507,6 @@ enum SnapResolution: String, CaseIterable, Codable {
     case tripletSixteenth = "1/16T"
     case off = "Off"
     
-    /// Step duration in beats (assuming 4/4 time). Use for musical grid, not seconds.
-    /// **DEPRECATED**: Use `stepDurationBeats(timeSignature:)` for time-signature-aware quantization.
-    /// This property remains for backward compatibility but assumes 4/4 time.
-    var stepDurationBeats: Double {
-        return stepDurationBeats(timeSignature: .fourFour)
-    }
-    
     /// Step duration in beats adjusted for time signature.
     /// **CRITICAL (Issue #64)**: This method correctly handles odd/compound time signatures.
     /// - Parameter timeSignature: The current time signature
@@ -563,13 +556,6 @@ enum SnapResolution: String, CaseIterable, Codable {
         }
     }
     
-    /// Quantize a beat value to this resolution (beats in, beats out).
-    /// **DEPRECATED**: Use `quantize(beat:timeSignature:)` for time-signature-aware quantization.
-    /// This method assumes 4/4 time for backward compatibility.
-    func quantize(beat: Double) -> Double {
-        return quantize(beat: beat, timeSignature: .fourFour)
-    }
-    
     /// Quantize a beat value to this resolution with time signature support.
     /// **CRITICAL (Issue #64)**: This method correctly handles odd/compound time signatures.
     /// - Parameters:
@@ -580,13 +566,6 @@ enum SnapResolution: String, CaseIterable, Codable {
         let gridSize = stepDurationBeats(timeSignature: timeSignature)
         guard gridSize > 0 else { return beat }
         return round(beat / gridSize) * gridSize
-    }
-    
-    /// Quantize with strength (0 = no change, 1 = full quantize).
-    /// **DEPRECATED**: Use `quantize(beat:timeSignature:strength:)` for time-signature-aware quantization.
-    /// This method assumes 4/4 time for backward compatibility.
-    func quantize(beat: Double, strength: Float) -> Double {
-        return quantize(beat: beat, timeSignature: .fourFour, strength: strength)
     }
     
     /// Quantize with strength and time signature support.

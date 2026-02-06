@@ -476,6 +476,9 @@ class MIDIRecordingEngine {
     /// Recording quantization
     var quantization: SnapResolution = .off
     
+    /// Time signature for quantization (Issue #64). Defaults to 4/4.
+    var timeSignature: TimeSignature = .fourFour
+    
     /// Replace or overdub mode
     var isOverdubMode = true
     
@@ -614,7 +617,7 @@ class MIDIRecordingEngine {
         
         // Apply quantization
         if quantization != .off {
-            startBeat = quantization.quantize(beat: startBeat)
+            startBeat = quantization.quantize(beat: startBeat, timeSignature: timeSignature)
         }
         
         let note = MIDINote(
@@ -637,7 +640,7 @@ class MIDIRecordingEngine {
         
         // Apply quantization to duration
         if quantization != .off {
-            endBeat = quantization.quantize(beat: endBeat)
+            endBeat = quantization.quantize(beat: endBeat, timeSignature: timeSignature)
         }
         
         note.durationBeats = max(0.01, endBeat - note.startBeat) // Minimum duration

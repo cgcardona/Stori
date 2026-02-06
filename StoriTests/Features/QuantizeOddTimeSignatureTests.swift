@@ -375,7 +375,7 @@ final class QuantizeOddTimeSignatureTests: XCTestCase {
         let timeSignature = TimeSignature(numerator: 7, denominator: 8)
         let resolution = SnapResolution.eighth
         
-        // Create note with off-grid duration
+        // Create note with off-grid duration (0.72 beats; nearest 1/8 grid = 0.5)
         let notes = [
             MIDINote(pitch: 60, velocity: 100, startBeat: 0.0, durationBeats: 0.72)
         ]
@@ -389,9 +389,9 @@ final class QuantizeOddTimeSignatureTests: XCTestCase {
             quantizeDuration: true
         )
         
-        // Then: Duration should snap to 1.0 (nearest 0.5-beat multiple >= 0.5)
-        XCTAssertEqual(quantized[0].durationBeats, 1.0, accuracy: 0.001,
-                       "Duration should quantize to grid in 7/8")
+        // Then: Duration snaps to nearest 1/8 grid (0.72 → 0.5)
+        XCTAssertEqual(quantized[0].durationBeats, 0.5, accuracy: 0.001,
+                       "Duration should quantize to nearest grid in 7/8")
     }
     
     // MARK: - Test 10: Musical Realism - Jazz 5/4 Pattern
@@ -459,31 +459,50 @@ final class QuantizeOddTimeSignatureTests: XCTestCase {
         }
     }
     
-    // MARK: - Test 12: Backward Compatibility (Old API)
+    // MARK: - Test 12: Caller contract — UI and AI must pass time signature for odd meters
     
-    func testQuantize_OldAPI_StillAssumesFourFour() {
-        // Given: Using old API without time signature parameter
+    /// Documents that Piano Roll and AI quantize use the time-signature-aware API.
+    /// With 7/8, a note at 3.6 beats snaps to bar boundary 3.5.
+    func testTimeSignatureAwareAPI_RequiredForOddMeters() {
+        let timeSignature = TimeSignature(numerator: 7, denominator: 8)
+        let notes = [
+            MIDINote(pitch: 60, velocity: 100, startBeat: 3.6, durationBeats: 0.5)
+        ]
+        
+        let quantized = QuantizationEngine.quantize(
+            notes: notes,
+            resolution: .bar,
+            timeSignature: timeSignature,
+            strength: 1.0,
+            quantizeDuration: false
+        )
+        XCTAssertEqual(quantized[0].startBeat, 3.5, accuracy: 0.001,
+                       "In 7/8, 3.6 → 3.5 (bar boundary)")
+    }
+    
+    // MARK: - Test 13: 4/4 explicit time signature
+    
+    func testQuantize_WithFourFourTimeSignature() {
+        let timeSignature = TimeSignature.fourFour
         let resolution = SnapResolution.quarter
         
-        // Create notes
         let notes = [
             MIDINote(pitch: 60, velocity: 100, startBeat: 0.08, durationBeats: 1.0),
             MIDINote(pitch: 62, velocity: 100, startBeat: 1.92, durationBeats: 1.0),
         ]
         
-        // When: Use old API (no time signature parameter)
         let quantized = QuantizationEngine.quantize(
             notes: notes,
             resolution: resolution,
+            timeSignature: timeSignature,
             strength: 1.0,
             quantizeDuration: false
         )
         
-        // Then: Should assume 4/4 for backward compatibility
         let expectedPositions = [0.0, 2.0]
         for (index, note) in quantized.enumerated() {
             XCTAssertEqual(note.startBeat, expectedPositions[index], accuracy: 0.001,
-                           "Old API should default to 4/4")
+                           "4/4 quantization")
         }
     }
 }

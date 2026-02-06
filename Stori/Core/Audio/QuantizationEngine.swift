@@ -58,23 +58,6 @@ enum QuantizationEngine {
         }
     }
     
-    /// Quantize notes with default 4/4 time signature (backward compatibility)
-    /// **DEPRECATED**: Use `quantize(notes:resolution:timeSignature:strength:quantizeDuration:)` instead
-    static func quantize(
-        notes: [MIDINote],
-        resolution: SnapResolution,
-        strength: Float,
-        quantizeDuration: Bool
-    ) -> [MIDINote] {
-        return quantize(
-            notes: notes,
-            resolution: resolution,
-            timeSignature: .fourFour,
-            strength: strength,
-            quantizeDuration: quantizeDuration
-        )
-    }
-    
     /// Apply swing to notes
     /// - Parameters:
     ///   - notes: The notes to swing
