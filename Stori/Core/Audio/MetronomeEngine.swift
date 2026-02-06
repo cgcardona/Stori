@@ -86,7 +86,7 @@ class MetronomeEngine {
     @ObservationIgnored
     private weak var avAudioEngine: AVAudioEngine?
     @ObservationIgnored
-    private weak var dawAudioEngine: AudioEngine?
+    private weak var dawAudioEngine: AudioEngineContext?
     @ObservationIgnored
     private weak var transportController: TransportController?
     @ObservationIgnored
@@ -136,7 +136,7 @@ class MetronomeEngine {
     
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
-    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
+    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngineContext, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
         // Idempotent: only install once
         guard !isInstalled else { return }
         

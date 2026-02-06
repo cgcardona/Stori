@@ -77,24 +77,32 @@ final class MIDITimingReferenceTests: XCTestCase {
         // We can't actually wait 10 seconds in a test, so this tests the logic
         
         // Create a reference manually with old date
+        let context = AudioSchedulingContext(
+            sampleRate: sampleRate,
+            tempo: tempo,
+            timeSignature: .fourFour
+        )
         let oldReference = MIDITimingReference(
             hostTime: mach_absolute_time(),
             createdAt: Date().addingTimeInterval(-15),  // 15 seconds ago
             beatPosition: 0,
-            tempo: tempo,
-            sampleRate: sampleRate
+            context: context
         )
         
         XCTAssertTrue(oldReference.isStale, "Reference older than 10s should be stale")
     }
     
     func testStaleReferenceReturnsSampleTimeImmediate() {
+        let context = AudioSchedulingContext(
+            sampleRate: sampleRate,
+            tempo: tempo,
+            timeSignature: .fourFour
+        )
         let staleReference = MIDITimingReference(
             hostTime: mach_absolute_time(),
             createdAt: Date().addingTimeInterval(-15),  // Old
             beatPosition: 0,
-            tempo: tempo,
-            sampleRate: sampleRate
+            context: context
         )
         
         let sampleTime = staleReference.sampleTime(forBeat: 10.0)
