@@ -9,6 +9,12 @@
 import Foundation
 
 /// Engine for converting MIDI data to musical notation
+/// 
+/// ARCHITECTURE (Issue #67): This is a DISPLAY-ONLY converter.
+/// - Creates ScoreNote objects for visual rendering
+/// - NEVER modifies source MIDI data (preserves sub-beat precision)
+/// - ScoreNotes reference MIDI notes via midiNoteId for bidirectional lookup
+/// - Quantization is for display aesthetics, not data modification
 class NotationQuantizer {
     
     // MARK: - Configuration
