@@ -254,16 +254,17 @@ struct MIDITimingReference {
     /// Beat position at the reference point
     let beatPosition: Double
     
-    /// Tempo in BPM at the reference point
-    let tempo: Double
-    
-    /// Sample rate of the audio engine
-    let sampleRate: Double
+    /// Scheduling context (tempo, sample rate) at the reference point
+    let context: AudioSchedulingContext
     
     /// Pre-calculated samples per beat for efficiency
     var samplesPerBeat: Double {
-        (60.0 / tempo) * sampleRate
+        context.samplesPerBeat
     }
+    
+    /// Legacy accessors for backward compatibility
+    var tempo: Double { context.tempo }
+    var sampleRate: Double { context.sampleRate }
     
     /// Maximum age before timing reference is considered stale (seconds)
     /// After this time, accumulated drift could cause scheduling errors
@@ -356,12 +357,16 @@ struct MIDITimingReference {
     
     /// Create a new reference for the current moment
     static func now(beat: Double, tempo: Double, sampleRate: Double) -> MIDITimingReference {
-        MIDITimingReference(
+        let context = AudioSchedulingContext(
+            sampleRate: sampleRate,
+            tempo: tempo,
+            timeSignature: .fourFour  // Default time signature for backward compatibility
+        )
+        return MIDITimingReference(
             hostTime: mach_absolute_time(),
             createdAt: Date(),
             beatPosition: beat,
-            tempo: tempo,
-            sampleRate: sampleRate
+            context: context
         )
     }
     
@@ -374,8 +379,7 @@ struct MIDITimingReference {
             hostTime: mach_absolute_time(),
             createdAt: Date(),
             beatPosition: beat,
-            tempo: context.tempo,
-            sampleRate: context.sampleRate
+            context: context
         )
     }
 }
@@ -490,6 +494,18 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         os_unfair_lock_lock(&stateLock)
         defer { os_unfair_lock_unlock(&stateLock) }
         return _isPlaying
+    }
+    
+    /// Get current scheduling context (thread-safe read)
+    /// Used by metronome and other subsystems for synchronized timing
+    var schedulingContext: AudioSchedulingContext {
+        os_unfair_lock_lock(&stateLock)
+        defer { os_unfair_lock_unlock(&stateLock) }
+        return AudioSchedulingContext(
+            sampleRate: sampleRate,
+            tempo: tempo,
+            timeSignature: .fourFour  // Default for MIDI scheduler
+        )
     }
     
     // MARK: - Initialization

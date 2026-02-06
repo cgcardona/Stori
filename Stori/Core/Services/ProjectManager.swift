@@ -10,6 +10,28 @@ import SwiftUI
 import Combine
 import Observation
 
+// MARK: - Transport Query Coordinator
+/// Coordinates transport state queries to prevent double-resume of continuations
+/// Thread-safe coordinator that can be called from any queue
+final class TransportQueryCoordinator {
+    private let lock = NSLock()
+    private var hasResumed = false
+    private let continuation: CheckedContinuation<Bool, Never>
+    
+    init(continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+    
+    func resumeOnce(returning value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        guard !hasResumed else { return }
+        hasResumed = true
+        continuation.resume(returning: value)
+    }
+}
+
 // MARK: - Project Errors
 enum ProjectError: LocalizedError {
     case projectAlreadyExists(name: String)
@@ -374,6 +396,12 @@ class ProjectManager {
     
     /// Immediately saves the current project (bypasses debounce).
     /// Use for explicit user-triggered saves (Cmd+S).
+    ///
+    /// **CRITICAL (Issue #63)**: This method ensures atomic snapshot of project state
+    /// to prevent torn reads from concurrent playback updates.
+    /// - Pauses transport if playing to capture consistent state
+    /// - Resumes transport after snapshot is captured
+    /// - Uses deep copy to isolate snapshot from ongoing mutations
     func saveCurrentProject() {
         // Cancel any pending debounced save to avoid duplicate
         cancelPendingSave()
@@ -391,16 +419,33 @@ class ProjectManager {
         
         Task {
             do {
+                // CRITICAL (Issue #63): Request playback pause for consistent snapshot
+                // The notification handler will coordinate with TransportController
+                let wasPlayingBeforeSave = await getTransportPlayingState()
+                if wasPlayingBeforeSave {
+                    await pauseTransportForSave()
+                }
+                
+                // Capture immutable snapshot AFTER transport is paused
+                // This ensures playheadPosition, automation values, and plugin states are consistent
+                let projectSnapshot = await captureProjectSnapshot()
+                
+                // Resume transport BEFORE encoding (encoding can take time, no need to block playback)
+                if wasPlayingBeforeSave {
+                    await resumeTransportAfterSave()
+                }
+                
+                // Encode snapshot on background thread (I/O heavy, keep off main thread)
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
-                let data = try encoder.encode(project)
+                let data = try encoder.encode(projectSnapshot)
                 
-                let projectURL = projectURL(for: project)
+                let projectURL = projectURL(for: projectSnapshot)
                 try data.write(to: projectURL)
                 
                 await MainActor.run {
                     // Update the current project's modified date
-                    var updatedProject = project
+                    var updatedProject = projectSnapshot
                     updatedProject.modifiedAt = Date()
                     currentProject = updatedProject
                     
@@ -415,6 +460,92 @@ class ProjectManager {
                 }
             }
         }
+    }
+    
+    // MARK: - Save-Time Transport Coordination (Issue #63)
+    
+    /// Returns whether transport is currently playing
+    private func getTransportPlayingState() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let coordinator = TransportQueryCoordinator(continuation: continuation)
+            
+            // Set 100ms timeout to prevent hang if no transport exists
+            // In normal operation, TransportController responds in < 1ms
+            Task {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                coordinator.resumeOnce(returning: false)
+            }
+            
+            // Post query notification with coordinator
+            NotificationCenter.default.post(
+                name: .queryTransportState,
+                object: nil,
+                userInfo: ["coordinator": coordinator]
+            )
+        }
+    }
+    
+    /// Pause transport for consistent save snapshot
+    /// Returns after transport has confirmed pause
+    private func pauseTransportForSave() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Track if we've already resumed (prevent double-resume crash)
+            var hasResumed = false
+            
+            var observer: NSObjectProtocol?
+            observer = NotificationCenter.default.addObserver(
+                forName: .transportPausedForSave,
+                object: nil,
+                queue: .main
+            ) { _ in
+                // Guard against double-resume
+                guard !hasResumed else { return }
+                hasResumed = true
+                
+                if let obs = observer {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+                continuation.resume()
+            }
+            
+            // Set 100ms timeout to prevent hang if transport doesn't respond
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                
+                // Guard against double-resume
+                guard !hasResumed else { return }
+                hasResumed = true
+                
+                if let obs = observer {
+                    NotificationCenter.default.removeObserver(obs)
+                }
+                continuation.resume()
+            }
+            
+            NotificationCenter.default.post(name: .pauseTransportForSave, object: nil)
+        }
+    }
+    
+    /// Resume transport after save snapshot captured
+    private func resumeTransportAfterSave() async {
+        NotificationCenter.default.post(name: .resumeTransportAfterSave, object: nil)
+    }
+    
+    /// Capture immutable snapshot of current project
+    /// This is a deep copy to isolate from concurrent mutations
+    @MainActor
+    private func captureProjectSnapshot() async -> AudioProject {
+        guard var snapshot = currentProject else {
+            // Should never happen (guard in saveCurrentProject prevents this)
+            return AudioProject(name: "ERROR", tempo: 120)
+        }
+        
+        // Deep copy critical mutable state
+        // Swift struct copy is deep by default for value types
+        // but we want to be explicit for clarity
+        snapshot.modifiedAt = Date()
+        
+        return snapshot
     }
     
     func saveProjectAs(name: String) throws {
@@ -1526,6 +1657,13 @@ class ProjectManager {
         
         // Thumbnail found successfully (no log spam - this is the happy path)
         return thumbnailURL
+    }
+    
+    // MARK: - Cleanup
+    
+    deinit {
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Prevents double-free from implicit Swift Concurrency property change notification tasks
     }
 }
 

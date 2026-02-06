@@ -86,9 +86,11 @@ class MetronomeEngine {
     @ObservationIgnored
     private weak var avAudioEngine: AVAudioEngine?
     @ObservationIgnored
-    private weak var dawAudioEngine: AudioEngine?
+    private weak var dawAudioEngine: AudioEngineContext?
     @ObservationIgnored
     private weak var transportController: TransportController?
+    @ObservationIgnored
+    private weak var midiScheduler: SampleAccurateMIDIScheduler?
     
     // MARK: - Scheduling State (ignored for observation)
     
@@ -134,13 +136,14 @@ class MetronomeEngine {
     
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
-    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine, transportController: TransportController) {
+    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngineContext, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
         // Idempotent: only install once
         guard !isInstalled else { return }
         
         self.avAudioEngine = engine
         self.dawAudioEngine = audioEngine
         self.transportController = transportController
+        self.midiScheduler = midiScheduler
         
         // Create nodes
         let player = AVAudioPlayerNode()
@@ -213,9 +216,13 @@ class MetronomeEngine {
     /// Prepare the player node for playback (called after engine starts)
     /// This starts the player node so it's ready to receive scheduled buffers
     func preparePlayerNode() {
-        guard let player = clickPlayer else { return }
+        guard let player = clickPlayer, player.engine != nil else { return }
         if !player.isPlaying {
-            player.play()
+            do {
+                try tryObjC { player.play() }
+            } catch {
+                // play() threw ObjC exception - engine may not be fully ready
+            }
         }
     }
     
@@ -308,12 +315,29 @@ class MetronomeEngine {
         // Verify engine is running
         guard engine.isRunning else { return }
         
+        // SAFETY: Verify player node is still attached to the engine graph.
+        // During graph mutations (track add/remove, engine reset), nodes can
+        // become detached. Calling stop()/play() on a detached node throws an
+        // ObjC NSInternalInconsistencyException that Swift cannot catch.
+        guard player.engine != nil else { return }
+        
         isPlaying = true
         
-        // Re-arm the player on transport play
-        // isPlaying can lie after engine timeline changes
-        player.stop()   // Clear stale state
-        player.play()   // Re-join current render timeline
+        // Re-arm the player on transport play.
+        // Wrapped in ObjC exception handler because stop()/play() are graph
+        // operations that can throw NSException if the graph is being mutated
+        // concurrently (e.g., by installMetronome or track node reconnection).
+        do {
+            try tryObjC {
+                player.stop()   // Clear stale state
+                player.play()   // Re-join current render timeline
+            }
+        } catch {
+            // Graph operation failed - metronome won't play this time
+            // The user can retry by toggling transport
+            isPlaying = false
+            return
+        }
         player.prepare(withFrameCount: 2048)  // Reduce first-click glitches
         
         // Get current render time as our anchor
@@ -365,15 +389,30 @@ class MetronomeEngine {
         fillTimer?.cancel()
         fillTimer = nil
         
-        // Stop the player
-        clickPlayer?.stop()
+        // Stop the player (guard against detached node)
+        if let player = clickPlayer, player.engine != nil {
+            do {
+                try tryObjC { player.stop() }
+            } catch {
+                // stop() threw ObjC exception - node may already be stopped/detached
+            }
+        }
     }
     
     // MARK: - Sample-Accurate Scheduling
     
     /// Compute the sample time of the next beat boundary
+    /// Uses shared scheduling context when available for perfect sync with MIDI
     private func computeNextBeatSampleTime(from currentSampleTime: AVAudioFramePosition, currentBeat: Double) -> AVAudioFramePosition {
-        let framesPerBeat = self.framesPerBeat()
+        // Use shared scheduling context if available (for perfect sync with MIDI)
+        let framesPerBeat: Int64
+        if let scheduler = midiScheduler {
+            let context = scheduler.schedulingContext
+            framesPerBeat = context.samplesPerBeatInt64()
+        } else {
+            // Fallback: calculate from local tempo
+            framesPerBeat = self.framesPerBeat()
+        }
         
         // Find the next whole beat
         let nextWholeBeat = ceil(currentBeat)
@@ -386,6 +425,13 @@ class MetronomeEngine {
     }
     
     private func framesPerBeat() -> AVAudioFramePosition {
+        // Use shared scheduling context if available
+        if let scheduler = midiScheduler {
+            let context = scheduler.schedulingContext
+            return context.samplesPerBeatInt64()
+        }
+        
+        // Fallback: calculate from local tempo
         let secondsPerBeat = 60.0 / tempo
         return AVAudioFramePosition((secondsPerBeat * sampleRate).rounded())
     }
@@ -397,11 +443,17 @@ class MetronomeEngine {
               let player = clickPlayer,
               let accentBuf = accentBuffer,
               let normalBuf = normalBuffer,
-              let dawEngine = dawAudioEngine else { return }
+              let dawEngine = dawAudioEngine,
+              player.engine != nil else { return }
         
         // Ensure player is still playing
         if !player.isPlaying {
-            player.play()
+            do {
+                try tryObjC { player.play() }
+            } catch {
+                // Can't restart player - skip this fill cycle
+                return
+            }
         }
         
         // Get current beat position from the DAW

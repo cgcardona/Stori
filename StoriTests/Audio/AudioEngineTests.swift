@@ -27,10 +27,13 @@ final class AudioEngineTests: XCTestCase {
     }
     
     override func tearDown() async throws {
-        // Stop engine if running
+        // Stop engine if running and reset to release render resources
+        // This prevents "freed pointer was not the last allocation" warnings
+        // from AVAudioEngine's internal allocator tearing down in non-LIFO order
         if engine.sharedAVAudioEngine.isRunning {
             engine.stop()
         }
+        engine.sharedAVAudioEngine.reset()
         engine = nil
         mockProjectManager = nil
         try await super.tearDown()

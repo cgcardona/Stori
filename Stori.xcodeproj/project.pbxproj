@@ -55,6 +55,7 @@
 				Core/Audio/DeviceConfigurationManager.swift,
 				Core/Audio/DrumKitEngine.swift,
 				Core/Audio/EffectTypeMapping.swift,
+				Core/Audio/FeedbackProtectionMonitor.swift,
 				Core/Audio/InstrumentPluginHost.swift,
 				Core/Audio/MeteringService.swift,
 				Core/Audio/MetronomeEngine.swift,
@@ -63,6 +64,7 @@
 				Core/Audio/MixerController.swift,
 				Core/Audio/PlaybackSchedulingCoordinator.swift,
 				Core/Audio/PluginChain.swift,
+				Core/Audio/PluginDeferredDeallocationManager.swift,
 				Core/Audio/PluginInstance.swift,
 				Core/Audio/PluginLatencyManager.swift,
 				Core/Audio/ProjectLifecycleManager.swift,
@@ -127,9 +129,14 @@
 				Core/Services/TokenManager.swift,
 				Core/Services/TrackFreezeService.swift,
 				Core/Services/UndoService.swift,
-				Core/Services/UpdateManager.swift,
+				Core/Services/Update/SemanticVersion.swift,
+				Core/Services/Update/UpdateModels.swift,
+				Core/Services/Update/UpdateService.swift,
+				Core/Services/Update/UpdateStore.swift,
 				Core/Services/UserManager.swift,
 				Core/Utilities/FileNameSanitizer.swift,
+				Core/Utilities/ObjCExceptionBridge.swift,
+				Core/Utilities/ObjCExceptionCatcher.m,
 				Core/Utilities/ScrollSyncModel.swift,
 				Core/Utilities/SynchronizedScrollView.swift,
 				Features/AIComposer/ComposerTemplateBuilder.swift,
@@ -168,7 +175,9 @@
 				Features/Score/ScoreView.swift,
 				Features/Score/StaffRenderer.swift,
 				Features/Setup/SetupWizardView.swift,
-				Features/Setup/UpdateAvailableView.swift,
+				Features/Setup/UpdateBannerView.swift,
+				Features/Setup/UpdateIndicatorView.swift,
+				Features/Setup/UpdateSheetView.swift,
 				Features/StepSequencer/SequencerPresets.swift,
 				Features/StepSequencer/StepSequencerView.swift,
 				Features/Timeline/AudioRegionPositioning.swift,
@@ -563,6 +572,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Stori/Stori-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -609,6 +619,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Stori/Stori-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};

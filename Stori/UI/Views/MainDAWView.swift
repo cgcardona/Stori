@@ -1210,6 +1210,9 @@ struct MainDAWView: View {
     
     // MARK: - View Components
     
+    // MARK: - Update Service
+    private var updateService = UpdateService.shared
+    
     private var bodyContent: some View {
         GeometryReader { geometry in
             dawContentView(geometry: geometry)
@@ -1243,6 +1246,18 @@ struct MainDAWView: View {
             .sheet(isPresented: $showingTokenInput) {
                 TokenInputView(allowDismiss: true)
             }
+        // Update banner (non-blocking, slides in at top)
+        .overlay(alignment: .top) {
+            if updateService.showBanner,
+               case .updateAvailable(let release) = updateService.state {
+                UpdateBannerView(updateService: updateService, release: release)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: updateService.showBanner)
+                    .zIndex(100)
+            }
+        }
         .overlay {
             if exportService.isExporting {
                 ExportProgressView(
