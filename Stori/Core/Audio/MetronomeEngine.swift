@@ -86,7 +86,7 @@ class MetronomeEngine {
     @ObservationIgnored
     private weak var avAudioEngine: AVAudioEngine?
     @ObservationIgnored
-    private weak var dawAudioEngine: AudioEngine?
+    private weak var dawAudioEngine: AudioEngineContext?
     @ObservationIgnored
     private weak var transportController: TransportController?
     @ObservationIgnored
@@ -136,7 +136,7 @@ class MetronomeEngine {
     
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
-    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngine, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
+    func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngineContext, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
         // Idempotent: only install once
         guard !isInstalled else { return }
         
@@ -198,6 +198,14 @@ class MetronomeEngine {
         } else {
             format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         }
+        
+        // BUG FIX (Issue #51): Update sample rate when device changes
+        // This ensures metronome timing calculations use the correct device sample rate
+        self.sampleRate = format.sampleRate
+        
+        // BUG FIX (Issue #51): Regenerate click sounds at new sample rate
+        // Click buffers contain sample data at specific sample rate and must be regenerated
+        generateClickSounds(format: format)
         
         // Nodes are still attached after reset, just disconnected
         // Reconnect: player → metronome mixer → DAW mixer

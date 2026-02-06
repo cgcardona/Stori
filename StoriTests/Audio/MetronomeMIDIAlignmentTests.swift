@@ -15,6 +15,7 @@ import XCTest
 import AVFoundation
 @testable import Stori
 
+@MainActor
 final class MetronomeMIDIAlignmentTests: XCTestCase {
     
     var audioEngine: AVAudioEngine!
@@ -199,7 +200,7 @@ final class MetronomeMIDIAlignmentTests: XCTestCase {
         midiScheduler.play(fromBeat: 0.0)
         
         // WHEN: Tempo changes during playback
-        mockTransport.atomicBeat = 4.0
+        mockTransport.setAtomicBeat(4.0)
         midiScheduler.currentBeatProvider = { 4.0 }
         midiScheduler.updateTempo(140)
         
@@ -257,15 +258,21 @@ final class MetronomeMIDIAlignmentTests: XCTestCase {
 
 // MARK: - Mock Transport Controller
 
+@MainActor
 class MockTransportController: TransportController {
-    var atomicBeat: Double = 0.0
+    private var _atomicBeat: Double = 0.0
     
-    override var atomicBeatPosition: Double {
-        atomicBeat
+    nonisolated override var atomicBeatPosition: Double {
+        // Thread-safe read using actor isolation
+        MainActor.assumeIsolated { _atomicBeat }
     }
     
-    override var atomicIsPlaying: Bool {
+    nonisolated override var atomicIsPlaying: Bool {
         true
+    }
+    
+    func setAtomicBeat(_ beat: Double) {
+        _atomicBeat = beat
     }
     
     init() {
