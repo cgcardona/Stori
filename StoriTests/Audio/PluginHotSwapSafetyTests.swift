@@ -23,18 +23,26 @@ final class PluginHotSwapSafetyTests: XCTestCase {
         manager.forceImmediateCleanup()
         
         // Create a mock plugin for testing
+        let componentDesc = AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: kAudioUnitSubType_Delay,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
         let descriptor = PluginDescriptor(
+            id: UUID(),
             name: "Test Plugin",
             manufacturer: "Test Manufacturer",
             version: "1.0",
-            type: "Effect",
-            componentDescription: AudioComponentDescription(
-                componentType: kAudioUnitType_Effect,
-                componentSubType: kAudioUnitSubType_Delay,
-                componentManufacturer: kAudioUnitManufacturer_Apple,
-                componentFlags: 0,
-                componentFlagsMask: 0
-            )
+            category: .effect,
+            componentDescription: AudioComponentDescriptionCodable(from: componentDesc),
+            auType: .aufx,
+            supportsPresets: false,
+            hasCustomUI: false,
+            inputChannels: 2,
+            outputChannels: 2,
+            latencySamples: 0
         )
         mockPlugin = PluginInstance(descriptor: descriptor)
     }
