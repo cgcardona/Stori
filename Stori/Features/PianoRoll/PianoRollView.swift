@@ -230,6 +230,7 @@ struct PianoRollView: View {
                                         // Background: viewport-sized grid lanes (draws in scrolled coordinates)
                                         noteGrid
                                             .frame(width: outerGeo.size.width, height: availableHeight)
+                                            .offset(x: horizontalScrollOffset)
                                         
                                         // Foreground: scrollable content
                                         ScrollViewReader { scrollProxy in
