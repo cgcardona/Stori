@@ -48,6 +48,17 @@ class ScrollSyncModel {
         }
     }
     
+    // MARK: - Programmatic Scroll (for "Reveal in Timeline")
+    
+    /// Scroll to show a specific beat position (professional DAW feature)
+    /// Centers the beat at 30% from left edge for optimal viewing context
+    func scrollToBeat(_ beat: Double, pixelsPerBeat: CGFloat, viewportWidth: CGFloat = 1200) {
+        let beatX = CGFloat(beat) * pixelsPerBeat
+        // Center at 30% from left (Logic Pro X style)
+        let targetOffset = max(0, beatX - (viewportWidth * 0.3))
+        updateHorizontalOffset(targetOffset)
+    }
+    
     // MARK: - Cleanup
     
     deinit {

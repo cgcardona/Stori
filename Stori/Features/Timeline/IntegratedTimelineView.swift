@@ -59,6 +59,9 @@ struct IntegratedTimelineView: View {
     var onBounceMIDIRegion: ((MIDIRegion, AudioTrack) -> Void)?
     var onDeleteMIDIRegion: ((MIDIRegion, AudioTrack) -> Void)?
     
+    // Callback to scroll timeline to specific beat position (for "Reveal in Timeline")
+    var onScrollToBeat: ((Double) -> Void)?
+    
     // Scroll synchronization model
     @State private var scrollSync = ScrollSyncModel()
     
@@ -1008,7 +1011,9 @@ struct IntegratedTimelineView: View {
                     )
                 }
             }
-            .frame(minHeight: 300)
+            // No minHeight — allows the bottom panel to grow to full
+            // screen (Logic-style). The panel's maxContentHeight clamp
+            // ensures the timeline always retains enough space.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // [V2-MULTISELECT] Selection count badge - ISOLATED VIEW to prevent cascade re-renders
@@ -1033,6 +1038,13 @@ struct IntegratedTimelineView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openMarketplace)) { _ in
             // Navigate to marketplace tab in the inspector
             NotificationCenter.default.post(name: .openVisualTab, object: nil)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .revealBeatInTimeline)) { notification in
+            // Professional DAW feature: Scroll timeline to reveal a specific beat position
+            // Used by Piano Roll "Reveal in Timeline" button
+            if let beat = notification.userInfo?["beat"] as? Double {
+                scrollSync.scrollToBeat(beat, pixelsPerBeat: pixelsPerBeat, viewportWidth: viewportWidth)
+            }
         }
         .modifier(TimelineEditingNotifications(
             onSplit: splitSelectedRegionsAtPlayhead,
