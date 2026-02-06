@@ -1425,11 +1425,12 @@ struct MainDAWView: View {
                 }
             }
         }
-        .onChange(of: projectManager.currentProject) { oldProject, newProject in
-            // Update audio engine when project changes
-            if let newProj = newProject {
-                let isDifferentProject = oldProject?.id != newProj.id
-                if isDifferentProject {
+        .onChange(of: projectManager.currentProject?.id) { oldProjectId, newProjectId in
+            // Update audio engine only when switching to a DIFFERENT project (by ID)
+            // Track additions/deletions/modifications should NOT trigger full reload
+            // BUG FIX (Issue #122): Only reload when project ID changes, not on every mutation
+            if let newProj = projectManager.currentProject {
+                if oldProjectId != newProjectId {
                     // Different project: Full reload with track setup
                     audioEngine.loadProject(newProj)
                     
@@ -1449,13 +1450,9 @@ struct MainDAWView: View {
                     // 🎯 RESTORE COMPLETE UI STATE
                     // Restore all zoom, panels, tabs, metronome, playhead exactly as saved
                     restoreUIState()
-                } else {
-                    // Same project with updates (new regions, moved regions, etc.): Incremental update
-                    // Pass oldProject so AudioEngine can detect what changed (since currentProject is now computed)
-                    audioEngine.updateCurrentProject(newProj, previousProject: oldProject)
                 }
                 
-                // Sync metronome with project tempo and time signature
+                // Sync metronome with project tempo and time signature (always, even for same project)
                 metronomeEngine.tempo = newProj.tempo
                 metronomeEngine.beatsPerBar = newProj.timeSignature.numerator
             }
