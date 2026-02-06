@@ -355,8 +355,10 @@ final class RecordingController: @unchecked Sendable {
             
             recordingFile = try AVAudioFile(forWriting: recordingURL, settings: inputFormat.settings)
             
-            // Create dedicated writer queue
-            let writerQueue = DispatchQueue(label: "com.stori.recording.writer", qos: .userInitiated)
+            // Create dedicated writer queue with HIGH priority (BUG FIX Issue #55)
+            // Recording I/O must complete quickly to prevent buffer pool exhaustion
+            // .utility QoS is too low for real-time recording - use .userInitiated
+            let writerQueue = DispatchQueue(label: "com.stori.recording.writer", qos: .userInitiated, attributes: [], autoreleaseFrequency: .workItem)
             recordingWriterQueue = writerQueue
             
             // Pre-allocate buffer pool with recording max frame capacity
@@ -474,7 +476,8 @@ final class RecordingController: @unchecked Sendable {
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         
-        let writerQueue = DispatchQueue(label: "com.stori.recording.writer", qos: .userInitiated)
+        // Create dedicated writer queue with HIGH priority (BUG FIX Issue #55)
+        let writerQueue = DispatchQueue(label: "com.stori.recording.writer", qos: .userInitiated, attributes: [], autoreleaseFrequency: .workItem)
         recordingWriterQueue = writerQueue
         
         // Pre-allocate buffer pool with recording max frame capacity
