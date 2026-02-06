@@ -39,6 +39,12 @@ class MetronomeEngine {
             if !isEnabled && isPlaying {
                 stopPlaying()
             }
+            // Auto-enable count-in when metronome is enabled (Issue #120)
+            // Professional DAWs enable count-in by default with metronome
+            // This provides the expected behavior: one toggle enables complete functionality
+            if isEnabled && !countInEnabled {
+                countInEnabled = true
+            }
         }
     }
     

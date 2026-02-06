@@ -42,13 +42,20 @@ final class RecordingControllerTests: XCTestCase {
         recordingModeStopCount = 0
         
         // Create mock TransportController
+        // CRITICAL: Transport's onStartPlayback must trigger RecordingController's onStartPlayback
+        // This simulates the real flow: transport.play() → onStartPlayback callback → audio engine start
         mockTransportController = TransportController(
             getProject: { [weak self] in self?.mockProject },
             isInstallingPlugin: { false },
             isGraphStable: { true },
             getSampleRate: { 48000 },
-            onStartPlayback: { _ in },
-            onStopPlayback: { },
+            onStartPlayback: { [weak self] _ in 
+                // Simulate transport triggering playback start
+                self?.playbackStartCount += 1
+            },
+            onStopPlayback: { [weak self] in 
+                self?.playbackStopCount += 1
+            },
             onTransportStateChanged: { _ in },
             onPositionChanged: { _ in },
             onCycleJump: { _ in }
