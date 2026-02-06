@@ -50,4 +50,41 @@ final class RecordingAlignmentTests: XCTestCase {
         
         XCTAssertTrue(true, "Tap install order validated in RecordingController.swift lines 243-247")
     }
+    
+    // MARK: - Metronome Auto-Enable Count-In (Issue #120)
+    
+    /// Test that enabling metronome automatically enables count-in for recording workflow
+    @MainActor
+    func testMetronomeAutoEnablesCountInForRecording() {
+        // Given: Fresh metronome instance (as user would experience)
+        let metronome = MetronomeEngine()
+        XCTAssertFalse(metronome.isEnabled, "Metronome should start disabled")
+        XCTAssertFalse(metronome.countInEnabled, "Count-in should start disabled")
+        
+        // When: User enables metronome (via keyboard shortcut K or UI toggle)
+        metronome.isEnabled = true
+        
+        // Then: Count-in should be automatically enabled for recording
+        XCTAssertTrue(metronome.isEnabled, "Metronome should be enabled")
+        XCTAssertTrue(metronome.countInEnabled, "Count-in should auto-enable for recording workflow")
+    }
+    
+    /// Test complete recording workflow with metronome auto-enable
+    @MainActor
+    func testCompleteRecordingWorkflowWithMetronome() {
+        // Given: User starts new project
+        let metronome = MetronomeEngine()
+        
+        // When: User enables metronome before recording (common workflow)
+        metronome.isEnabled = true
+        
+        // Then: Everything needed for recording is ready
+        XCTAssertTrue(metronome.isEnabled, "Metronome ready to click")
+        XCTAssertTrue(metronome.countInEnabled, "Count-in ready to provide pre-roll")
+        XCTAssertEqual(metronome.countInBars, 1, "Default 1-bar count-in configured")
+        
+        // Verify count-in beat calculation
+        let totalCountInBeats = metronome.countInBars * metronome.beatsPerBar
+        XCTAssertEqual(totalCountInBeats, 4, "1 bar at 4/4 = 4 beats of count-in")
+    }
 }
