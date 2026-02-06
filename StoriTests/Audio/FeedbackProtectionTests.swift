@@ -85,15 +85,19 @@ final class FeedbackProtectionTests: XCTestCase {
         }
         
         // WHEN: Simulate exponential gain increase (feedback loop)
-        // Start at -12dBFS, increase to +6dBFS (18dB increase)
+        // Start at -6dBFS (0.5, at minimumTriggerLevel), increase to +24dBFS
+        // Need 3 consecutive spikes >20dB: levels 7, 8, 9, 10 all exceed 20dB threshold
         let levels: [Float] = [
-            0.25,   // -12dBFS
-            0.35,   // -9dBFS
-            0.5,    // -6dBFS
+            0.5,    // -6dBFS (baseline)
             0.7,    // -3dBFS
             1.0,    // 0dBFS
-            1.5,    // +3dBFS (clipping)
-            2.0     // +6dBFS (severe clipping)
+            2.0,    // +6dBFS
+            4.0,    // +12dBFS
+            6.0,    // +15.6dBFS (20.0dB from baseline - borderline)
+            7.0,    // +16.9dBFS (21.2dB - counts as spike 1)
+            8.0,    // +18dBFS (22.1dB - counts as spike 2)
+            9.0,    // +19.1dBFS (23.1dB - counts as spike 3, triggers!)
+            10.0    // +20dBFS (extra safety)
         ]
         
         var detected = false
@@ -121,12 +125,16 @@ final class FeedbackProtectionTests: XCTestCase {
         }
         
         // WHEN: Sudden massive gain spike (feedback starts)
+        // Need >20dB increase for 3 consecutive readings
+        // Use extreme values to ensure well above 20dB threshold
         let levels: [Float] = [
-            0.3,   // -10dBFS (normal)
-            0.5,   // -6dBFS (spike starting)
-            1.0,   // 0dBFS (continuing)
-            2.0,   // +6dBFS (feedback)
-            3.0    // +9dBFS (severe)
+            0.5,    // -6dBFS (baseline at minimumTriggerLevel)
+            0.6,    // Slight increase
+            1.0,    // 0dBFS
+            2.0,    // +6dBFS
+            8.0,    // +18dBFS (24.1dB from 0.5 - spike 1)
+            9.0,    // +19.1dBFS (25.1dB - spike 2)
+            10.0    // +20dBFS (26.0dB - spike 3, triggers!)
         ]
         
         var detected = false
@@ -162,18 +170,19 @@ final class FeedbackProtectionTests: XCTestCase {
         // GIVEN: Monitor is active
         feedbackMonitor.startMonitoring()
         
-        // Process baseline
-        let baseline = createTestBuffer(level: 0.2, format: testFormat)
+        // Process baseline (use 0.6 > minimumTriggerLevel of 0.5, so it's tracked)
+        // 0.6 -> 7.0 = 21.3dB, each spike > 20dB threshold
+        let baseline = createTestBuffer(level: 0.6, format: testFormat)
         _ = feedbackMonitor.processBuffer(baseline)
         
-        // WHEN: Three consecutive large spikes
-        let spike1 = createTestBuffer(level: 1.0, format: testFormat)
+        // WHEN: Three consecutive large spikes (all need >20dB from baseline)
+        let spike1 = createTestBuffer(level: 7.0, format: testFormat)
         let detected1 = feedbackMonitor.processBuffer(spike1)
         
-        let spike2 = createTestBuffer(level: 1.5, format: testFormat)
+        let spike2 = createTestBuffer(level: 8.0, format: testFormat)
         let detected2 = feedbackMonitor.processBuffer(spike2)
         
-        let spike3 = createTestBuffer(level: 2.0, format: testFormat)
+        let spike3 = createTestBuffer(level: 9.0, format: testFormat)
         let detected3 = feedbackMonitor.processBuffer(spike3)
         
         // THEN: Third spike should trigger
@@ -189,12 +198,12 @@ final class FeedbackProtectionTests: XCTestCase {
         // GIVEN: Feedback detected
         feedbackMonitor.startMonitoring()
         
-        // Trigger feedback
-        let baseline = createTestBuffer(level: 0.2, format: testFormat)
+        // Trigger feedback (need >20dB spike: 0.6 -> 7.0 = 21.3dB)
+        let baseline = createTestBuffer(level: 0.6, format: testFormat)
         _ = feedbackMonitor.processBuffer(baseline)
         
         for _ in 0..<3 {
-            let spike = createTestBuffer(level: 2.0, format: testFormat)
+            let spike = createTestBuffer(level: 7.0, format: testFormat)
             _ = feedbackMonitor.processBuffer(spike)
         }
         
@@ -213,12 +222,12 @@ final class FeedbackProtectionTests: XCTestCase {
         // GIVEN: Feedback detected
         feedbackMonitor.startMonitoring()
         
-        // Trigger first feedback
-        let baseline = createTestBuffer(level: 0.2, format: testFormat)
+        // Trigger first feedback (need >20dB spike: 0.6 -> 7.0 = 21.3dB)
+        let baseline = createTestBuffer(level: 0.6, format: testFormat)
         _ = feedbackMonitor.processBuffer(baseline)
         
         for _ in 0..<3 {
-            let spike = createTestBuffer(level: 2.0, format: testFormat)
+            let spike = createTestBuffer(level: 7.0, format: testFormat)
             _ = feedbackMonitor.processBuffer(spike)
         }
         
