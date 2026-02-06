@@ -39,13 +39,13 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 8,
             instrumentId: nil,
-            colorHex: "#0000FF",
+            color: .blue,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 8,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 8
         )
     }
     
@@ -91,24 +91,15 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
         // Given: Notes with precise micro-timing
         let originalPositions = testRegion.notes.map { ($0.id, $0.startBeat) }
         
-        // Create score track data
-        let trackData = ScoreTrackData(
-            id: UUID(),
-            name: "Test Track",
-            region: testRegion,
-            color: .blue,
-            clef: .treble
-        )
+        // Note: ScoreTrackData init doesn't have a manual initializer with clef parameter
+        // We'll just verify the core logic without creating trackData
         
         // When: Transposing notes in Score View
         var region = testRegion!
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         
-        let noteIds = Set(region.notes.map { $0.id })
-        controller.transpose(notes: Array(noteIds), by: 12, in: &region)
+        let noteIds = Array(region.notes.map { $0.id })
+        controller.transpose(notes: noteIds, by: 12, in: &region)
         
         // Then: Timing should be preserved exactly
         for (originalId, originalBeat) in originalPositions {
@@ -135,10 +126,7 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
         
         // When: Deleting one note
         var region = testRegion!
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         
         controller.deleteNotes(Set([firstNoteId]), from: &region)
         
@@ -161,10 +149,7 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
         
         // When: Scaling duration
         var region = testRegion!
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         
         let noteIds = Array(region.notes.map { $0.id })
         controller.doubleDuration(notes: noteIds, in: &region)
@@ -198,19 +183,19 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 8,
             instrumentId: nil,
-            colorHex: "#0000FF",
+            color: .blue,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 8,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 8
         )
         
         // When: Converting to notation multiple times (simulating repeated Score View opens)
         let quantizer = NotationQuantizer()
         
-        for iteration in 0..<10 {
+        for _ in 0..<10 {
             _ = quantizer.quantize(
                 notes: region.notes,
                 timeSignature: .common,
@@ -223,9 +208,9 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
         for (index, note) in region.notes.enumerated() {
             let original = preciseNotes[index]
             XCTAssertEqual(note.startBeat, original.startBeat, accuracy: 0.000001,
-                           "Round-trip \(iteration): startBeat must preserve microsecond precision")
+                           "Round-trip: startBeat must preserve microsecond precision")
             XCTAssertEqual(note.durationBeats, original.durationBeats, accuracy: 0.000001,
-                           "Round-trip \(iteration): durationBeats must preserve precision")
+                           "Round-trip: durationBeats must preserve precision")
         }
     }
     
@@ -246,23 +231,20 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#FF0000",
+            color: .red,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         let originalTiming = region.notes.map { ($0.id, $0.startBeat) }
         
         // When: Transposing just the snare note (not touching groove notes)
         let snareId = grooveNotes[4].id
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         
         controller.transpose(notes: [snareId], by: 2, in: &region)
         
@@ -293,20 +275,17 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 8,
             instrumentId: nil,
-            colorHex: "#00FF00",
+            color: .green,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 8,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 8
         )
         
         // When: Explicitly quantizing only the second note
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         
         let secondNoteId = mixedNotes[1].id
         controller.quantize(notes: [secondNoteId], to: .quarter, in: &region)
@@ -336,13 +315,13 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#FF00FF",
+            color: .purple,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         let originalTiming = region.notes.map { $0.startBeat }
@@ -380,20 +359,17 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#00FF00",
+            color: .green,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         // When: Transposing
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         controller.transpose(notes: [offGridNote.id], by: 5, in: &region)
         
         // Then: Micro-timing preserved
@@ -419,23 +395,20 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#0000FF",
+            color: .blue,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         let secondNoteOriginal = notes[1]
         let thirdNoteOriginal = notes[2]
         
         // When: Deleting first note
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         controller.deleteNotes(Set([notes[0].id]), from: &region)
         
         // Then: Remaining notes must keep exact timing
@@ -467,20 +440,17 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#00FF00",
+            color: .green,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         // When: Applying retrograde
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         let noteIds = notes.map { $0.id }
         controller.retrograde(notes: noteIds, in: &region)
         
@@ -503,10 +473,7 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
         
         // When: Transposing notes
         var region = testRegion!
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         
         let noteIds = region.notes.map { $0.id }
         controller.transpose(notes: noteIds, by: 12, in: &region)
@@ -537,22 +504,19 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#0000FF",
+            color: .blue,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         let originalChannels = region.notes.map { ($0.id, $0.channel) }
         
         // When: Editing via Score View
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         controller.transpose(notes: [multiChannelNotes[0].id], by: 12, in: &region)
         
         // Then: All channels must be preserved
@@ -580,20 +544,17 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#FF0000",
+            color: .red,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         // When: Editing
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         controller.transpose(notes: [extremeNotes[0].id], by: 5, in: &region)
         
         // Then: Precision preserved to at least 6 decimal places
@@ -624,20 +585,17 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 2,
             instrumentId: nil,
-            colorHex: "#00FF00",
+            color: .green,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 2,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 2
         )
         
         // When: Editing one note
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         controller.transpose(notes: [swungNotes[0].id], by: 12, in: &region)
         
         // Then: Swing timing must be preserved
@@ -666,13 +624,13 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 8,
             instrumentId: nil,
-            colorHex: "#0000FF",
+            color: .blue,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 8,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 8
         )
         
         let originalTiming = region.notes.map { ($0.id, $0.startBeat, $0.durationBeats) }
@@ -682,10 +640,7 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
         _ = quantizer.quantize(notes: region.notes, timeSignature: .common, tempo: 120.0)
         
         // Edit just the third note
-        let controller = ScoreEntryController(
-            region: region,
-            configuration: ScoreConfiguration()
-        )
+        let controller = ScoreEntryController()
         controller.transpose(notes: [recordedNotes[2].id], by: 2, in: &region)
         
         // Then: ALL notes must preserve original micro-timing
@@ -713,13 +668,13 @@ final class ScoreViewTimingPreservationTests: XCTestCase {
             startBeat: 0,
             durationBeats: 4,
             instrumentId: nil,
-            colorHex: "#FF00FF",
+            color: .purple,
             isLooped: false,
             loopCount: 1,
             isMuted: false,
-            contentLengthBeats: 4,
             controllerEvents: [],
-            pitchBendEvents: []
+            pitchBendEvents: [],
+            contentLengthBeats: 4
         )
         
         let originalTiming = region.notes.map { $0.startBeat }
