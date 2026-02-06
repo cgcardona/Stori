@@ -202,7 +202,17 @@ struct ScoreView: View {
         .onAppear {
             quantizeAllTracks()
         }
-        .onChange(of: region.notes) { _, _ in
+        // FIX (Issue #67): Removed .onChange(of: region.notes) reactive loop
+        // that caused unnecessary re-quantization and potential precision loss.
+        // NotationQuantizer creates display-only ScoreNotes without modifying MIDI,
+        // so we only need to re-quantize when display configuration changes.
+        .onChange(of: configuration.clef) { _, _ in
+            quantizeAllTracks()
+        }
+        .onChange(of: configuration.timeSignature) { _, _ in
+            quantizeAllTracks()
+        }
+        .onChange(of: configuration.keySignature) { _, _ in
             quantizeAllTracks()
         }
     }

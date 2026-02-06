@@ -510,6 +510,12 @@ enum Dynamic: String, CaseIterable, Codable {
 // MARK: - Score Note
 
 /// A note as displayed in the score (derived from MIDINote)
+/// 
+/// ARCHITECTURE (Issue #67): Display-only model for notation rendering.
+/// - References source MIDI note via midiNoteId (never modifies source)
+/// - startBeat/displayDuration may differ from MIDI for notation aesthetics
+/// - Original MIDI timing is ALWAYS preserved in the MIDIRegion.notes array
+/// - Edits should modify MIDIRegion.notes directly, not ScoreNote data
 struct ScoreNote: Identifiable, Equatable {
     let id: UUID
     let midiNoteId: UUID          // Reference to source MIDI note
