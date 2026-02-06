@@ -108,17 +108,24 @@ End your response with the **FINAL OUTPUT** block (grade, merge status, summary,
 ---
 
 ## STEP 7 — MERGE (IF APPROVED)
-Only after you have output the grade and **"Approved for merge"** in this conversation, run:
+Only after you have output the grade and **"Approved for merge"** in this conversation, do the following **in this order**:
 
-`gh pr merge <PR_NUMBER> --merge --delete-branch`
-
-Confirm the referenced issue is closed. All changes should be merged into `dev` via PR. We should not merge the PR and then make changes that we later merge into `dev` manually and push to `origin dev`.
+1. **Commit** any review fixes (e.g. test fixes) on the feature branch.
+2. **Push** the feature branch: `git push origin <FEATURE_BRANCH>`
+3. **Merge the PR on GitHub and delete the remote feature branch** via gh:  
+   `gh pr merge <PR_NUMBER> --merge --delete-branch`  
+   (Merge via GitHub so the PR is closed properly. `--delete-branch` removes the remote feature branch on origin.)
+4. **Close the referenced issue** via gh: `gh issue close <ISSUE_NUMBER> --comment "Fixed by PR #<PR_NUMBER>."`  
+   (Use the issue number from the PR description; e.g. "Closes #52" → close issue 52.)
+5. **Cleanup (STEP 8)**: `git checkout dev` → `git pull origin dev` → `git branch -d <FEATURE_BRANCH>`  
+   (Delete the **local** feature branch after switching to dev and pulling. The **remote** feature branch was already deleted in step 3.)
 
 ---
 
-## STEP 8 — CLEANUP
-`git checkout dev`  
-`git pull origin dev`
+## STEP 8 — CLEANUP (see STEP 7.5 above)
+After merging via gh (step 3 deletes the remote branch):  
+`git checkout dev` → `git pull origin dev` → `git branch -d <FEATURE_BRANCH>`  
+(Removes the local feature branch only; remote was already deleted by `gh pr merge --delete-branch`.)
 
 ---
 
