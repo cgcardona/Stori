@@ -55,7 +55,7 @@ final class BusManagerTests: XCTestCase {
             trackNodes: { [weak self] in self?.trackNodes ?? [:] },
             currentProject: { [weak self] in self?.project },
             transportState: { .stopped },
-            modifyGraphSafely: { work in work() },
+            modifyGraphSafely: { work in try work() },
             updateSoloState: {},
             reconnectMetronome: {},
             setupPositionTimer: {},

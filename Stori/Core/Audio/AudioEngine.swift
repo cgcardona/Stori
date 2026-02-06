@@ -117,6 +117,15 @@ class AudioEngine: AudioEngineContext {
         componentFlagsMask: 0
     ))
     
+    // MARK: - Feedback Protection (Issue #57)
+    
+    /// Real-time feedback detection and auto-mute protection
+    @ObservationIgnored
+    private let feedbackMonitor = FeedbackProtectionMonitor()
+    
+    /// Whether emergency feedback mute is active
+    var isFeedbackMuted: Bool = false
+    
     // NOTE: Graph mutation coordination is now handled by AudioGraphManager
     
     @ObservationIgnored
@@ -282,7 +291,13 @@ class AudioEngine: AudioEngineContext {
         }
         
         // Install the metronome nodes
-        metronome.install(into: engine, dawMixer: mixer, audioEngine: self, transportController: transportController)
+        metronome.install(
+            into: engine,
+            dawMixer: mixer,
+            audioEngine: self,
+            transportController: transportController,
+            midiScheduler: midiPlaybackEngine.sampleAccurateScheduler
+        )
         installedMetronome = metronome
         
         // Restart if it was running
@@ -488,7 +503,7 @@ class AudioEngine: AudioEngineContext {
             trackNodes: { [weak self] in self?.trackNodes ?? [:] },
             currentProject: { [weak self] in self?.currentProject },
             transportState: { [weak self] in self?.transportController?.transportState ?? .stopped },
-            modifyGraphSafely: { [weak self] work in self?.modifyGraphSafely(work) },
+            modifyGraphSafely: { [weak self] work in try self?.modifyGraphSafely(work) },
             updateSoloState: { [weak self] in self?.updateSoloState() },
             reconnectMetronome: { [weak self] in self?.installedMetronome?.reconnectNodes(dawMixer: self?.mixer ?? AVAudioMixerNode()) },
             setupPositionTimer: { [weak self] in self?.transportController?.setupPositionTimer() },
@@ -900,14 +915,15 @@ class AudioEngine: AudioEngineContext {
         // - Release Time: 0.001 - 0.5 seconds (parameter ID 1)
         // - Pre-Gain: -40 - +40 dB (parameter ID 2)
         
-        // Set fast attack for transparent limiting
+        // ISSUE #57 FIX: More aggressive limiting for feedback protection
+        // Set very fast attack for feedback protection (1ms)
         if let attackParam = parameterTree.parameter(withAddress: 0) {
-            attackParam.value = 0.005  // 5ms attack
+            attackParam.value = 0.001  // 1ms attack (was 5ms) - catches feedback faster
         }
         
-        // Set moderate release to avoid pumping
+        // Set fast release to recover quickly after spike
         if let releaseParam = parameterTree.parameter(withAddress: 1) {
-            releaseParam.value = 0.1  // 100ms release
+            releaseParam.value = 0.05  // 50ms release (was 100ms) - faster recovery
         }
         
         // Pre-gain at 0 dB (unity)
@@ -915,14 +931,24 @@ class AudioEngine: AudioEngineContext {
             preGainParam.value = 0.0
         }
         
-        AppLogger.shared.debug("Master limiter configured for safe headroom", category: .audio)
+        AppLogger.shared.debug("Master limiter configured for feedback protection (1ms attack, 50ms release)", category: .audio)
     }
     
     /// Install audio taps to detect clipping at various points in the signal chain (DEBUG only)
     private func installClippingDetectionTaps() {
-        // Tap after mixer (before EQ/limiter)
+        // Tap after mixer (before EQ/limiter) - includes feedback protection monitoring
         mixer.installTap(onBus: 0, bufferSize: 512, format: graphFormat) { [weak self] buffer, time in
-            self?.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
+            guard let self = self else { return }
+            
+            // Check for feedback (Issue #57)
+            if self.feedbackMonitor.processBuffer(buffer) {
+                // Feedback detected! Trigger emergency protection on main thread
+                Task { @MainActor in
+                    self.triggerFeedbackProtection()
+                }
+            }
+            
+            self.detectClipping(in: buffer, location: "MIXER OUTPUT (pre-EQ)")
         }
         
         // Tap after limiter (final output)
@@ -930,6 +956,10 @@ class AudioEngine: AudioEngineContext {
             self?.detectClipping(in: buffer, location: "MASTER OUTPUT (post-limiter)")
         }
         
+        // Start feedback monitoring
+        feedbackMonitor.startMonitoring()
+        
+        AppLogger.shared.info("Feedback protection: Monitoring enabled", category: .audio)
         // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
     }
     
@@ -957,6 +987,56 @@ class AudioEngine: AudioEngineContext {
         if clippedFrames > 0 || maxSample > 0.95 {
             print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
         }
+    }
+    
+    // MARK: - Feedback Protection (Issue #57)
+    
+    /// Trigger emergency feedback protection
+    /// Called when feedback loop is detected - mutes master output immediately
+    private func triggerFeedbackProtection() {
+        guard !isFeedbackMuted else { return }
+        
+        // Emergency mute
+        isFeedbackMuted = true
+        let previousVolume = mixer.outputVolume
+        mixer.outputVolume = 0.0
+        
+        // Stop playback
+        stop()
+        
+        // Log the event
+        AppLogger.shared.error("FEEDBACK PROTECTION: Emergency mute triggered! Previous volume: \(previousVolume)", category: .audio)
+        
+        // Show warning to user
+        let message = """
+        ⚠️ FEEDBACK LOOP DETECTED
+        
+        Audio has been automatically muted to protect your speakers and hearing.
+        
+        Possible causes:
+        • Bus routing feedback loop
+        • Plugin feedback (delay/reverb with high feedback %)
+        • Parallel routing creating feedback path
+        • Excessive automation gain
+        
+        Please check your routing and reduce gain/feedback levels before unmuting.
+        
+        To unmute: Lower master volume, fix routing, then unmute manually.
+        """
+        
+        // Notify user (could be shown in UI as alert)
+        feedbackMonitor.triggerEmergencyProtection(currentLevel: previousVolume)
+        
+        // Could add UI notification here via SwiftUI @Published if needed
+        print("🚨 \(message)")
+    }
+    
+    /// Reset feedback protection and allow unmuting
+    /// Call after user fixes routing issues
+    func resetFeedbackProtection() {
+        isFeedbackMuted = false
+        feedbackMonitor.resetFeedbackState()
+        AppLogger.shared.info("Feedback protection: Reset by user", category: .audio)
     }
     
     // MARK: - Engine Start Recovery
@@ -1466,53 +1546,53 @@ class AudioEngine: AudioEngineContext {
 
             // 2. Disconnect in downstream-first order (same as rebuildTrackGraphInternal).
             //    Each node: disconnect output, then input, then detach.
-            engine.disconnectNodeOutput(trackNode.panNode)
-            engine.disconnectNodeInput(trackNode.panNode)
-            if engine.attachedNodes.contains(trackNode.panNode) {
-                engine.detach(trackNode.panNode)
+            self.engine.disconnectNodeOutput(trackNode.panNode)
+            self.engine.disconnectNodeInput(trackNode.panNode)
+            if self.engine.attachedNodes.contains(trackNode.panNode) {
+                self.engine.detach(trackNode.panNode)
             }
 
-            engine.disconnectNodeOutput(trackNode.volumeNode)
-            engine.disconnectNodeInput(trackNode.volumeNode)
-            if engine.attachedNodes.contains(trackNode.volumeNode) {
-                engine.detach(trackNode.volumeNode)
+            self.engine.disconnectNodeOutput(trackNode.volumeNode)
+            self.engine.disconnectNodeInput(trackNode.volumeNode)
+            if self.engine.attachedNodes.contains(trackNode.volumeNode) {
+                self.engine.detach(trackNode.volumeNode)
             }
 
-            engine.disconnectNodeOutput(trackNode.eqNode)
-            engine.disconnectNodeInput(trackNode.eqNode)
-            if engine.attachedNodes.contains(trackNode.eqNode) {
-                engine.detach(trackNode.eqNode)
+            self.engine.disconnectNodeOutput(trackNode.eqNode)
+            self.engine.disconnectNodeInput(trackNode.eqNode)
+            if self.engine.attachedNodes.contains(trackNode.eqNode) {
+                self.engine.detach(trackNode.eqNode)
             }
 
             // 3. Disconnect and detach instrument source (sampler or timePitch)
             if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
                let sampler = instrument.samplerEngine?.sampler {
-                if engine.attachedNodes.contains(sampler) {
-                    engine.disconnectNodeOutput(sampler)
-                    engine.disconnectNodeInput(sampler)
-                    engine.detach(sampler)
+                if self.engine.attachedNodes.contains(sampler) {
+                    self.engine.disconnectNodeOutput(sampler)
+                    self.engine.disconnectNodeInput(sampler)
+                    self.engine.detach(sampler)
                 }
             } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
                       let auNode = instrument.audioUnitNode,
-                      engine.attachedNodes.contains(auNode) {
-                engine.disconnectNodeOutput(auNode)
-                engine.disconnectNodeInput(auNode)
-                engine.detach(auNode)
+                      self.engine.attachedNodes.contains(auNode) {
+                self.engine.disconnectNodeOutput(auNode)
+                self.engine.disconnectNodeInput(auNode)
+                self.engine.detach(auNode)
             } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
                       let drumKit = instrument.drumKitEngine {
                 drumKit.detach()
             }
 
-            engine.disconnectNodeOutput(trackNode.timePitchUnit)
-            engine.disconnectNodeInput(trackNode.timePitchUnit)
-            if engine.attachedNodes.contains(trackNode.timePitchUnit) {
-                engine.detach(trackNode.timePitchUnit)
+            self.engine.disconnectNodeOutput(trackNode.timePitchUnit)
+            self.engine.disconnectNodeInput(trackNode.timePitchUnit)
+            if self.engine.attachedNodes.contains(trackNode.timePitchUnit) {
+                self.engine.detach(trackNode.timePitchUnit)
             }
 
-            engine.disconnectNodeOutput(trackNode.playerNode)
-            engine.disconnectNodeInput(trackNode.playerNode)
-            if engine.attachedNodes.contains(trackNode.playerNode) {
-                engine.detach(trackNode.playerNode)
+            self.engine.disconnectNodeOutput(trackNode.playerNode)
+            self.engine.disconnectNodeInput(trackNode.playerNode)
+            if self.engine.attachedNodes.contains(trackNode.playerNode) {
+                self.engine.detach(trackNode.playerNode)
             }
         }
     }
@@ -1521,19 +1601,19 @@ class AudioEngine: AudioEngineContext {
     
     /// Performs a structural graph mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphSafely(_ work: () throws -> Void) rethrows {
+    func modifyGraphSafely(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphSafely(work)
     }
     
     /// Performs a connection-only graph mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphConnections(_ work: () throws -> Void) rethrows {
+    func modifyGraphConnections(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphConnections(work)
     }
     
     /// Performs a track-scoped hot-swap mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
+    func modifyGraphForTrack(_ trackId: UUID, _ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphForTrack(trackId, work)
     }
     
