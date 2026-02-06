@@ -210,6 +210,11 @@ class WalletManager {
         let tusValue = Double(weiValue) / 1_000_000_000_000_000_000.0
         return String(format: "%.4f", tusValue)
     }
+    
+    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
+    // Prevents double-free from implicit Swift Concurrency property change notification tasks
+    deinit {
+    }
 }
 
 // MARK: - Wallet Errors
