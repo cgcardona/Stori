@@ -50,9 +50,9 @@ final class StepSequencerVelocityTests: XCTestCase {
         lane.setStep(2, velocity: 0.1)   // Low velocity
         
         // Then: Velocities should be stored exactly as set
-        XCTAssertEqual(lane.velocity(for: 0), 1.0, accuracy: 0.001)
-        XCTAssertEqual(lane.velocity(for: 1), 0.5, accuracy: 0.001)
-        XCTAssertEqual(lane.velocity(for: 2), 0.1, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 0) ?? 0), 1.0, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 1) ?? 0), 0.5, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 2) ?? 0), 0.1, accuracy: 0.001)
     }
     
     func testStepVelocityClampedToValidRange() {
@@ -64,8 +64,8 @@ final class StepSequencerVelocityTests: XCTestCase {
         lane.setStep(1, velocity: -0.2)  // Below min
         
         // Then: Should clamp to valid range [0.0, 1.0]
-        XCTAssertEqual(lane.velocity(for: 0), 1.0, accuracy: 0.001)
-        XCTAssertEqual(lane.velocity(for: 1), 0.0, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 0) ?? 0), 1.0, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 1) ?? 0), 0.0, accuracy: 0.001)
     }
     
     func testVelocityAdjustmentWithDelta() {
@@ -77,7 +77,7 @@ final class StepSequencerVelocityTests: XCTestCase {
         lane.adjustVelocity(for: 0, delta: 0.2)
         
         // Then: Velocity should be updated correctly
-        XCTAssertEqual(lane.velocity(for: 0), 0.7, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 0) ?? 0), 0.7, accuracy: 0.001)
     }
     
     func testVelocityAdjustmentClampedAtBounds() {
@@ -89,7 +89,7 @@ final class StepSequencerVelocityTests: XCTestCase {
         lane.adjustVelocity(for: 0, delta: 0.2)
         
         // Then: Should clamp to 1.0
-        XCTAssertEqual(lane.velocity(for: 0), 1.0, accuracy: 0.001)
+        XCTAssertEqual(Double(lane.velocity(for: 0) ?? 0), 1.0, accuracy: 0.001)
         
         // Given: A step near min velocity (enforced minimum is 0.1)
         lane.setStep(1, velocity: 0.15)
@@ -130,9 +130,10 @@ final class StepSequencerVelocityTests: XCTestCase {
     }
     
     func testPatternMIDIEventsPreserveVelocity() {
-        // Given: Pattern with varying velocities
+        // Given: Pattern with varying velocities (lane volume 1.0 so step velocity maps directly)
         let kickLane = sequencer.pattern.lanes[0]
         let kickId = kickLane.id
+        sequencer.setLaneVolume(laneId: kickId, volume: 1.0, registerUndo: false)
         
         // Set kick hits with different velocities
         sequencer.setStep(laneId: kickId, step: 0, active: true, velocity: 1.0)    // Strong
@@ -266,7 +267,7 @@ final class StepSequencerVelocityTests: XCTestCase {
     
     // MARK: - Edge Case Tests
     
-    func testVelocityWith HumanizationApplied() {
+    func testVelocityWithHumanizationApplied() {
         // Given: Pattern with humanization enabled
         sequencer.setHumanizeVelocity(0.2, registerUndo: false)
         
@@ -295,9 +296,10 @@ final class StepSequencerVelocityTests: XCTestCase {
     }
     
     func testVelocityPreservedAcrossPatternLoops() {
-        // Given: Pattern with specific velocities
+        // Given: Pattern with specific velocities (lane volume 1.0 for direct mapping)
         let lane = sequencer.pattern.lanes[0]
         let laneId = lane.id
+        sequencer.setLaneVolume(laneId: laneId, volume: 1.0, registerUndo: false)
         
         sequencer.setStep(laneId: laneId, step: 0, active: true, velocity: 0.9)
         
