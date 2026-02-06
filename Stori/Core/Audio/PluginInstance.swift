@@ -69,7 +69,12 @@ class PluginInstance: Identifiable {
     }
     
     deinit {
-        // Note: Cleanup happens in unload() which must be called before dealloc
+        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
+        // Root cause: @Observable classes have implicit Swift Concurrency tasks for property
+        // change notifications that can cause "freed pointer was not the last allocation"
+        // during teardown. See: AudioAnalyzer, PluginChain, MetronomeEngine.
+        // Cleanup of AU resources must happen in unload() before dealloc; do not touch
+        // auAudioUnit/avAudioUnit here (would run in wrong order vs Observation teardown).
     }
     
     // MARK: - Loading
