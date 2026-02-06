@@ -139,13 +139,15 @@ final class AudioAnalysisService {
     // MARK: - Private Analysis Methods
     
     private func performTempoAnalysis(file: AudioFile) async throws -> Double? {
+        // Resolve URL on MainActor; Task.detached runs off MainActor
+        let url = await file.resolvedURL(projectDirectory: nil)
         return try await withCheckedThrowingContinuation { continuation in
             // Cancel any existing tempo analysis task
             tempoAnalysisTask?.cancel()
             tempoAnalysisTask = Task.detached {
                 do {
-                    // Load audio file
-                    let audioFile = try AVAudioFile(forReading: file.url)
+                    // Load audio file (url resolved on MainActor above)
+                    let audioFile = try AVAudioFile(forReading: url)
                     let format = audioFile.processingFormat
                     let frameCount = AVAudioFrameCount(audioFile.length)
                     
@@ -176,13 +178,15 @@ final class AudioAnalysisService {
     }
     
     private func performKeyAnalysis(file: AudioFile) async throws -> String? {
+        // Resolve URL on MainActor; Task.detached runs off MainActor
+        let url = await file.resolvedURL(projectDirectory: nil)
         return try await withCheckedThrowingContinuation { continuation in
             // Cancel any existing key analysis task
             keyAnalysisTask?.cancel()
             keyAnalysisTask = Task.detached {
                 do {
-                    // Load audio file
-                    let audioFile = try AVAudioFile(forReading: file.url)
+                    // Load audio file (url resolved on MainActor above)
+                    let audioFile = try AVAudioFile(forReading: url)
                     let format = audioFile.processingFormat
                     let frameCount = AVAudioFrameCount(audioFile.length)
                     

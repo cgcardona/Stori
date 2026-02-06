@@ -93,11 +93,12 @@ struct ProfessionalWaveformView: View {
     
     /// Load waveform data using shared analyzer for consistent caching
     private func loadWaveformData() async {
-        // Use shared analyzer for consistent caching across the app
+        // Resolve URL on MainActor; async context may run off MainActor after first await
+        let url = await audioFile.resolvedURL(projectDirectory: nil)
         let sharedAnalyzer = AudioAnalyzer.shared
         
         // Check cache first
-        if let cachedData = sharedAnalyzer.getCachedWaveform(for: audioFile.url) {
+        if let cachedData = sharedAnalyzer.getCachedWaveform(for: url) {
             await MainActor.run {
                 self.waveformData = cachedData
                 self.loadingError = nil
@@ -112,7 +113,7 @@ struct ProfessionalWaveformView: View {
         
         do {
             // Analyze with high resolution for professional quality
-            let data = try await sharedAnalyzer.analyzeAudioFile(at: audioFile.url, targetSamples: 2000)
+            let data = try await sharedAnalyzer.analyzeAudioFile(at: url, targetSamples: 2000)
             await MainActor.run {
                 self.waveformData = data
                 self.isLoading = false
