@@ -64,6 +64,12 @@ private class ParameterSmoother {
     var value: Float {
         currentValue
     }
+    
+    /// Explicit deinit to prevent Swift Concurrency task leak
+    /// Private classes can have implicit tasks that cause memory corruption
+    deinit {
+        // Empty deinit is sufficient - ensures proper Swift Concurrency cleanup
+    }
 }
 
 // MARK: - SynthPreset
@@ -377,16 +383,6 @@ enum LFODestination: String, Codable, CaseIterable {
     case pan = "Pan"
 }
 
-// MARK: - Smooth Parameters
-
-/// Container for smoothed parameter values (Issue #60 fix)
-/// Passed to voice renderer for per-sample smoothing
-struct SmoothParameters {
-    let filterCutoff: Float
-    let filterResonance: Float
-    let masterVolume: Float
-    let oscillatorMix: Float
-}
 
 // MARK: - SynthVoice
 
@@ -429,81 +425,6 @@ class SynthVoice {
     func shouldDeallocate(at time: Float) -> Bool {
         guard isReleased else { return false }
         return (time - releaseStartTime) > preset.envelope.release
-    }
-    
-    /// Render samples for this voice with smoothed parameters
-    /// - Parameters:
-    ///   - buffer: Output buffer to accumulate samples into
-    ///   - frameCount: Number of frames to render
-    ///   - startTime: Starting time in seconds
-    ///   - smoothedParams: Optional smoothed parameter overrides (for automation)
-    func render(into buffer: UnsafeMutablePointer<Float>, frameCount: Int, startTime: Float, smoothedParams: SmoothParameters? = nil) {
-        let velocityGain = Float(velocity) / 127.0
-        
-        for frame in 0..<frameCount {
-            let time = startTime + Float(frame) / sampleRate
-            let voiceTime = time - self.startTime
-            
-            // Calculate envelope
-            let envelope = preset.envelope.value(
-                at: voiceTime,
-                noteOnDuration: isReleased ? (releaseStartTime - self.startTime) : voiceTime,
-                isReleased: isReleased
-            )
-            
-            // Voice is done
-            if envelope <= 0 && isReleased {
-                isActive = false
-                return
-            }
-            
-            // Calculate LFO
-            let lfoValue = preset.lfo.value(at: voiceTime)
-            
-            // Apply LFO to frequency
-            var frequency = baseFrequency
-            if preset.lfo.destination == .pitch {
-                frequency *= pow(2, lfoValue / 12) // LFO in semitones
-            }
-            
-            // Use smoothed oscillator mix if provided (Issue #60 fix)
-            let oscMix = smoothedParams?.oscillatorMix ?? preset.oscillatorMix
-            
-            // Calculate oscillator 1
-            let sample1 = generateOscillator(preset.oscillator1, frequency: frequency, phase: &phase1)
-            
-            // Calculate oscillator 2
-            var freq2 = frequency
-            freq2 *= pow(2, Float(preset.oscillator2Octave)) // Octave
-            freq2 *= pow(2, preset.oscillator2Detune / 1200) // Detune in cents
-            let sample2 = generateOscillator(preset.oscillator2, frequency: freq2, phase: &phase2)
-            
-            // Mix oscillators with smoothed mix value
-            var sample = sample1 * (1 - oscMix) + sample2 * oscMix
-            
-            // Use smoothed filter parameters if provided (Issue #60 fix)
-            var cutoff = smoothedParams?.filterCutoff ?? preset.filter.cutoff
-            cutoff += preset.filter.envelopeAmount * envelope
-            if preset.lfo.destination == .filter {
-                cutoff += lfoValue * 0.3
-            }
-            cutoff = max(0, min(1, cutoff))
-            // Simple RC filter approximation
-            sample = sample * cutoff + buffer[frame] * (1 - cutoff) * 0.1
-            
-            // Use smoothed master volume if provided (Issue #60 fix)
-            let masterVol = smoothedParams?.masterVolume ?? preset.masterVolume
-            
-            // Apply envelope and velocity
-            var amplitude = envelope * velocityGain * masterVol
-            if preset.lfo.destination == .amplitude {
-                amplitude *= (1 + lfoValue * 0.5)
-            }
-            
-            // CRITICAL: Apply amplitude and accumulate into buffer
-            // Output will be gain-compensated after all voices render
-            buffer[frame] += sample * amplitude
-        }
     }
     
     /// Render samples with per-sample parameter smoothing (Issue #102)
@@ -670,10 +591,11 @@ class SynthEngine {
     // MARK: - Parameter Smoothing (Issue #60 fix)
     
     /// Target values for smoothed parameters (set by automation/UI)
-    private var targetFilterCutoff: Float = 1.0
-    private var targetFilterResonance: Float = 0.0
-    private var targetMasterVolume: Float = 0.7
-    private var targetOscillatorMix: Float = 0.0
+    /// Internal for use by offline rendering extension (Issue #109)
+    var targetFilterCutoff: Float = 1.0
+    var targetFilterResonance: Float = 0.0
+    var targetMasterVolume: Float = 0.7
+    var targetOscillatorMix: Float = 0.0
     
     /// Per-sample parameter smoothers (real-time safe)
     /// 5ms time constant = fast response without zipper noise

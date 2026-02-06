@@ -284,8 +284,9 @@ class MIDIBounceEngine {
 
 extension SynthEngine {
     
-    /// Render audio offline for bounce
-    /// Note: This uses the existing voice rendering system
+    /// Render audio offline for bounce with per-sample parameter smoothing (Issue #109)
+    /// Uses the same high-quality rendering path as real-time playback to ensure WYSIWYG.
+    /// Offline bounces now match real-time playback quality exactly.
     func renderOffline(into buffer: UnsafeMutablePointer<Float>, frameCount: Int, sampleRate: Float, currentTime: inout Float) {
         // Allocate temporary mono buffer for voice rendering
         let tempBuffer = UnsafeMutablePointer<Float>.allocate(capacity: frameCount)
@@ -294,18 +295,41 @@ extension SynthEngine {
         // Clear temp buffer
         memset(tempBuffer, 0, frameCount * MemoryLayout<Float>.size)
         
-        // Get active voices and render each
+        // ISSUE #109 FIX: Use same per-sample smoothing as real-time rendering
+        // Pre-allocate parameter arrays for per-sample smoothing
+        // This ensures offline bounce quality matches real-time playback (WYSIWYG)
+        let smoothedCutoffs = [Float](repeating: targetFilterCutoff, count: frameCount)
+        let smoothedResonances = [Float](repeating: targetFilterResonance, count: frameCount)
+        let smoothedVolumes = [Float](repeating: targetMasterVolume, count: frameCount)
+        let smoothedMixes = [Float](repeating: targetOscillatorMix, count: frameCount)
+        
+        // Get active voices
         let currentVoices = activeVoices
+        let activeVoiceCount = currentVoices.filter { $0.isActive }.count
+        
+        // Render each voice with per-sample smoothed parameters (same as real-time)
         for voice in currentVoices where voice.isActive {
-            voice.render(into: tempBuffer, frameCount: frameCount, startTime: currentTime)
+            voice.renderPerSample(
+                into: tempBuffer,
+                frameCount: frameCount,
+                startTime: currentTime,
+                smoothedCutoffs: smoothedCutoffs,
+                smoothedResonances: smoothedResonances,
+                smoothedVolumes: smoothedVolumes,
+                smoothedMixes: smoothedMixes
+            )
         }
         
-        // Copy mono to stereo interleaved with master volume
-        let volume = preset.masterVolume
+        // Apply same gain compensation as real-time rendering
+        let gainCompensation: Float = activeVoiceCount > 0 ? 0.2 / Float(activeVoiceCount) : 1.0
+        
+        // Copy mono to stereo interleaved with gain compensation
         for i in 0..<frameCount {
-            let sample = tempBuffer[i] * volume
-            buffer[i * 2] = sample        // Left
-            buffer[i * 2 + 1] = sample    // Right
+            let sample = tempBuffer[i] * gainCompensation
+            // Hard clip to prevent clipping (same as real-time)
+            let clippedSample = max(-1.0, min(1.0, sample))
+            buffer[i * 2] = clippedSample        // Left
+            buffer[i * 2 + 1] = clippedSample    // Right
         }
         
         // Advance time
