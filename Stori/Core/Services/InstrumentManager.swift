@@ -371,24 +371,36 @@ class InstrumentManager: InstrumentManagerProtocol {
     // MARK: - MIDI Event Routing
     
     /// Route a note on event to the active instrument
-    func noteOn(pitch: UInt8, velocity: UInt8) {
+    /// Route a note on event to the active instrument with optional latency compensation
+    /// - Parameters:
+    ///   - pitch: MIDI note pitch (0-127)
+    ///   - velocity: MIDI velocity (1-127)
+    ///   - compensationBeats: Negative compensation in beats (subtracted from timestamp for recording)
+    ///                        Used by virtual keyboard to compensate for UI event latency
+    func noteOn(pitch: UInt8, velocity: UInt8, compensationBeats: Double = 0) {
         guard let instrument = activeInstrument else {
             return
         }
         
-        // Play the note through the instrument
+        // Play the note through the instrument (no latency - we want immediate audio feedback)
         instrument.noteOn(pitch: pitch, velocity: velocity)
         heldNotes.insert(pitch)
         
         // Record the note if recording is active (use beats for MIDI timing)
         if isRecording {
-            let timeInBeats = currentPlayheadBeats
+            // Apply negative compensation for UI latency (e.g., virtual keyboard)
+            // Compensation is subtracted to make the note appear EARLIER in the timeline
+            let timeInBeats = currentPlayheadBeats - compensationBeats
             activeRecordingNotes[pitch] = (startBeat: timeInBeats, velocity: velocity)
         }
     }
     
-    /// Route a note off event to the active instrument
-    func noteOff(pitch: UInt8) {
+    /// Route a note off event to the active instrument with optional latency compensation
+    /// - Parameters:
+    ///   - pitch: MIDI note pitch (0-127)
+    ///   - compensationBeats: Negative compensation in beats (subtracted from timestamp for recording)
+    ///                        Used by virtual keyboard to compensate for UI event latency
+    func noteOff(pitch: UInt8, compensationBeats: Double = 0) {
         guard let instrument = activeInstrument else { return }
         
         heldNotes.remove(pitch)
@@ -402,7 +414,9 @@ class InstrumentManager: InstrumentManagerProtocol {
         
         // Record the note if recording is active (use beats for MIDI timing)
         if isRecording, let noteInfo = activeRecordingNotes[pitch] {
-            let durationInBeats = currentPlayheadBeats - noteInfo.startBeat
+            // Apply negative compensation to note off time as well
+            let compensatedEndTime = currentPlayheadBeats - compensationBeats
+            let durationInBeats = compensatedEndTime - noteInfo.startBeat
             let note = MIDINote(
                 pitch: pitch,
                 velocity: noteInfo.velocity,

@@ -7,6 +7,12 @@
 //  Virtual MIDI Keyboard - Play software instruments with your computer keyboard
 //  Virtual keyboard for playing instruments with computer keyboard (Musical Typing).
 //
+//  LATENCY COMPENSATION:
+//  - UI events (clicks, keypresses) have inherent latency (~30ms) from event processing
+//  - Notes are timestamped with negative compensation to align with user intent
+//  - Audio feedback is immediate (no latency), only recording timestamps are adjusted
+//  - Compensation is tempo-aware: converted from seconds to beats for musical accuracy
+//
 //  Keyboard Layout:
 //  Black keys: W E   T Y U   O P
 //  White keys: A S D F G H J K L ; '
@@ -26,6 +32,7 @@ import AVFoundation
 struct VirtualKeyboardView: View {
     @State private var keyboardState = VirtualKeyboardState()
     @Environment(\.dismiss) private var dismiss
+    @Environment(AudioEngine.self) private var audioEngine
     
     /// Use shared InstrumentManager for routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
@@ -58,6 +65,8 @@ struct VirtualKeyboardView: View {
         .frame(width: 720, height: 360)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            // Configure keyboard state with audio engine for tempo-aware latency compensation
+            keyboardState.configure(audioEngine: audioEngine)
             keyboardState.startListening()
         }
         .onDisappear {
@@ -485,8 +494,28 @@ class VirtualKeyboardState {
     var sustainEnabled: Bool = false
     var pressedNotes: Set<UInt8> = []
     
+    /// UI latency compensation in seconds (measured/estimated UI event loop delay)
+    /// This represents the delay between physical user action (click/keypress) and note trigger
+    /// Typical values: 20-50ms depending on system load and event processing latency
+    @ObservationIgnored
+    private let uiLatencySeconds: TimeInterval = 0.030 // 30ms default
+    
     /// Access to shared instrument manager
     @ObservationIgnored private var instrumentManager: InstrumentManager { InstrumentManager.shared }
+    
+    /// Access to audio engine for tempo information (needed for beat compensation calculation)
+    @ObservationIgnored private weak var audioEngine: AudioEngine?
+    
+    /// Calculate UI latency compensation in beats based on current tempo
+    /// This converts the fixed latency compensation time (seconds) to musical time (beats)
+    private var latencyCompensationBeats: Double {
+        // Get current tempo from audio engine (default to 120 BPM if not available)
+        let tempo = audioEngine?.currentProject?.tempo ?? 120.0
+        
+        // Convert seconds to beats: beats = seconds * (BPM / 60)
+        let beatsPerSecond = tempo / 60.0
+        return uiLatencySeconds * beatsPerSecond
+    }
     
     /// Whether a track instrument is available
     var isSynthReady: Bool {
@@ -556,8 +585,14 @@ class VirtualKeyboardState {
         return keys
     }
     
-    init() {
+    init(audioEngine: AudioEngine? = nil) {
         // Virtual keyboard routes through InstrumentManager
+        self.audioEngine = audioEngine
+    }
+    
+    /// Configure audio engine reference for tempo-aware latency compensation
+    func configure(audioEngine: AudioEngine) {
+        self.audioEngine = audioEngine
     }
     
     func startListening() {
@@ -669,16 +704,18 @@ class VirtualKeyboardState {
     
     // MARK: - Note Routing
     
-    /// Send note on - routes to active track instrument
+    /// Send note on - routes to active track instrument with latency compensation
     private func sendNoteOn(_ pitch: UInt8) {
         guard instrumentManager.hasActiveInstrument else { return }
-        instrumentManager.noteOn(pitch: pitch, velocity: velocity)
+        // Apply UI latency compensation for accurate recording timestamps
+        instrumentManager.noteOn(pitch: pitch, velocity: velocity, compensationBeats: latencyCompensationBeats)
     }
     
-    /// Send note off - routes to active track instrument
+    /// Send note off - routes to active track instrument with latency compensation
     private func sendNoteOff(_ pitch: UInt8) {
         guard instrumentManager.hasActiveInstrument else { return }
-        instrumentManager.noteOff(pitch: pitch)
+        // Apply UI latency compensation for accurate recording timestamps
+        instrumentManager.noteOff(pitch: pitch, compensationBeats: latencyCompensationBeats)
     }
     
     func noteOn(_ pitch: UInt8) {
