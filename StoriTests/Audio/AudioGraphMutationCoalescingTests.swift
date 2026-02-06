@@ -32,7 +32,7 @@ final class AudioGraphMutationCoalescingTests: XCTestCase {
         graphManager.getTrackNodes = { [:] }
         graphManager.getCurrentProject = { nil }
         graphManager.getTransportState = { .stopped }
-        graphManager.getCurrentPosition = { PlaybackPosition(beats: 0, seconds: 0) }
+        graphManager.getCurrentPosition = { PlaybackPosition(beats: 0) }
         graphManager.setGraphReady = { _ in }
         graphManager.onPlayFromBeat = { _ in }
     }

@@ -36,7 +36,7 @@ final class AudioGraphManager {
     /// Pending mutation for coalescing
     private struct PendingMutation {
         let type: MutationType
-        let work: () throws -> Void
+        let work: () -> Void  // Non-throwing wrapper
         let timestamp: Date
         let targetKey: String
         
@@ -132,17 +132,17 @@ final class AudioGraphManager {
     // MARK: - Public API
     
     /// Performs a structural graph mutation (adding/removing nodes globally)
-    func modifyGraphSafely(_ work: () throws -> Void) rethrows {
+    func modifyGraphSafely(_ work: @escaping () throws -> Void) rethrows {
         try modifyGraph(.structural, work)
     }
     
     /// Performs a connection-only graph mutation (reconnecting existing nodes)
-    func modifyGraphConnections(_ work: () throws -> Void) rethrows {
+    func modifyGraphConnections(_ work: @escaping () throws -> Void) rethrows {
         try modifyGraph(.connection, work)
     }
     
     /// Performs a track-scoped hot-swap mutation (adding/removing nodes on one track)
-    func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
+    func modifyGraphForTrack(_ trackId: UUID, _ work: @escaping () throws -> Void) rethrows {
         try modifyGraph(.hotSwap(trackId: trackId), work)
     }
     
@@ -168,7 +168,7 @@ final class AudioGraphManager {
     // MARK: - Private Implementation
     
     /// Core graph mutation implementation with tiered behavior and coalescing
-    private func modifyGraph(_ type: MutationType, _ work: () throws -> Void) rethrows {
+    private func modifyGraph(_ type: MutationType, _ work: @escaping () throws -> Void) rethrows {
         // REENTRANCY HANDLING: If already in a mutation, just run the work directly
         if _isGraphMutationInProgress {
             try work()
@@ -180,11 +180,20 @@ final class AudioGraphManager {
         
         // Check if we should coalesce this mutation
         if shouldCoalesceMutation(type: type, targetKey: targetKey) {
-            // Store work as untyped closure to avoid @escaping in rethrows context
-            // The work will be executed on main thread during flush, maintaining thread safety
+            // Wrap work in a non-throwing closure that logs errors
+            // This allows us to store it without @escaping in the function signature
             let mutation = PendingMutation(
                 type: type,
-                work: { () throws -> Void in try work() },
+                work: {
+                    do {
+                        try work()
+                    } catch {
+                        AppLogger.shared.error(
+                            "AudioGraphManager: Error in coalesced mutation: \(error)",
+                            category: .audio
+                        )
+                    }
+                },
                 timestamp: Date(),
                 targetKey: targetKey
             )
@@ -296,16 +305,9 @@ final class AudioGraphManager {
                 continue
             }
             
-            // Execute mutation
-            do {
-                try executeGraphMutation(type: mutation.type, work: mutation.work)
-                executedCount += 1
-            } catch {
-                AppLogger.shared.error(
-                    "AudioGraphManager: Failed to execute coalesced mutation: \(error)",
-                    category: .audio
-                )
-            }
+            // Execute mutation (work is non-throwing wrapper)
+            executeGraphMutationNonThrowing(type: mutation.type, work: mutation.work)
+            executedCount += 1
         }
         
         if discardedStale > 0 {
@@ -356,6 +358,56 @@ final class AudioGraphManager {
             
         case .hotSwap(let affectedTrackId):
             try performHotSwapMutation(
+                trackId: affectedTrackId,
+                work: work,
+                wasRunning: wasRunning,
+                wasPlaying: wasPlaying,
+                savedBeatPosition: savedBeatPosition,
+                mutationStartTime: mutationStartTime
+            )
+        }
+    }
+    
+    /// Execute a graph mutation with non-throwing work (for coalesced mutations)
+    private func executeGraphMutationNonThrowing(type: MutationType, work: () -> Void) {
+        // Record mutation timestamp
+        recordMutationTimestamp()
+        
+        _isGraphMutationInProgress = true
+        defer {
+            _isGraphMutationInProgress = false
+            // CENTRALIZED: Always reconnect metronome after any graph mutation
+            installedMetronome?.reconnectNodes(dawMixer: mixer)
+        }
+        
+        let wasRunning = engine.isRunning
+        let wasPlaying = getTransportState?().isPlaying ?? false
+        
+        // CRITICAL: Capture position BEFORE stopping engine to compensate for drift
+        let savedBeatPosition = getCurrentPosition?().beats ?? 0.0
+        let mutationStartTime = CACurrentMediaTime()
+        
+        // Gate playback during mutation
+        setGraphReady?(false)
+        
+        switch type {
+        case .structural:
+            performStructuralMutationNonThrowing(
+                work: work,
+                wasRunning: wasRunning,
+                wasPlaying: wasPlaying,
+                savedBeatPosition: savedBeatPosition,
+                mutationStartTime: mutationStartTime
+            )
+            
+        case .connection:
+            performConnectionMutationNonThrowing(
+                work: work,
+                wasRunning: wasRunning
+            )
+            
+        case .hotSwap(let affectedTrackId):
+            performHotSwapMutationNonThrowing(
                 trackId: affectedTrackId,
                 work: work,
                 wasRunning: wasRunning,
@@ -543,6 +595,204 @@ final class AudioGraphManager {
         
         // Only prepare/start if engine has nodes attached
         // AVFoundation requires at least one connection before prepare()
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            return
+        }
+        
+        engine.prepare()
+        
+        if wasRunning {
+            do {
+                try engine.start()
+            } catch {
+                AppLogger.shared.error("Engine restart failed after hot-swap mutation", category: .audio)
+            }
+        }
+        
+        setGraphReady?(true)
+        
+        // If playing, only reschedule the affected track with drift compensation
+        if wasPlaying,
+           let trackNodes = getTrackNodes?(),
+           let trackNode = trackNodes[trackId],
+           let project = getCurrentProject?(),
+           let track = project.tracks.first(where: { $0.id == trackId }) {
+            
+            let tempo = project.tempo
+            let mutationDuration = CACurrentMediaTime() - mutationStartTime
+            let driftBeats = (tempo / 60.0) * mutationDuration
+            let correctedBeat = savedBeatPosition + driftBeats
+            
+            do {
+                // BEATS-FIRST: Use scheduleFromBeat, conversion to seconds at TrackAudioNode boundary
+                try trackNode.scheduleFromBeat(correctedBeat, audioRegions: track.regions, tempo: tempo)
+                if !track.regions.isEmpty {
+                    trackNode.play()
+                }
+            } catch {
+                AppLogger.shared.error("Failed to reschedule track after hot-swap", category: .audio)
+            }
+        }
+        
+        // Record performance
+        let duration = (CACurrentMediaTime() - operationStart) * 1000
+        AudioPerformanceMonitor.shared.recordTiming(
+            operation: "HotSwapMutation",
+            startTime: operationStart,
+            context: [
+                "trackId": trackId.uuidString,
+                "wasPlaying": String(wasPlaying),
+                "durationMs": String(format: "%.1f", duration)
+            ]
+        )
+    }
+    
+    // MARK: - Non-Throwing Mutation Implementations (for coalesced mutations)
+    
+    /// Structural mutation: Full stop, reset, work, restart (non-throwing)
+    private func performStructuralMutationNonThrowing(
+        work: () -> Void,
+        wasRunning: Bool,
+        wasPlaying: Bool,
+        savedBeatPosition: Double,
+        mutationStartTime: TimeInterval
+    ) {
+        let operationStart = CACurrentMediaTime()
+        
+        // Increment graph generation
+        graphGeneration += 1
+        
+        transportController?.stopPositionTimer()
+        
+        if wasPlaying {
+            midiPlaybackEngine?.stop()
+        }
+        
+        if wasRunning {
+            engine.stop()
+            engine.reset()
+            
+            // Reset all samplers after engine.reset()
+            if let trackNodes = getTrackNodes?() {
+                for trackId in trackNodes.keys {
+                    if let instrument = InstrumentManager.shared.getInstrument(for: trackId) {
+                        instrument.fullRenderReset()
+                    }
+                }
+            }
+        }
+        
+        work()
+        
+        // Only prepare/start if engine has nodes attached
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            transportController?.setupPositionTimer()
+            return
+        }
+        
+        engine.prepare()
+        
+        if wasRunning {
+            do {
+                try engine.start()
+                installedMetronome?.preparePlayerNode()
+            } catch {
+                AppLogger.shared.error("Engine restart failed after structural mutation", category: .audio)
+            }
+        }
+        
+        setGraphReady?(true)
+        
+        if wasPlaying {
+            // Compensate for mutation duration to prevent drift
+            let mutationDuration = CACurrentMediaTime() - mutationStartTime
+            let tempo = getCurrentProject?()?.tempo ?? 120.0
+            let driftBeats = (tempo / 60.0) * mutationDuration
+            let correctedBeat = savedBeatPosition + driftBeats
+            onPlayFromBeat?(correctedBeat)
+        }
+        
+        transportController?.setupPositionTimer()
+        
+        // Record performance
+        let duration = (CACurrentMediaTime() - operationStart) * 1000
+        AudioPerformanceMonitor.shared.recordTiming(
+            operation: "StructuralMutation",
+            startTime: operationStart,
+            context: [
+                "wasRunning": String(wasRunning),
+                "wasPlaying": String(wasPlaying),
+                "durationMs": String(format: "%.1f", duration)
+            ]
+        )
+    }
+    
+    /// Connection mutation: Pause, work, resume (non-throwing)
+    private func performConnectionMutationNonThrowing(
+        work: () -> Void,
+        wasRunning: Bool
+    ) {
+        let operationStart = CACurrentMediaTime()
+        
+        if wasRunning {
+            engine.pause()
+        }
+        
+        work()
+        
+        // Only prepare/start if engine has nodes attached
+        guard !engine.attachedNodes.isEmpty else {
+            setGraphReady?(true)
+            return
+        }
+        
+        engine.prepare()
+        
+        if wasRunning {
+            do {
+                try engine.start()
+            } catch {
+                AppLogger.shared.error("Engine restart failed after connection mutation", category: .audio)
+            }
+        }
+        
+        setGraphReady?(true)
+        // No need to reschedule audio for connection changes
+        
+        // Record performance
+        let duration = (CACurrentMediaTime() - operationStart) * 1000
+        AudioPerformanceMonitor.shared.recordTiming(
+            operation: "ConnectionMutation",
+            startTime: operationStart,
+            context: ["durationMs": String(format: "%.1f", duration)]
+        )
+    }
+    
+    /// Hot-swap mutation: Pause, reset affected track only, work, resume (non-throwing)
+    private func performHotSwapMutationNonThrowing(
+        trackId: UUID,
+        work: () -> Void,
+        wasRunning: Bool,
+        wasPlaying: Bool,
+        savedBeatPosition: Double,
+        mutationStartTime: TimeInterval
+    ) {
+        let operationStart = CACurrentMediaTime()
+        
+        if wasRunning {
+            engine.pause()
+        }
+        
+        // Only reset the affected track's instrument (not all tracks!)
+        if let instrument = InstrumentManager.shared.getInstrument(for: trackId) {
+            instrument.fullRenderReset()
+        }
+        
+        work()
+        
+        // Only prepare/start if engine has nodes attached
         guard !engine.attachedNodes.isEmpty else {
             setGraphReady?(true)
             return
