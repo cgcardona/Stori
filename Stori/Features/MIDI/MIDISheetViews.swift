@@ -235,6 +235,9 @@ struct PianoRollPanelContent: View {
     /// [PHASE-4] Snap to grid toggle state from parent
     var snapToGrid: Bool = true
     
+    /// Callback to reveal the currently edited region in the timeline
+    var onRevealInTimeline: ((Double) -> Void)?
+    
     /// Access shared instrument manager for track info display
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
     
@@ -464,6 +467,46 @@ struct PianoRollPanelContent: View {
                 Text(region.name)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                // Bar position (professional DAW standard)
+                let tempo = projectManager.currentProject?.tempo ?? 120.0
+                let timeSignature = projectManager.currentProject?.timeSignature ?? .fourFour
+                let beatsPerBar = Double(timeSignature.numerator)
+                let startBar = Int(region.startBeat / beatsPerBar) + 1  // 1-indexed
+                let endBeat = region.startBeat + region.durationBeats
+                // Calculate end bar: if endBeat is exactly on a bar boundary, don't count next bar
+                let endBar = Int(ceil((endBeat - 0.001) / beatsPerBar))  // Subtract epsilon to handle exact boundaries
+                
+                Text("•")
+                    .foregroundColor(.secondary)
+                
+                Text("Bars \(startBar)-\(endBar)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .help("Region position in timeline")
+                
+                // "Reveal in Timeline" button (Logic Pro X / Ableton style)
+                Button(action: {
+                    // Professional DAW pattern: Post notification for loose coupling
+                    NotificationCenter.default.post(
+                        name: .revealBeatInTimeline,
+                        object: nil,
+                        userInfo: ["beat": region.startBeat]
+                    )
+                    onRevealInTimeline?(region.startBeat)  // Also call callback if provided
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.backward.and.arrow.down.forward.circle")
+                            .font(.caption)
+                        Text("Reveal")
+                            .font(.caption2)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.accentColor)
+                .help("Scroll timeline to show this region (⌘L)")
+                .keyboardShortcut("l", modifiers: .command)
+                
             } else if trackId != nil {
                 // Track selected but no specific region
                 HStack(spacing: 6) {

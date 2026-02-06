@@ -887,5 +887,6 @@ extension Notification.Name {
     static let toggleVirtualKeyboard = Notification.Name("toggleVirtualKeyboard")
     static let togglePianoRoll = Notification.Name("togglePianoRoll")
     static let toggleSynthesizer = Notification.Name("toggleSynthesizer")
+    static let revealBeatInTimeline = Notification.Name("revealBeatInTimeline")
 }
 
