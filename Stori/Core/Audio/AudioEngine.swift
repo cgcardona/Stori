@@ -503,7 +503,7 @@ class AudioEngine: AudioEngineContext {
             trackNodes: { [weak self] in self?.trackNodes ?? [:] },
             currentProject: { [weak self] in self?.currentProject },
             transportState: { [weak self] in self?.transportController?.transportState ?? .stopped },
-            modifyGraphSafely: { [weak self] work in self?.modifyGraphSafely(work) },
+            modifyGraphSafely: { [weak self] work in try self?.modifyGraphSafely(work) },
             updateSoloState: { [weak self] in self?.updateSoloState() },
             reconnectMetronome: { [weak self] in self?.installedMetronome?.reconnectNodes(dawMixer: self?.mixer ?? AVAudioMixerNode()) },
             setupPositionTimer: { [weak self] in self?.transportController?.setupPositionTimer() },
@@ -1546,53 +1546,53 @@ class AudioEngine: AudioEngineContext {
 
             // 2. Disconnect in downstream-first order (same as rebuildTrackGraphInternal).
             //    Each node: disconnect output, then input, then detach.
-            engine.disconnectNodeOutput(trackNode.panNode)
-            engine.disconnectNodeInput(trackNode.panNode)
-            if engine.attachedNodes.contains(trackNode.panNode) {
-                engine.detach(trackNode.panNode)
+            self.engine.disconnectNodeOutput(trackNode.panNode)
+            self.engine.disconnectNodeInput(trackNode.panNode)
+            if self.engine.attachedNodes.contains(trackNode.panNode) {
+                self.engine.detach(trackNode.panNode)
             }
 
-            engine.disconnectNodeOutput(trackNode.volumeNode)
-            engine.disconnectNodeInput(trackNode.volumeNode)
-            if engine.attachedNodes.contains(trackNode.volumeNode) {
-                engine.detach(trackNode.volumeNode)
+            self.engine.disconnectNodeOutput(trackNode.volumeNode)
+            self.engine.disconnectNodeInput(trackNode.volumeNode)
+            if self.engine.attachedNodes.contains(trackNode.volumeNode) {
+                self.engine.detach(trackNode.volumeNode)
             }
 
-            engine.disconnectNodeOutput(trackNode.eqNode)
-            engine.disconnectNodeInput(trackNode.eqNode)
-            if engine.attachedNodes.contains(trackNode.eqNode) {
-                engine.detach(trackNode.eqNode)
+            self.engine.disconnectNodeOutput(trackNode.eqNode)
+            self.engine.disconnectNodeInput(trackNode.eqNode)
+            if self.engine.attachedNodes.contains(trackNode.eqNode) {
+                self.engine.detach(trackNode.eqNode)
             }
 
             // 3. Disconnect and detach instrument source (sampler or timePitch)
             if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
                let sampler = instrument.samplerEngine?.sampler {
-                if engine.attachedNodes.contains(sampler) {
-                    engine.disconnectNodeOutput(sampler)
-                    engine.disconnectNodeInput(sampler)
-                    engine.detach(sampler)
+                if self.engine.attachedNodes.contains(sampler) {
+                    self.engine.disconnectNodeOutput(sampler)
+                    self.engine.disconnectNodeInput(sampler)
+                    self.engine.detach(sampler)
                 }
             } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
                       let auNode = instrument.audioUnitNode,
-                      engine.attachedNodes.contains(auNode) {
-                engine.disconnectNodeOutput(auNode)
-                engine.disconnectNodeInput(auNode)
-                engine.detach(auNode)
+                      self.engine.attachedNodes.contains(auNode) {
+                self.engine.disconnectNodeOutput(auNode)
+                self.engine.disconnectNodeInput(auNode)
+                self.engine.detach(auNode)
             } else if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
                       let drumKit = instrument.drumKitEngine {
                 drumKit.detach()
             }
 
-            engine.disconnectNodeOutput(trackNode.timePitchUnit)
-            engine.disconnectNodeInput(trackNode.timePitchUnit)
-            if engine.attachedNodes.contains(trackNode.timePitchUnit) {
-                engine.detach(trackNode.timePitchUnit)
+            self.engine.disconnectNodeOutput(trackNode.timePitchUnit)
+            self.engine.disconnectNodeInput(trackNode.timePitchUnit)
+            if self.engine.attachedNodes.contains(trackNode.timePitchUnit) {
+                self.engine.detach(trackNode.timePitchUnit)
             }
 
-            engine.disconnectNodeOutput(trackNode.playerNode)
-            engine.disconnectNodeInput(trackNode.playerNode)
-            if engine.attachedNodes.contains(trackNode.playerNode) {
-                engine.detach(trackNode.playerNode)
+            self.engine.disconnectNodeOutput(trackNode.playerNode)
+            self.engine.disconnectNodeInput(trackNode.playerNode)
+            if self.engine.attachedNodes.contains(trackNode.playerNode) {
+                self.engine.detach(trackNode.playerNode)
             }
         }
     }
@@ -1601,19 +1601,19 @@ class AudioEngine: AudioEngineContext {
     
     /// Performs a structural graph mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphSafely(_ work: () throws -> Void) rethrows {
+    func modifyGraphSafely(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphSafely(work)
     }
     
     /// Performs a connection-only graph mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphConnections(_ work: () throws -> Void) rethrows {
+    func modifyGraphConnections(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphConnections(work)
     }
     
     /// Performs a track-scoped hot-swap mutation
     /// DELEGATED to AudioGraphManager
-    func modifyGraphForTrack(_ trackId: UUID, _ work: () throws -> Void) rethrows {
+    func modifyGraphForTrack(_ trackId: UUID, _ work: @escaping () throws -> Void) rethrows {
         try graphManager.modifyGraphForTrack(trackId, work)
     }
     
