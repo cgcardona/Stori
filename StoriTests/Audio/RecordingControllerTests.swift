@@ -132,13 +132,9 @@ final class RecordingControllerTests: XCTestCase {
         
         // Recording mode started synchronously
         XCTAssertEqual(recordingModeStartCount, 1)
-        // Playback starts asynchronously (after mic permission + setupRecording)
-        var waited = 0
-        while playbackStartCount < 1, waited < 50 {
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            waited += 1
-        }
-        XCTAssertEqual(playbackStartCount, 1, "Playback should start after setupRecording runs")
+        // With the new fix (Issue #120), transport.play() is called instead of onStartPlayback()
+        // The TransportController handles playback internally, so we verify recording mode started
+        XCTAssertTrue(sut.isRecording, "Recording should be active after record() call")
     }
     
     func testRecordingStateAfterStop() {
@@ -164,9 +160,9 @@ final class RecordingControllerTests: XCTestCase {
         await sut.prepareRecordingDuringCountIn()
         sut.startRecordingAfterCountIn()
         
-        // Should start recording mode and playback (tap installed with pre-created file)
-        XCTAssertEqual(recordingModeStartCount, 1)
-        XCTAssertEqual(playbackStartCount, 1)
+        // Should start recording mode (Issue #120: transport.play() called instead of onStartPlayback)
+        XCTAssertEqual(recordingModeStartCount, 1, "Recording mode should be active")
+        XCTAssertTrue(sut.isRecording, "Recording should be active after count-in completes")
         
         // Wait for count-in to complete (1 bar at 120 BPM = 2 seconds)
         try await Task.sleep(nanoseconds: 2_500_000_000)
@@ -321,13 +317,9 @@ final class RecordingControllerTests: XCTestCase {
         // Start recording
         sut.record()
         XCTAssertEqual(recordingModeStartCount, 1)
-        // Playback starts asynchronously (after mic permission + setupRecording)
-        var waited = 0
-        while playbackStartCount < 1, waited < 50 {
-            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            waited += 1
-        }
-        XCTAssertEqual(playbackStartCount, 1, "Playback should start after setupRecording runs")
+        // With the new fix (Issue #120), transport.play() is called instead of onStartPlayback()
+        // The TransportController handles playback internally
+        XCTAssertTrue(sut.isRecording, "Recording should be active after record() call")
         
         // Let recording run
         try await Task.sleep(nanoseconds: 200_000_000) // 200ms
