@@ -54,22 +54,36 @@ final class PluginChainFirstNoteLatencyTests: XCTestCase {
     
     // MARK: - Setup & Teardown
     
-    override func setUp() async throws {
-        try await super.setUp()
+    override func setUp() {
+        // BUG FIX (ASan "freed pointer was not the last allocation"):
+        // Avoiding async setUp to prevent Swift Concurrency task teardown bug
+        // in XCTest's error observation (swift_task_dealloc_specific).
+        // Pattern: Use synchronous setUp when no actual async work is needed.
+        super.setUp()
         
         engine = AVAudioEngine()
         format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)
         
-        // Start engine
-        try engine.start()
+        // Attach a test node before starting to avoid AVAudioEngine assertion
+        // AVFoundation requires at least one node attached before starting
+        let testMixer = AVAudioMixerNode()
+        engine.attach(testMixer)
+        engine.connect(testMixer, to: engine.outputNode, format: format)
+        
+        // Start engine (failure in setUp will fail all tests, which is appropriate)
+        do {
+            try engine.start()
+        } catch {
+            XCTFail("Failed to start engine in setUp: \(error)")
+        }
     }
     
-    override func tearDown() async throws {
+    override func tearDown() {
         engine.stop()
         engine = nil
         format = nil
         
-        try await super.tearDown()
+        super.tearDown()
     }
     
     // MARK: - Core Preparation Tests
@@ -189,23 +203,31 @@ final class PluginChainFirstNoteLatencyTests: XCTestCase {
         // Create heavy synth plugin (simulated)
         let descriptor = createMockPluginDescriptor(name: "HeavySynth")
         let plugin = PluginInstance(descriptor: descriptor)
+        defer { plugin.unload() }
         try await plugin.load(sampleRate: sampleRate)
         chain.storePlugin(plugin, atSlot: 0)
         
-        // Stop engine (cold start scenario)
+        // Realize chain while engine is running
+        chain.realize()
+        
+        // Stop engine (cold start scenario - simulates user stopping playback)
         engine.stop()
         
-        // Prepare for playback (BUG FIX)
-        chain.realize()
+        // BUG FIX: Prepare for playback BEFORE restarting engine
+        // This allocates render resources eagerly so first note isn't delayed
         let prepared = chain.prepareForPlayback()
         XCTAssertTrue(prepared, "Preparation must succeed")
+        
+        // Verify render resources are allocated BEFORE engine restarts
+        XCTAssertTrue(plugin.auAudioUnit!.renderResourcesAllocated,
+                      "Resources must be allocated before engine restart")
         
         // Restart engine
         try engine.start()
         
-        // Verify render resources are allocated BEFORE first buffer
+        // Resources should still be allocated after restart
         XCTAssertTrue(plugin.auAudioUnit!.renderResourcesAllocated,
-                      "Resources must be allocated before first audio callback")
+                      "Resources must remain allocated after engine restart")
         
         // Measure time from play command to first audio processing
         // (In a real test, we'd schedule a note and measure its onset time)
@@ -271,7 +293,7 @@ final class PluginChainFirstNoteLatencyTests: XCTestCase {
         XCTAssertFalse(prepared, "Preparation should fail without engine")
     }
     
-    /// Test preparation after engine stops
+    /// Test preparation after engine stops (engine must be running to realize)
     func testPrepareAfterEngineStops() async throws {
         let chain = PluginChain(maxSlots: 8)
         chain.install(in: engine, format: format)
@@ -281,16 +303,24 @@ final class PluginChainFirstNoteLatencyTests: XCTestCase {
         try await plugin.load(sampleRate: sampleRate)
         chain.storePlugin(plugin, atSlot: 0)
         
-        // Stop engine
+        // Realize chain while engine is running
+        chain.realize()
+        
+        // Stop engine (simulates user stopping playback in a loaded project)
         engine.stop()
         
-        // Preparation should still work (allocates resources, doesn't require running engine)
+        // Preparation should work (allocates resources even when engine stopped)
         let prepared = chain.prepareForPlayback()
-        XCTAssertTrue(prepared, "Preparation should work even when engine is stopped")
+        XCTAssertTrue(prepared, "Preparation should work when chain is realized but engine is stopped")
+        
+        // Verify resources are allocated
+        XCTAssertTrue(plugin.auAudioUnit!.renderResourcesAllocated, 
+                      "Resources should be allocated before engine restart")
         
         // Restart and verify still prepared
         try engine.start()
-        XCTAssertTrue(plugin.auAudioUnit!.renderResourcesAllocated)
+        XCTAssertTrue(plugin.auAudioUnit!.renderResourcesAllocated,
+                      "Resources should remain allocated after engine restart")
     }
     
     /// Test idempotent preparation (calling twice)
@@ -489,23 +519,28 @@ final class PluginChainFirstNoteLatencyTests: XCTestCase {
     
     // MARK: - Helper Methods
     
-    /// Create a mock plugin descriptor for testing
+    /// Create a mock plugin descriptor for testing (uses Apple NewTimePitch AU)
     private func createMockPluginDescriptor(name: String) -> PluginDescriptor {
-        // Use a real AU component type that should be available on macOS
-        // AUNewPitch is a system audio unit that should always be available
-        let componentDesc = AudioComponentDescription(
+        let componentDesc = AudioComponentDescriptionCodable(
             componentType: kAudioUnitType_FormatConverter,
             componentSubType: kAudioUnitSubType_NewTimePitch,
             componentManufacturer: kAudioUnitManufacturer_Apple,
             componentFlags: 0,
             componentFlagsMask: 0
         )
-        
         return PluginDescriptor(
+            id: UUID(),
             name: name,
             manufacturer: "Test",
             version: "1.0",
-            componentDescription: componentDesc.toCodable()
+            category: .effect,
+            componentDescription: componentDesc,
+            auType: .aufx,
+            supportsPresets: true,
+            hasCustomUI: false,
+            inputChannels: 2,
+            outputChannels: 2,
+            latencySamples: 0
         )
     }
 }
