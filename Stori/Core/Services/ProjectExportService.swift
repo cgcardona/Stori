@@ -441,8 +441,8 @@ class ProjectExportService {
         let filename = "\(sanitizeFileName(project.name))_\(timestamp).wav"
         let outputURL = exportDirectory.appendingPathComponent(filename)
         
-        // Calculate project duration
-        let projectDuration = calculateProjectDuration(project)
+        // Calculate project CONTENT duration (before plugins are cloned)
+        let contentDuration = calculateProjectDuration(project)
         
         // Create offline render engine
         let renderEngine = AVAudioEngine()
@@ -461,10 +461,14 @@ class ProjectExportService {
         exportStatus = "Rendering audio..."
         exportProgress = 0.2
         
+        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
+        // This ensures we query actual cloned plugin tail times, not live engine instances
+        let totalDuration = calculateExportDurationWithTail(contentDuration)
+        
         // Perform offline rendering
         let renderedBuffer = try await renderProjectAudio(
             renderEngine: renderEngine,
-            duration: projectDuration,
+            duration: totalDuration,
             sampleRate: sampleRate
         )
         
@@ -529,8 +533,8 @@ class ProjectExportService {
         let filename = "\(sanitizeFileName(settings.filename)).\(settings.format.rawValue)"
         let outputURL = exportDirectory.appendingPathComponent(filename)
         
-        // Calculate project duration
-        let projectDuration = calculateProjectDuration(project)
+        // Calculate project CONTENT duration (before plugins are cloned)
+        let contentDuration = calculateProjectDuration(project)
         
         // Check for cancellation
         guard !isCancelled else {
@@ -554,10 +558,13 @@ class ProjectExportService {
         exportStatus = "Rendering audio..."
         exportProgress = 0.2
         
+        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
+        let totalDuration = calculateExportDurationWithTail(contentDuration)
+        
         // Perform offline rendering
         let renderedBuffer = try await renderProjectAudio(
             renderEngine: renderEngine,
-            duration: projectDuration,
+            duration: totalDuration,
             sampleRate: sampleRate
         )
         
@@ -732,29 +739,13 @@ class ProjectExportService {
     
     // MARK: - Private Helper Methods
     
-    /// Calculate project duration in BEATS (primary unit), then convert to seconds for AVAudioEngine
-    /// Calculate the duration of a project in seconds (public for UI estimation)
-    /// Calculate total project duration in seconds including plugin tail time
+    /// Calculate project CONTENT duration in seconds (beats → seconds conversion)
     /// 
-    /// EXPORT TAIL ARCHITECTURE (Issue #10):
-    /// Professional DAWs render extra time beyond the last content to capture plugin tails.
-    /// This ensures reverb/delay decay is fully included in the exported file.
+    /// NOTE: This returns ONLY the content duration (last region end time).
+    /// Tail time is calculated AFTER plugins are cloned during export setup.
     /// 
-    /// DURATION CALCULATION:
-    /// 1. Find max end time of all regions (audio + MIDI) in beats
-    /// 2. Convert to seconds using project tempo
-    /// 3. Add tail buffer: max(plugin tail time, 300ms synth release)
-    /// 4. Result: project content + full tail = WYHIWYG export
-    /// 
-    /// TAIL TIME SOURCES:
-    /// - Plugin-reported tail time (reverb, delay internal buffers)
-    /// - Minimum 300ms for synth release envelopes
-    /// - Capped at 5 seconds to prevent unreasonably long exports
-    /// 
-    /// DRAIN & FLUSH:
-    /// After rendering (content + tail), the engine processes additional drain buffers
-    /// to ensure all plugin internal states are fully flushed before stopping.
-    /// This prevents abrupt cutoff of the final milliseconds.
+    /// Why: Tail time must come from the actual cloned plugins used in export,
+    /// not from live engine instances which may not be loaded yet.
     func calculateProjectDuration(_ project: AudioProject) -> TimeInterval {
         let durationBeats = calculateProjectDurationInBeats(project)
         
@@ -762,35 +753,78 @@ class ProjectExportService {
         let secondsPerBeat = 60.0 / project.tempo
         let durationSeconds = durationBeats * secondsPerBeat
         
-        // L-2: Calculate max plugin tail time (reverbs, delays, etc.)
-        // This ensures reverb/delay tails are captured in the export
-        let maxTailTime = calculateMaxPluginTailTime(project)
+        return durationSeconds
+    }
+    
+    /// Calculate total export duration: content + plugin tail time
+    /// CRITICAL: Must be called AFTER plugins are cloned in setupOfflineAudioGraph
+    /// 
+    /// EXPORT TAIL ARCHITECTURE (Issue #61):
+    /// Professional DAWs render extra time beyond the last content to capture plugin tails.
+    /// This ensures reverb/delay decay is fully included in the exported file.
+    /// 
+    /// DURATION CALCULATION:
+    /// 1. Content duration (from calculateProjectDuration)
+    /// 2. Query actual cloned plugins for tail times
+    /// 3. Add max(plugin tail, 300ms) for synth release
+    /// 4. Result: content + full tail = WYHIWYG export
+    /// 
+    /// TAIL TIME SOURCES:
+    /// - Cloned plugin auAudioUnit.tailTime (reverb, delay, chorus, etc.)
+    /// - Master chain plugins (limiter, EQ)
+    /// - Minimum 300ms for synth release envelopes
+    /// - Capped at 10 seconds to prevent unreasonably long exports
+    /// 
+    /// DRAIN & FLUSH:
+    /// After rendering (content + tail), the engine processes additional drain buffers
+    /// to ensure all plugin internal states are fully flushed before stopping.
+    func calculateExportDurationWithTail(_ contentDuration: TimeInterval) -> TimeInterval {
+        // Query tail time from actual cloned plugins used in export
+        let maxTailTime = calculateMaxPluginTailTimeFromClonedPlugins()
         
         // Use the larger of: plugin tail time or minimum 300ms buffer for synth release
         let tailBuffer = max(maxTailTime, 0.3)
         
-        return durationSeconds + tailBuffer
+        return contentDuration + tailBuffer
     }
     
-    /// Calculate the maximum tail time across all plugins in the project
-    /// Used to ensure reverb/delay tails are captured during export
-    private func calculateMaxPluginTailTime(_ project: AudioProject) -> TimeInterval {
+    /// Calculate the maximum tail time from CLONED export plugins
+    /// CRITICAL: Must be called AFTER plugins are cloned in setupOfflineAudioGraph
+    /// Queries actual cloned AVAudioUnits used in export, not live engine instances
+    /// This ensures accurate tail time even if live plugins aren't loaded yet
+    private func calculateMaxPluginTailTimeFromClonedPlugins() -> TimeInterval {
         var maxTailTime: TimeInterval = 0.0
         
-        for track in project.tracks {
-            // Get plugin instances for this track's configured plugins
-            for config in track.pluginConfigs {
-                if let instance = PluginInstanceManager.shared.instances.values.first(where: { 
-                    $0.descriptor.name == config.pluginName && !$0.isBypassed
-                }) {
-                    maxTailTime = max(maxTailTime, instance.tailTime)
-                }
+        // Query tail times from cloned track plugins
+        for (_, clonedPlugins) in clonedTrackPlugins {
+            for plugin in clonedPlugins {
+                let tailTime = plugin.auAudioUnit.tailTime
+                maxTailTime = max(maxTailTime, tailTime)
             }
         }
         
-        // Also check master bus plugins if available (future extension)
-        // For now, cap at 5 seconds to prevent unreasonably long exports from buggy plugins
-        return min(maxTailTime, 5.0)
+        // Query tail times from cloned bus plugins (reverb, delay)
+        for (_, clonedPlugins) in clonedBusPlugins {
+            for plugin in clonedPlugins {
+                let tailTime = plugin.auAudioUnit.tailTime
+                maxTailTime = max(maxTailTime, tailTime)
+            }
+        }
+        
+        // Check master chain (EQ, limiter)
+        if let masterLimiter = exportMasterLimiter {
+            let limiterTail = masterLimiter.auAudioUnit.tailTime
+            maxTailTime = max(maxTailTime, limiterTail)
+        }
+        
+        if let masterEQ = exportMasterEQ {
+            let eqTail = masterEQ.auAudioUnit.tailTime
+            maxTailTime = max(maxTailTime, eqTail)
+        }
+        
+        // Cap at 10 seconds to prevent unreasonably long exports from buggy plugins
+        // Professional reverbs can have 5-8 second tails (large halls, long decays)
+        return min(maxTailTime, 10.0)
     }
     
     /// Calculate project duration in BEATS
@@ -1951,9 +1985,9 @@ class ProjectExportService {
         let sampleRate: Double = 48000
         let bitDepth: Int = 24
         
-        // Calculate project duration
-        let projectDuration = calculateProjectDuration(project)
-        guard projectDuration > 0 else {
+        // Calculate project CONTENT duration (before plugins are cloned)
+        let contentDuration = calculateProjectDuration(project)
+        guard contentDuration > 0 else {
             throw ExportError.bufferCreationFailed
         }
         
@@ -1968,10 +2002,13 @@ class ProjectExportService {
             sampleRate: sampleRate
         )
         
+        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
+        let totalDuration = calculateExportDurationWithTail(contentDuration)
+        
         // Perform offline rendering
         let renderedBuffer = try await renderProjectAudio(
             renderEngine: renderEngine,
-            duration: projectDuration,
+            duration: totalDuration,
             sampleRate: sampleRate
         )
         
