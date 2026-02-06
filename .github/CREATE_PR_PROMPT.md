@@ -13,7 +13,7 @@ Assume audiophile users with advanced hardware.
 ---
 
 ## INPUT
-- **GitHub Issue URL:** https://github.com/cgcardona/Stori/pull/89
+- **GitHub Issue URL:** https://github.com/cgcardona/Stori/issues/122
 
 ---
 
@@ -100,8 +100,8 @@ Add extensive test coverage.
 
 ---
 
-## STEP 5 — VERIFY
-xcodebuild test -scheme Stori -destination 'platform=macOS'
+## STEP 5 — VERIFY RELEVANT TESTS
+xcodebuild test -project Stori.xcodeproj -scheme Stori -destination 'platform=macOS' -only-testing:StoriTests/FileNameTests
 
 ---
 

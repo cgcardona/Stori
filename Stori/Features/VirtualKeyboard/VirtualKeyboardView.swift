@@ -7,6 +7,12 @@
 //  Virtual MIDI Keyboard - Play software instruments with your computer keyboard
 //  Virtual keyboard for playing instruments with computer keyboard (Musical Typing).
 //
+//  LATENCY COMPENSATION:
+//  - UI events (clicks, keypresses) have inherent latency (~30ms) from event processing
+//  - Notes are timestamped with negative compensation to align with user intent
+//  - Audio feedback is immediate (no latency), only recording timestamps are adjusted
+//  - Compensation is tempo-aware: converted from seconds to beats for musical accuracy
+//
 //  Keyboard Layout:
 //  Black keys: W E   T Y U   O P
 //  White keys: A S D F G H J K L ; '
@@ -26,6 +32,7 @@ import AVFoundation
 struct VirtualKeyboardView: View {
     @State private var keyboardState = VirtualKeyboardState()
     @Environment(\.dismiss) private var dismiss
+    @Environment(AudioEngine.self) private var audioEngine
     
     /// Use shared InstrumentManager for routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
@@ -58,6 +65,8 @@ struct VirtualKeyboardView: View {
         .frame(width: 720, height: 360)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            // Configure keyboard state with audio engine for tempo-aware latency compensation
+            keyboardState.configure(audioEngine: audioEngine)
             keyboardState.startListening()
         }
         .onDisappear {
@@ -485,8 +494,32 @@ class VirtualKeyboardState {
     var sustainEnabled: Bool = false
     var pressedNotes: Set<UInt8> = []
     
+    /// Notes being sustained by sustain pedal (but not currently pressed)
+    @ObservationIgnored
+    private var sustainedNotes: Set<UInt8> = []
+    
+    /// UI latency compensation in seconds (measured/estimated UI event loop delay)
+    /// This represents the delay between physical user action (click/keypress) and note trigger
+    /// Typical values: 20-50ms depending on system load and event processing latency
+    @ObservationIgnored
+    private let uiLatencySeconds: TimeInterval = 0.030 // 30ms default
+    
     /// Access to shared instrument manager
     @ObservationIgnored private var instrumentManager: InstrumentManager { InstrumentManager.shared }
+    
+    /// Access to audio engine for tempo information (needed for beat compensation calculation)
+    @ObservationIgnored private weak var audioEngine: AudioEngine?
+    
+    /// Calculate UI latency compensation in beats based on current tempo
+    /// This converts the fixed latency compensation time (seconds) to musical time (beats)
+    private var latencyCompensationBeats: Double {
+        // Get current tempo from audio engine (default to 120 BPM if not available)
+        let tempo = audioEngine?.currentProject?.tempo ?? 120.0
+        
+        // Convert seconds to beats: beats = seconds * (BPM / 60)
+        let beatsPerSecond = tempo / 60.0
+        return uiLatencySeconds * beatsPerSecond
+    }
     
     /// Whether a track instrument is available
     var isSynthReady: Bool {
@@ -556,14 +589,68 @@ class VirtualKeyboardState {
         return keys
     }
     
-    init() {
+    init(audioEngine: AudioEngine? = nil) {
         // Virtual keyboard routes through InstrumentManager
+        self.audioEngine = audioEngine
+    }
+    
+    /// Configure audio engine reference for tempo-aware latency compensation and transport key forwarding
+    func configure(audioEngine: AudioEngine) {
+        self.audioEngine = audioEngine
     }
     
     func startListening() {
         // Monitor key down events
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            
+            // CRITICAL FIX (Issue #121): Forward DAW transport keys to AudioEngine
+            // SwiftUI keyboard shortcuts are window-scoped. When Virtual Keyboard window
+            // has focus, keyboard shortcuts in the main window don't receive events.
+            // Solution: Check for transport keys and trigger actions directly.
+            //
+            // TRANSPORT KEYS (no modifiers):
+            // - 'r': Record/Stop Recording
+            // - Return: Go to Beginning
+            // - ',': Rewind
+            // - '.': Fast Forward
+            //
+            // This ensures recording workflow is never blocked by Virtual Keyboard.
+            if !event.modifierFlags.contains(.command) && 
+               !event.modifierFlags.contains(.control) &&
+               !event.modifierFlags.contains(.option) {
+                if let char = event.characters?.lowercased().first {
+                    switch char {
+                    case "r":
+                        // Forward to AudioEngine for recording control
+                        Task { @MainActor in
+                            if self.audioEngine?.isRecording == true {
+                                self.audioEngine?.stopRecording()
+                            } else {
+                                self.audioEngine?.record()
+                            }
+                        }
+                        return nil // Consume - we handled it
+                    case "\r": // Return key
+                        Task { @MainActor in
+                            self.audioEngine?.seek(toBeat: 0)
+                        }
+                        return nil
+                    case ",": // Rewind
+                        Task { @MainActor in
+                            self.audioEngine?.rewindBeats(1)
+                        }
+                        return nil
+                    case ".": // Fast Forward
+                        Task { @MainActor in
+                            self.audioEngine?.fastForwardBeats(1)
+                        }
+                        return nil
+                    default:
+                        break
+                    }
+                }
+            }
             
             // Ignore if modifier keys are pressed (except shift for uppercase)
             if event.modifierFlags.contains(.command) || 
@@ -584,6 +671,19 @@ class VirtualKeyboardState {
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
             guard let self = self else { return event }
             
+            // CRITICAL FIX (Issue #121): Ignore transport keys in keyUp
+            // Transport keys are handled entirely in keyDown (above) - don't interfere here
+            if !event.modifierFlags.contains(.command) && 
+               !event.modifierFlags.contains(.control) &&
+               !event.modifierFlags.contains(.option) {
+                if let char = event.characters?.lowercased().first {
+                    let transportKeys: Set<Character> = ["r", "\r", ",", "."]
+                    if transportKeys.contains(char) {
+                        return nil // Consume - already handled in keyDown
+                    }
+                }
+            }
+            
             if let char = event.characters?.lowercased().first {
                 if self.handleKeyUp(char) {
                     return nil
@@ -603,11 +703,15 @@ class VirtualKeyboardState {
             keyUpMonitor = nil
         }
         
-        // Release all notes
+        // Release all notes (both pressed and sustained)
         for pitch in pressedNotes {
             sendNoteOff(pitch)
         }
+        for pitch in sustainedNotes {
+            sendNoteOff(pitch)
+        }
         pressedNotes.removeAll()
+        sustainedNotes.removeAll()
     }
     
     private func handleKeyDown(_ char: Character) -> Bool {
@@ -634,9 +738,9 @@ class VirtualKeyboardState {
         
         // Check for note keys
         if let pitch = pitchForKey(char) {
-            if !pressedNotes.contains(pitch) {
-                noteOn(pitch)
-            }
+            // ALWAYS allow noteOn, even if note is currently sustained
+            // This enables piano-style retriggering while sustain is active
+            noteOn(pitch)
             return true
         }
         
@@ -651,7 +755,8 @@ class VirtualKeyboardState {
         return false
     }
     
-    private func pitchForKey(_ char: Character) -> UInt8? {
+    /// Map keyboard character to MIDI pitch (internal for testing)
+    internal func pitchForKey(_ char: Character) -> UInt8? {
         let basePitch = UInt8(octave * 12)
         
         // White keys
@@ -669,47 +774,73 @@ class VirtualKeyboardState {
     
     // MARK: - Note Routing
     
-    /// Send note on - routes to active track instrument
+    /// Send note on - routes to active track instrument with latency compensation
     private func sendNoteOn(_ pitch: UInt8) {
         guard instrumentManager.hasActiveInstrument else { return }
-        instrumentManager.noteOn(pitch: pitch, velocity: velocity)
+        // Apply UI latency compensation for accurate recording timestamps
+        instrumentManager.noteOn(pitch: pitch, velocity: velocity, compensationBeats: latencyCompensationBeats)
     }
     
-    /// Send note off - routes to active track instrument
+    /// Send note off - routes to active track instrument with latency compensation
     private func sendNoteOff(_ pitch: UInt8) {
         guard instrumentManager.hasActiveInstrument else { return }
-        instrumentManager.noteOff(pitch: pitch)
+        // Apply UI latency compensation for accurate recording timestamps
+        instrumentManager.noteOff(pitch: pitch, compensationBeats: latencyCompensationBeats)
     }
     
     func noteOn(_ pitch: UInt8) {
+        // Remove from sustained notes if retriggering a sustained note
+        sustainedNotes.remove(pitch)
+        
+        // If note is already pressed, send noteOff first (retrigger)
+        if pressedNotes.contains(pitch) {
+            sendNoteOff(pitch)
+        }
+        
+        // Add to pressed notes and send noteOn
         pressedNotes.insert(pitch)
         sendNoteOn(pitch)
     }
     
     func noteOff(_ pitch: UInt8) {
-        if !sustainEnabled {
-            pressedNotes.remove(pitch)
+        // Remove from currently pressed notes
+        pressedNotes.remove(pitch)
+        
+        if sustainEnabled {
+            // Sustain is active: add to sustained notes, don't send noteOff yet
+            sustainedNotes.insert(pitch)
+        } else {
+            // No sustain: send noteOff immediately
             sendNoteOff(pitch)
         }
     }
     
     func octaveUp() {
         if octave < 8 {
-            // Release current notes before changing octave
+            // Release all notes (pressed and sustained) before changing octave
             for pitch in pressedNotes {
                 sendNoteOff(pitch)
             }
+            for pitch in sustainedNotes {
+                sendNoteOff(pitch)
+            }
             pressedNotes.removeAll()
+            sustainedNotes.removeAll()
             octave += 1
         }
     }
     
     func octaveDown() {
         if octave > 0 {
+            // Release all notes (pressed and sustained) before changing octave
             for pitch in pressedNotes {
                 sendNoteOff(pitch)
             }
+            for pitch in sustainedNotes {
+                sendNoteOff(pitch)
+            }
             pressedNotes.removeAll()
+            sustainedNotes.removeAll()
             octave -= 1
         }
     }
@@ -729,12 +860,16 @@ class VirtualKeyboardState {
         // Also update InstrumentManager's sustain state
         instrumentManager.isSustainActive = enabled
         
-        // When sustain is released, stop all held notes
+        // When sustain is released, send noteOff for all sustained notes
+        // (but NOT for currently pressed notes - they should keep playing)
         if wasEnabled && !enabled {
-            for pitch in pressedNotes {
-                sendNoteOff(pitch)
+            for pitch in sustainedNotes {
+                // Only send noteOff if key is not currently pressed
+                if !pressedNotes.contains(pitch) {
+                    sendNoteOff(pitch)
+                }
             }
-            pressedNotes.removeAll()
+            sustainedNotes.removeAll()
         }
     }
     
