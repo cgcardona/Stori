@@ -445,54 +445,78 @@ extension UndoService {
 extension UndoService {
     
     /// Register undo for volume change
-    func registerVolumeChange(_ trackId: UUID, from oldVolume: Float, to newVolume: Float, projectManager: ProjectManager) {
-        registerUndo(actionName: "Change Volume") { [weak projectManager] in
+    func registerVolumeChange(_ trackId: UUID, from oldVolume: Float, to newVolume: Float, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: "Change Volume") { [weak projectManager, weak audioEngine] in
+            // Undo: Restore old volume in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.volume = oldVolume
             }
-        } redo: { [weak projectManager] in
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackVolume(trackId: trackId, volume: oldVolume)
+        } redo: { [weak projectManager, weak audioEngine] in
+            // Redo: Apply new volume in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.volume = newVolume
             }
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackVolume(trackId: trackId, volume: newVolume)
         }
     }
     
     /// Register undo for pan change
-    func registerPanChange(_ trackId: UUID, from oldPan: Float, to newPan: Float, projectManager: ProjectManager) {
-        registerUndo(actionName: "Change Pan") { [weak projectManager] in
+    func registerPanChange(_ trackId: UUID, from oldPan: Float, to newPan: Float, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: "Change Pan") { [weak projectManager, weak audioEngine] in
+            // Undo: Restore old pan in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.pan = oldPan
             }
-        } redo: { [weak projectManager] in
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackPan(trackId: trackId, pan: oldPan)
+        } redo: { [weak projectManager, weak audioEngine] in
+            // Redo: Apply new pan in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.pan = newPan
             }
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackPan(trackId: trackId, pan: newPan)
         }
     }
     
     /// Register undo for mute toggle
-    func registerMuteToggle(_ trackId: UUID, wasMuted: Bool, projectManager: ProjectManager) {
-        registerUndo(actionName: wasMuted ? "Unmute Track" : "Mute Track") { [weak projectManager] in
+    func registerMuteToggle(_ trackId: UUID, wasMuted: Bool, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: wasMuted ? "Unmute Track" : "Mute Track") { [weak projectManager, weak audioEngine] in
+            // Undo: Restore old mute state in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.isMuted = wasMuted
             }
-        } redo: { [weak projectManager] in
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackMute(trackId: trackId, isMuted: wasMuted)
+        } redo: { [weak projectManager, weak audioEngine] in
+            // Redo: Apply new mute state in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.isMuted = !wasMuted
             }
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackMute(trackId: trackId, isMuted: !wasMuted)
         }
     }
     
     /// Register undo for solo toggle
-    func registerSoloToggle(_ trackId: UUID, wasSolo: Bool, projectManager: ProjectManager) {
-        registerUndo(actionName: wasSolo ? "Unsolo Track" : "Solo Track") { [weak projectManager] in
+    func registerSoloToggle(_ trackId: UUID, wasSolo: Bool, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: wasSolo ? "Unsolo Track" : "Solo Track") { [weak projectManager, weak audioEngine] in
+            // Undo: Restore old solo state in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.isSolo = wasSolo
             }
-        } redo: { [weak projectManager] in
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackSolo(trackId: trackId, isSolo: wasSolo)
+        } redo: { [weak projectManager, weak audioEngine] in
+            // Redo: Apply new solo state in both model and audio engine
             if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
                 projectManager?.currentProject?.tracks[index].mixerSettings.isSolo = !wasSolo
             }
+            // CRITICAL: Sync audio engine state (fixes Issue #71 - undo/audio desync)
+            audioEngine?.updateTrackSolo(trackId: trackId, isSolo: !wasSolo)
         }
     }
     

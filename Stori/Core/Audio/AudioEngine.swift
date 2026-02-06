@@ -1911,6 +1911,45 @@ class AudioEngine: AudioEngineContext {
         mixerController.updateTrackRecordEnabled(trackId: trackId, isRecordEnabled: isRecordEnabled)
     }
     
+    // MARK: - Mixer State Getters (for Undo/Redo Verification - Issue #71)
+    
+    /// Get current track volume from audio engine
+    /// Used by undo/redo to verify synchronization with project model
+    func getTrackVolume(trackId: UUID) -> Float {
+        guard let project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return 0.8 // Default volume
+        }
+        return project.tracks[trackIndex].mixerSettings.volume
+    }
+    
+    /// Get current track pan from audio engine
+    func getTrackPan(trackId: UUID) -> Float {
+        guard let project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return 0.0 // Center pan
+        }
+        return project.tracks[trackIndex].mixerSettings.pan
+    }
+    
+    /// Get current track mute state from audio engine
+    func getTrackMute(trackId: UUID) -> Bool {
+        guard let project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return false
+        }
+        return project.tracks[trackIndex].mixerSettings.isMuted
+    }
+    
+    /// Get current track solo state from audio engine
+    func getTrackSolo(trackId: UUID) -> Bool {
+        guard let project = currentProject,
+              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return false
+        }
+        return project.tracks[trackIndex].mixerSettings.isSolo
+    }
+    
     // MARK: - Individual EQ Band Updates (Delegated to MixerController)
     
     func updateTrackHighEQ(trackId: UUID, value: Float) {
