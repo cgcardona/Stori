@@ -59,6 +59,9 @@ struct IntegratedTimelineView: View {
     var onBounceMIDIRegion: ((MIDIRegion, AudioTrack) -> Void)?
     var onDeleteMIDIRegion: ((MIDIRegion, AudioTrack) -> Void)?
     
+    // Callback to scroll timeline to specific beat position (for "Reveal in Timeline")
+    var onScrollToBeat: ((Double) -> Void)?
+    
     // Scroll synchronization model
     @State private var scrollSync = ScrollSyncModel()
     
@@ -1033,6 +1036,14 @@ struct IntegratedTimelineView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openMarketplace)) { _ in
             // Navigate to marketplace tab in the inspector
             NotificationCenter.default.post(name: .openVisualTab, object: nil)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .revealBeatInTimeline)) { notification in
+            // Professional DAW feature: Scroll timeline to reveal a specific beat position
+            // Used by Piano Roll "Reveal in Timeline" button
+            if let beat = notification.userInfo?["beat"] as? Double {
+                let pixelsPerBeat = CGFloat(100.0 * horizontalZoom)
+                scrollSync.scrollToBeat(beat, pixelsPerBeat: pixelsPerBeat, viewportWidth: viewportWidth)
+            }
         }
         .modifier(TimelineEditingNotifications(
             onSplit: splitSelectedRegionsAtPlayhead,
