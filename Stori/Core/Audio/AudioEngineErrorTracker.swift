@@ -136,7 +136,7 @@ final class AudioEngineErrorTracker {
     
     static let shared = AudioEngineErrorTracker()
     
-    private init() {
+    init() {
         // Setup periodic health recalculation
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in

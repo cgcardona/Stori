@@ -9,6 +9,12 @@
 import Foundation
 
 /// Engine for converting MIDI data to musical notation
+/// 
+/// ARCHITECTURE (Issue #67): This is a DISPLAY-ONLY converter.
+/// - Creates ScoreNote objects for visual rendering
+/// - NEVER modifies source MIDI data (preserves sub-beat precision)
+/// - ScoreNotes reference MIDI notes via midiNoteId for bidirectional lookup
+/// - Quantization is for display aesthetics, not data modification
 class NotationQuantizer {
     
     // MARK: - Configuration
@@ -19,6 +25,14 @@ class NotationQuantizer {
     
     /// Engraver for intelligent layout
     private let engraver = NotationEngraver()
+    
+    // MARK: - Deinit Protection (ASan Issue #84742+)
+    
+    deinit {
+        // CRITICAL: Protective deinit to prevent ASan crash during test teardown
+        // Even though this class is not @Observable or @MainActor, it can be
+        // deallocated on MainActor during test cleanup, causing task-local issues
+    }
     
     // MARK: - Main Quantization
     

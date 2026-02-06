@@ -57,7 +57,7 @@ class UndoService {
     
     // MARK: - Initialization
     
-    private init() {
+    init() {
         // Configure undo manager
         undoManager.levelsOfUndo = 100  // Maximum undo steps
         undoManager.groupsByEvent = true
