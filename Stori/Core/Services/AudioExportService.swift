@@ -212,9 +212,11 @@ class AudioExportService {
     
     // MARK: - Cleanup
     
-    // No async resources owned.
-    // Async functions (exportOriginal, exportProcessed) create transient tasks that complete with the call.
-    // No deinit required.
+    deinit {
+        // REQUIRED: @MainActor + @Observable creates implicit Swift Concurrency TaskLocal storage.
+        // Empty deinit changes teardown codegen to avoid ASan bad-free (Issue #84742).
+        // This is the one case where an empty deinit is correct.
+    }
 }
 
 enum AudioExportError: Error, LocalizedError {

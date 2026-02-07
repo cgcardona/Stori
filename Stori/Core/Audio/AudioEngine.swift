@@ -917,7 +917,7 @@ class AudioEngine: AudioEngineContext {
     }
     
     // MARK: - Audio Engine Setup
-    private func setupAudioEngine() {
+    func setupAudioEngine() {
         // Attach nodes
         engine.attach(mixer)
         engine.attach(masterEQ)

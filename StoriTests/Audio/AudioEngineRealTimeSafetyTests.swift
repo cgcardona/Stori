@@ -19,11 +19,9 @@ final class AudioEngineRealTimeSafetyTests: XCTestCase {
         
         // Create minimal project for engine to work
         let project = AudioProject(
-            id: UUID(),
             name: "Test Project",
             tempo: 120.0,
-            timeSignature: .fourFour,
-            tracks: []
+            timeSignature: .fourFour
         )
         audioEngine.currentProject = project
     }
@@ -306,11 +304,9 @@ final class AudioEngineRealTimeSafetyTests: XCTestCase {
     func testErrorTrackingDuringPlayback() async throws {
         // Create project with audio track
         let project = AudioProject(
-            id: UUID(),
             name: "Test Project",
             tempo: 120.0,
-            timeSignature: .fourFour,
-            tracks: []
+            timeSignature: .fourFour
         )
         audioEngine.currentProject = project
         
