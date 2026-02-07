@@ -51,10 +51,8 @@ final class DAWUIState {
     
     private init() {}
     
-    // CRITICAL: Protective deinit for Swift Concurrency class (ASan Issue #84742+)
-    // Root cause: Task {} blocks create implicit task-local storage that can be double-freed
-    deinit {
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 struct MainDAWView: View {

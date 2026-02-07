@@ -571,6 +571,87 @@ Every coding session MUST include active deadcode removal:
 - **Maintenance**: Unused code creates confusion and technical debt
 - **Cognitive Load**: Clean code is easier to understand and modify
 
+### MANDATORY: Deinit Standards (DAW-Grade)
+
+**See `DEINIT_STANDARDS.md` for complete documentation.**
+
+#### The One Rule
+**If a type owns async resources, it cancels them explicitly in `deinit`. Otherwise, no `deinit` at all.**
+
+#### The Seven Laws
+1. **No async resources → no `deinit`.**
+2. **Async resources → explicit `deinit { cancels.cancelAll() }`.**
+3. **Never use empty or "protective" deinits.**
+4. **Never rely on property teardown order for cancellation.**
+5. **`CancellationBag.deinit` is a backstop, not the primary mechanism.**
+6. **`@Observable` does not change ARC fundamentals.**
+7. **All async closures must use `[weak self]` unless retention is intentional.**
+
+#### Quick Decision Tree
+```
+Does the type own timers, tasks, or other async work?
+├─ YES → Use CancellationBag + explicit deinit { cancels.cancelAll() }
+└─ NO  → No deinit at all
+```
+
+#### Pattern A: Zero Async Resources (NO deinit)
+```swift
+@Observable @MainActor
+final class MIDIPlaybackEngine {
+    @ObservationIgnored
+    private let midiBlocks = RTSafeDictionary<UUID, AUScheduleMIDIEventBlock>()
+    
+    // ... logic ...
+    
+    // No async resources owned.
+    // No deinit required.
+}
+```
+
+#### Pattern B: Owns Async Resources (Minimal deinit)
+```swift
+@Observable @MainActor
+final class AudioEngine {
+    @ObservationIgnored
+    private let cancels = CancellationBag()
+    
+    func startTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: .global())
+        timer.setEventHandler { [weak self] in  // ✅ MUST use [weak self]
+            guard let self else { return }
+            self.doWork()
+        }
+        timer.resume()
+        cancels.insert(timer: timer)
+    }
+    
+    deinit {
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
+    }
+}
+```
+
+#### Banned Comments (Delete Forever)
+- ❌ "Protective deinit"
+- ❌ "Ensures Swift Concurrency cleanup order"
+- ❌ "Workaround for ASan Issue #84742"
+- ❌ "Implicit @Observable tasks"
+- ❌ "Prevents double-free from implicit Swift Concurrency property change notification tasks"
+
+#### Allowed Comments (Factual Ownership Only)
+- ✅ "Owns timers and background tasks."
+- ✅ "No async resources owned."
+- ✅ "Deterministic early cancellation of async resources."
+
+#### Never Use `nonisolated(unsafe)` in Application Code
+All `nonisolated(unsafe)` usage MUST be encapsulated in infrastructure:
+- `CancellationBag` internals
+- `RTSafeAtomic` wrappers (RTSafeCounter, AtomicBool, AtomicInt, etc.)
+
+**Application code that directly uses `nonisolated(unsafe)` will be rejected in code review.**
+
 Remember: This is a cutting-edge project combining professional audio software, AI, and blockchain technology. Prioritize user experience, performance, and security in all development decisions. When in doubt, favor the approach that provides the best experience for musicians and creators.
 
 **CRITICAL**: Future agents depend on accurate, up-to-date documentation to continue development effectively. Treat documentation updates as essential as code implementation.

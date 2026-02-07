@@ -70,7 +70,8 @@ final class CancellationBag {
     
     /// Cancel all timers and tasks synchronously
     /// Safe to call multiple times (idempotent)
-    func cancelAll() {
+    /// Marked nonisolated so it can be called from deinit
+    nonisolated func cancelAll() {
         lock.lock()
         let tasksToCancel = tasks
         let timersToCancel = timers

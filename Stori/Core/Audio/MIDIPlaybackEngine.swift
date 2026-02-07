@@ -41,27 +41,22 @@ class MIDIPlaybackEngine {
     
     // MARK: - Thread-Safe MIDI Block Cache
     
-    /// Lock for thread-safe access to MIDI blocks
-    @ObservationIgnored
-    private nonisolated(unsafe) var midiBlockLock = os_unfair_lock_s()
-    
-    /// Cached MIDI blocks for each track (thread-safe access)
+    /// Cached MIDI blocks for each track (RT-safe dictionary)
     /// Key: trackId, Value: AUScheduleMIDIEventBlock
     @ObservationIgnored
-    private nonisolated(unsafe) var midiBlocks: [UUID: AUScheduleMIDIEventBlock] = [:]
+    private let midiBlocks = RTSafeDictionary<UUID, AUScheduleMIDIEventBlock>()
     
     /// Pre-allocated MIDI data buffer (3 bytes: status, data1, data2)
     /// Reused for every MIDI event to avoid allocation in hot path
     /// REAL-TIME SAFETY: Eliminates array allocation on every MIDI event
+    /// Thread-local to RT audio thread (no synchronization needed)
     @ObservationIgnored
     private nonisolated(unsafe) var midiDataBuffer: [UInt8] = [0, 0, 0]
     
     /// Atomic flag for tracking missing MIDI blocks (lock-free error detection)
-    /// Bit flags: one bit per track (up to 64 tracks)
+    /// Uses AtomicInt wrapper instead of raw nonisolated(unsafe)
     @ObservationIgnored
-    private nonisolated(unsafe) var missingBlockFlags: UInt64 = 0
-    @ObservationIgnored
-    private nonisolated(unsafe) var missingBlockFlagsLock = os_unfair_lock_s()
+    private let missingBlockFlags = AtomicInt(0)
     
     // MARK: - Properties
     
@@ -234,12 +229,8 @@ class MIDIPlaybackEngine {
         }
     }
     
-    // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 // MARK: - MIDIPlaybackEngine + AudioEngine Integration
@@ -324,9 +315,7 @@ extension MIDIPlaybackEngine {
         }
         
         // Atomically replace the cached blocks
-        os_unfair_lock_lock(&midiBlockLock)
-        midiBlocks = newBlocks
-        os_unfair_lock_unlock(&midiBlockLock)
+        midiBlocks.replaceAll(newBlocks)
     }
     
     /// Sample-accurate MIDI dispatch with calculated sample time
@@ -336,24 +325,20 @@ extension MIDIPlaybackEngine {
         status: UInt8, data1: UInt8, data2: UInt8,
         trackId: UUID, sampleTime: AUEventSampleTime
     ) {
-        // Get the cached MIDI block for this track
-        os_unfair_lock_lock(&midiBlockLock)
-        let midiBlock = midiBlocks[trackId]
-        os_unfair_lock_unlock(&midiBlockLock)
+        // Get the cached MIDI block for this track (tryGet for RT safety)
+        let midiBlock = midiBlocks.tryGet(trackId)
         
         guard let block = midiBlock else {
             // REAL-TIME SAFETY: Simplified error handling - no allocations!
             // Set a flag to indicate missing block, actual error tracking happens off-thread
             // This is atomic and lock-free (just a bit set operation)
             // Note: Limited to 64 tracks - should be plenty for error detection
-            let trackHash = UInt64(trackId.hashValue.magnitude) % 64
-            let trackBit: UInt64 = 1 << trackHash
+            let trackHash = Int(trackId.hashValue.magnitude % 64)
+            let trackBit: Int = 1 << trackHash
             
-            // Check and set the flag atomically
-            os_unfair_lock_lock(&missingBlockFlagsLock)
-            let wasAlreadyFlagged = (missingBlockFlags & trackBit) != 0
-            missingBlockFlags |= trackBit
-            os_unfair_lock_unlock(&missingBlockFlagsLock)
+            // Check and set the flag atomically (thread-safe)
+            let wasAlreadyFlagged = missingBlockFlags.hasBit(trackBit)
+            missingBlockFlags.bitwiseOR(trackBit)
             
             // Only schedule background error tracking if this is the first occurrence
             if !wasAlreadyFlagged {

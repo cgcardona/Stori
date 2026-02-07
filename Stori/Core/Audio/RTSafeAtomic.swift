@@ -244,6 +244,20 @@ final class AtomicInt {
         value -= 1
         return value
     }
+    
+    /// Bitwise OR operation (for flag tracking)
+    nonisolated func bitwiseOR(_ mask: Int) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        value |= mask
+    }
+    
+    /// Check if bit is set (for flag tracking)
+    nonisolated func hasBit(_ mask: Int) -> Bool {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return (value & mask) != 0
+    }
 }
 
 /// Thread-safe atomic double
@@ -266,6 +280,54 @@ final class AtomicDouble {
         os_unfair_lock_lock(&lock)
         defer { os_unfair_lock_unlock(&lock) }
         value = newValue
+    }
+}
+
+// MARK: - Specialized Audio Types
+
+/// RT-safe dictionary for MIDI blocks or plugin state
+/// Used when RT thread needs to look up values by ID
+final class RTSafeDictionary<Key: Hashable, Value> {
+    private nonisolated(unsafe) var lock = os_unfair_lock_s()
+    private nonisolated(unsafe) var storage: [Key: Value] = [:]
+    
+    init() {}
+    
+    /// Try to read value from RT thread (never blocks)
+    nonisolated func tryGet(_ key: Key) -> Value? {
+        guard os_unfair_lock_trylock(&lock) else {
+            return nil
+        }
+        defer { os_unfair_lock_unlock(&lock) }
+        return storage[key]
+    }
+    
+    /// Read value (can block - non-RT thread only)
+    nonisolated func get(_ key: Key) -> Value? {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return storage[key]
+    }
+    
+    /// Replace entire dictionary atomically (non-RT thread)
+    nonisolated func replaceAll(_ newStorage: [Key: Value]) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        storage = newStorage
+    }
+    
+    /// Update single value (non-RT thread)
+    nonisolated func set(_ key: Key, value: Value) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        storage[key] = value
+    }
+    
+    /// Remove value (non-RT thread)
+    nonisolated func remove(_ key: Key) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        storage.removeValue(forKey: key)
     }
 }
 

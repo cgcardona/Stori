@@ -63,17 +63,10 @@ class AutomationServer {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83459)
-    /// See: MetronomeEngine, ProjectExportService for detailed explanation
-    /// These are nonisolated(unsafe) because Network framework callbacks are nonisolated
+    /// Cancellation bag for clean task cleanup (eliminates nonisolated(unsafe) anti-pattern)
+    /// Tasks are cancelled synchronously in deinit
     @ObservationIgnored
-    nonisolated(unsafe) private var stateChangeTask: Task<Void, Never>?
-    @ObservationIgnored
-    nonisolated(unsafe) private var requestHandlerTask: Task<Void, Never>?
-    @ObservationIgnored
-    nonisolated(unsafe) private var statusResponseTask: Task<Void, Never>?
-    @ObservationIgnored
-    nonisolated(unsafe) private var promptExecutionTask: Task<Void, Never>?
+    private let cancels = CancellationBag()
     
     // MARK: - Initialization
     
@@ -108,21 +101,22 @@ class AutomationServer {
             listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
             
             listener?.stateUpdateHandler = { [weak self] state in
-                // Cancel any existing state change task to prevent buildup
-                self?.stateChangeTask?.cancel()
-                self?.stateChangeTask = Task { @MainActor in
+                guard let self else { return }
+                // Create task and track in cancellation bag
+                let task = Task { @MainActor in
                     switch state {
                     case .ready:
-                        self?.isRunning = true
+                        self.isRunning = true
                     case .failed(let error):
-                        self?.isRunning = false
+                        print("[AutomationServer] Failed: \(error)")
+                        self.isRunning = false
                     case .cancelled:
-                        self?.isRunning = false
+                        self.isRunning = false
                     default:
                         break
                     }
-                    self?.stateChangeTask = nil
                 }
+                self.cancels.insert(task: task)
             }
             
             listener?.newConnectionHandler = { [weak self] connection in
@@ -147,13 +141,12 @@ class AutomationServer {
         connection.start(queue: .global(qos: .userInitiated))
         
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            if let data = data, !data.isEmpty {
-                // Note: Multiple concurrent connections OK, we just track the most recent
-                self?.requestHandlerTask?.cancel()
-                self?.requestHandlerTask = Task { @MainActor in
-                    self?.handleRequest(data: data, connection: connection)
-                    self?.requestHandlerTask = nil
+            if let data = data, !data.isEmpty, let self = self {
+                // Create task and track in cancellation bag
+                let task = Task { @MainActor in
+                    self.handleRequest(data: data, connection: connection)
                 }
+                self.cancels.insert(task: task)
             }
             
             if isComplete || error != nil {
@@ -227,25 +220,24 @@ class AutomationServer {
     // MARK: - Endpoint Handlers
     
     private func handleStatus(connection: NWConnection) {
-        // Cancel previous status request if overlapping
-        statusResponseTask?.cancel()
-        statusResponseTask = Task { @MainActor in
+        // Create task and track in cancellation bag
+        let task = Task { @MainActor in
             let status: [String: Any] = [
-                "running": true,
-                "port": Int(port),
-                "requestCount": requestCount,
-                "lastRequest": lastRequest ?? NSNull(),
-                "composerConnected": composerClient?.isConnected ?? false,
-                "projectLoaded": projectManager?.currentProject != nil,
-                "projectName": projectManager?.currentProject?.name ?? NSNull()
+                "running": self.isRunning,
+                "port": Int(self.port),
+                "requestCount": self.requestCount,
+                "lastRequest": self.lastRequest ?? NSNull(),
+                "composerConnected": self.composerClient?.isConnected ?? false,
+                "projectLoaded": self.projectManager?.currentProject != nil,
+                "projectName": self.projectManager?.currentProject?.name ?? NSNull()
             ]
             
             if let jsonData = try? JSONSerialization.data(withJSONObject: status),
                let jsonString = String(data: jsonData, encoding: .utf8) {
-                sendResponse(connection: connection, statusCode: 200, body: jsonString, contentType: "application/json")
+                self.sendResponse(connection: connection, statusCode: 200, body: jsonString, contentType: "application/json")
             }
-            self.statusResponseTask = nil
         }
+        cancels.insert(task: task)
     }
     
     private func handleHealth(connection: NWConnection) {
@@ -299,12 +291,10 @@ class AutomationServer {
         }
         
         // Execute prompt asynchronously
-        // Cancel previous prompt if a new one arrives (user likely wants the new one)
-        promptExecutionTask?.cancel()
-        promptExecutionTask = Task { @MainActor in
-            await executePrompt(request: request, connection: connection)
-            self.promptExecutionTask = nil
+        let task = Task { @MainActor in
+            await self.executePrompt(request: request, connection: connection)
         }
+        cancels.insert(task: task)
     }
     
     // MARK: - Prompt Execution
@@ -446,19 +436,9 @@ class AutomationServer {
         }
     }
     
-    // MARK: - Cleanup
-    
     deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine, ProjectExportService (Issue #83459)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
-        stateChangeTask?.cancel()
-        requestHandlerTask?.cancel()
-        statusResponseTask?.cancel()
-        promptExecutionTask?.cancel()
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
     }
 }

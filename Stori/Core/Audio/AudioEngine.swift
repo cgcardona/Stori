@@ -866,22 +866,9 @@ class AudioEngine: AudioEngineContext {
     }
     
     deinit {
-        // DIAGNOSTIC: Check if deinit actually runs (retain cycle test)
-        // Using NSLog to bypass any console filters
-        NSLog("🧹🧹🧹 [DIAGNOSTIC] AudioEngine deinit START - cleaning up timers")
-        
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // for property change notifications that can cause bad-free on deinit.
-        // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
-        // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
-        
-        // ✅ Clean deinit: cancels is nonisolated, synchronous cancellation
-        // ✅ No nonisolated(unsafe) needed for timers
-        // ✅ Timers use [weak self] to break retain cycles
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
         cancels.cancelAll()
-        
-        NSLog("✅✅✅ [DIAGNOSTIC] AudioEngine deinit COMPLETE")
     }
     
     // MARK: - Lifecycle Management (Issue #72)

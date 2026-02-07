@@ -37,31 +37,27 @@ class TransportController {
     var cycleEndBeat: Double = 4.0
     
     // MARK: - Thread-Safe Beat Position (for MIDI Scheduler)
-    // Protected by os_unfair_lock, accessible from any thread
-    
-    /// Lock for thread-safe access to atomic beat position and timing state
-    @ObservationIgnored
-    private nonisolated(unsafe) var beatPositionLock = os_unfair_lock_s()
+    // Uses type-safe atomic wrappers instead of raw nonisolated(unsafe)
     
     /// Atomic storage for current beat position (readable from any thread)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicBeatPosition: Double = 0
+    private let atomicBeatPositionStorage = AtomicDouble(0)
     
     /// Atomic storage for whether transport is playing (readable from any thread)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicIsPlaying: Bool = false
+    private let atomicIsPlayingStorage = AtomicBool(false)
     
     /// Atomic storage for playback start beat (for wall-clock calculation)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicPlaybackStartBeat: Double = 0
+    private let atomicPlaybackStartBeatStorage = AtomicDouble(0)
     
     /// Atomic storage for playback start wall time (for wall-clock calculation)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicPlaybackStartWallTime: TimeInterval = 0
+    private let atomicPlaybackStartWallTimeStorage = AtomicDouble(0)
     
     /// Atomic storage for tempo (for beat calculation from any thread)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicTempo: Double = 120.0
+    private let atomicTempoStorage = AtomicDouble(120.0)
     
     /// Thread-safe read of current beat position (for MIDI scheduler)
     /// Calculates position from wall-clock delta for maximum accuracy
@@ -70,44 +66,35 @@ class TransportController {
     /// FORMULA: currentBeat = startBeat + (elapsedSeconds * (tempo / 60.0))
     /// NOTE: This calculation MUST match calculateCurrentBeat() to maintain consistency
     nonisolated var atomicBeatPosition: Double {
-        os_unfair_lock_lock(&beatPositionLock)
-        defer { os_unfair_lock_unlock(&beatPositionLock) }
-        
-        guard _atomicIsPlaying else {
-            return _atomicBeatPosition
+        guard atomicIsPlayingStorage.load() else {
+            return atomicBeatPositionStorage.load()
         }
         
         // Calculate position from wall-clock delta (avoids timer jitter)
         // FORMULA: Same as calculateCurrentBeat() - DO NOT DIVERGE!
-        let elapsedSeconds = CACurrentMediaTime() - _atomicPlaybackStartWallTime
-        let beatsPerSecond = _atomicTempo / 60.0
-        return _atomicPlaybackStartBeat + (elapsedSeconds * beatsPerSecond)
+        let elapsedSeconds = CACurrentMediaTime() - atomicPlaybackStartWallTimeStorage.load()
+        let beatsPerSecond = atomicTempoStorage.load() / 60.0
+        return atomicPlaybackStartBeatStorage.load() + (elapsedSeconds * beatsPerSecond)
     }
     
     /// Thread-safe read of playing state (for MIDI scheduler)
     nonisolated var atomicIsPlaying: Bool {
-        os_unfair_lock_lock(&beatPositionLock)
-        defer { os_unfair_lock_unlock(&beatPositionLock) }
-        return _atomicIsPlaying
+        atomicIsPlayingStorage.load()
     }
     
     /// Update atomic timing state (called when playback starts/seeks)
     private func updateAtomicTimingState(startBeat: Double, wallTime: TimeInterval, tempo: Double, isPlaying: Bool) {
-        os_unfair_lock_lock(&beatPositionLock)
-        _atomicPlaybackStartBeat = startBeat
-        _atomicPlaybackStartWallTime = wallTime
-        _atomicTempo = tempo
-        _atomicIsPlaying = isPlaying
-        _atomicBeatPosition = startBeat
-        os_unfair_lock_unlock(&beatPositionLock)
+        atomicPlaybackStartBeatStorage.store(startBeat)
+        atomicPlaybackStartWallTimeStorage.store(wallTime)
+        atomicTempoStorage.store(tempo)
+        atomicIsPlayingStorage.store(isPlaying)
+        atomicBeatPositionStorage.store(startBeat)
     }
     
     /// Update atomic beat position (for stopped/paused states)
     private func updateAtomicBeatPosition(_ beat: Double, isPlaying: Bool) {
-        os_unfair_lock_lock(&beatPositionLock)
-        _atomicBeatPosition = beat
-        _atomicIsPlaying = isPlaying
-        os_unfair_lock_unlock(&beatPositionLock)
+        atomicBeatPositionStorage.store(beat)
+        atomicIsPlayingStorage.store(isPlaying)
     }
     
     // MARK: - Timing State (Beats-First)
@@ -283,16 +270,9 @@ class TransportController {
     }
     
     deinit {
-        // DIAGNOSTIC: Check if deinit runs (retain cycle test)
-        // Using NSLog to bypass any console filters
-        NSLog("🧹🧹🧹 [DIAGNOSTIC] TransportController deinit START")
-        
-        // ✅ Clean deinit: cancels is nonisolated, synchronous cancellation
-        // ✅ No nonisolated(unsafe) needed
-        // ✅ Timer uses [weak self] to break retain cycle
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
         cancels.cancelAll()
-        
-        NSLog("✅✅✅ [DIAGNOSTIC] TransportController deinit COMPLETE")
     }
     
     // MARK: - Transport Controls

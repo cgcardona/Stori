@@ -84,13 +84,10 @@ class PluginLatencyManager {
     @ObservationIgnored
     private var trackLatencies: [UUID: TrackLatencyInfo] = [:]
     
-    /// Compensation delays applied to each track (protected by compensationLock)
+    /// Compensation delays applied to each track (RT-safe dictionary)
+    /// Accessed from audio thread for MIDI compensation, updated from main thread
     @ObservationIgnored
-    private nonisolated(unsafe) var compensationDelays: [UUID: UInt32] = [:]
-    
-    /// Lock for thread-safe access to compensation delays from audio thread
-    @ObservationIgnored
-    private nonisolated(unsafe) var compensationLock = os_unfair_lock_s()
+    private let compensationDelays = RTSafeDictionary<UUID, UInt32>()
     
     // MARK: - Types
     
@@ -199,10 +196,8 @@ class PluginLatencyManager {
             compensation[trackId] = needed
         }
         
-        // Thread-safe write (same pattern as calculateCompensation)
-        os_unfair_lock_lock(&compensationLock)
-        self.compensationDelays = compensation
-        os_unfair_lock_unlock(&compensationLock)
+        // Thread-safe write (replaces entire dictionary atomically)
+        compensationDelays.replaceAll(compensation)
         
         return compensation
     }
@@ -232,19 +227,16 @@ class PluginLatencyManager {
         }
         
         // Thread-safe write
-        os_unfair_lock_lock(&compensationLock)
-        self.compensationDelays = compensation
-        os_unfair_lock_unlock(&compensationLock)
+        compensationDelays.replaceAll(compensation)
         
         return compensation
     }
     
     /// Get the compensation delay for a specific track
     /// Thread-safe: Can be called from audio thread (MIDI dispatch)
+    /// Uses tryGet for RT safety (never blocks)
     nonisolated func getCompensationDelay(for trackId: UUID) -> UInt32 {
-        os_unfair_lock_lock(&compensationLock)
-        defer { os_unfair_lock_unlock(&compensationLock) }
-        return compensationDelays[trackId] ?? 0
+        compensationDelays.tryGet(trackId) ?? 0
     }
     
     /// Get latency info for a specific track
@@ -257,30 +249,20 @@ class PluginLatencyManager {
     /// Remove latency tracking for a track (when track is deleted)
     func removeTrack(_ trackId: UUID) {
         trackLatencies.removeValue(forKey: trackId)
-        
-        os_unfair_lock_lock(&compensationLock)
-        compensationDelays.removeValue(forKey: trackId)
-        os_unfair_lock_unlock(&compensationLock)
+        compensationDelays.remove(trackId)
     }
     
     /// Clear all latency data
     func reset() {
         trackLatencies.removeAll()
-        
-        os_unfair_lock_lock(&compensationLock)
-        compensationDelays.removeAll()
-        os_unfair_lock_unlock(&compensationLock)
+        compensationDelays.replaceAll([:])
         
         maxLatencySamples = 0
         maxLatencyMs = 0.0
     }
     
-    // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 // MARK: - AudioEngine PDC Integration

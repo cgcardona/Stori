@@ -31,13 +31,9 @@ final class AudioAnalysisService {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #84023)
-    /// See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient
-    /// These are detached tasks, but still need tracking to prevent double-free
+    /// Cancellation bag for clean task cleanup (eliminates nonisolated(unsafe) anti-pattern)
     @ObservationIgnored
-    nonisolated(unsafe) private var tempoAnalysisTask: Task<Void, Never>?
-    @ObservationIgnored
-    nonisolated(unsafe) private var keyAnalysisTask: Task<Void, Never>?
+    private let cancels = CancellationBag()
     
     // MARK: - Audio Analysis Constants
     @ObservationIgnored
@@ -142,9 +138,8 @@ final class AudioAnalysisService {
         // Resolve URL on MainActor; Task.detached runs off MainActor
         let url = await file.resolvedURL(projectDirectory: nil)
         return try await withCheckedThrowingContinuation { continuation in
-            // Cancel any existing tempo analysis task
-            tempoAnalysisTask?.cancel()
-            tempoAnalysisTask = Task.detached {
+            // Create detached task and track in cancellation bag
+            let task = Task.detached {
                 do {
                     // Load audio file (url resolved on MainActor above)
                     let audioFile = try AVAudioFile(forReading: url)
@@ -167,13 +162,12 @@ final class AudioAnalysisService {
                     // Perform tempo analysis using onset detection + autocorrelation
                     let tempo = await self.analyzeTempoFromBuffer(buffer)
                     continuation.resume(returning: tempo)
-                    self.tempoAnalysisTask = nil
                     
                 } catch {
                     continuation.resume(throwing: error)
-                    self.tempoAnalysisTask = nil
                 }
             }
+            self.cancels.insert(task: task)
         }
     }
     
@@ -181,9 +175,8 @@ final class AudioAnalysisService {
         // Resolve URL on MainActor; Task.detached runs off MainActor
         let url = await file.resolvedURL(projectDirectory: nil)
         return try await withCheckedThrowingContinuation { continuation in
-            // Cancel any existing key analysis task
-            keyAnalysisTask?.cancel()
-            keyAnalysisTask = Task.detached {
+            // Create detached task and track in cancellation bag
+            let task = Task.detached {
                 do {
                     // Load audio file (url resolved on MainActor above)
                     let audioFile = try AVAudioFile(forReading: url)
@@ -206,13 +199,12 @@ final class AudioAnalysisService {
                     // Perform key analysis using chroma features + template matching
                     let key = await self.analyzeKeyFromBuffer(buffer)
                     continuation.resume(returning: key)
-                    self.keyAnalysisTask = nil
                     
                 } catch {
                     continuation.resume(throwing: error)
-                    self.keyAnalysisTask = nil
                 }
             }
+            self.cancels.insert(task: task)
         }
     }
     
@@ -647,17 +639,9 @@ final class AudioAnalysisService {
         return ("\(key) \(mode)", confidence)
     }
     
-    // MARK: - Cleanup
-    
     deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked detached Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient (Issue #84023)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored nonisolated(unsafe)
-        tempoAnalysisTask?.cancel()
-        keyAnalysisTask?.cancel()
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
     }
 }
