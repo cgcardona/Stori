@@ -234,9 +234,11 @@ class MeterDataProvider {
             hasChanged = true
         }
         
-        // Clipping detection
-        if (peakLeft >= 1.0 || peakRight >= 1.0) && !masterMeterData.isClipping {
-            masterMeterData.isClipping = true
+        // Clipping detection (Issue #73): Use AudioEngine's real-time safe clip detection
+        // This uses the 0.999 threshold and latching behavior from MeteringService
+        let isClipping = audioEngine.isClipping
+        if isClipping != masterMeterData.isClipping {
+            masterMeterData.isClipping = isClipping
             hasChanged = true
         }
         
@@ -306,6 +308,8 @@ class MeterDataProvider {
     }
     
     func resetMasterClipIndicator() {
+        // Reset both MeteringService and UI state (Issue #73)
+        audioEngine?.resetClipIndicator()
         masterMeterData.isClipping = false
     }
     

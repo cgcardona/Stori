@@ -49,6 +49,14 @@ final class MeteringService: @unchecked Sendable {
     private var _loudnessIntegrated: Float = -70.0
     private var _truePeak: Float = -70.0
     
+    // MARK: - Clip Detection State (Issue #73)
+    
+    /// Number of samples that exceeded 0dBFS since last reset
+    private var _clipCount: Int = 0
+    
+    /// Whether clipping has occurred (latching indicator)
+    private var _isClipping: Bool = false
+    
     // MARK: - Public Metering Properties (Thread-Safe Reads)
     
     /// Master output RMS level (left channel)
@@ -107,6 +115,32 @@ final class MeteringService: @unchecked Sendable {
         os_unfair_lock_lock(&meterLock)
         defer { os_unfair_lock_unlock(&meterLock) }
         return _truePeak
+    }
+    
+    // MARK: - Clip Detection (Issue #73)
+    
+    /// Number of samples that exceeded 0dBFS
+    /// This counter increments when master output clips
+    var clipCount: Int {
+        os_unfair_lock_lock(&meterLock)
+        defer { os_unfair_lock_unlock(&meterLock) }
+        return _clipCount
+    }
+    
+    /// Whether clipping has occurred (latching indicator - stays true until reset)
+    /// Use this for UI clip indicator (red light)
+    var isClipping: Bool {
+        os_unfair_lock_lock(&meterLock)
+        defer { os_unfair_lock_unlock(&meterLock) }
+        return _isClipping
+    }
+    
+    /// Reset clip detection state (call when user acknowledges clip indicator)
+    func resetClipIndicator() {
+        os_unfair_lock_lock(&meterLock)
+        _clipCount = 0
+        _isClipping = false
+        os_unfair_lock_unlock(&meterLock)
     }
     
     // MARK: - Private Metering State
@@ -250,6 +284,24 @@ final class MeteringService: @unchecked Sendable {
             let currentTruePeak = max(peakLeft, peakRight)
             let truePeakDB: Float = currentTruePeak > 0 ? 20.0 * log10(currentTruePeak) : -70.0
             
+            // CLIP DETECTION (Issue #73): Count samples exceeding 0dBFS
+            // Threshold: 0.999 to account for floating-point imprecision near digital maximum
+            // Real-time safe: Simple counter increment, no allocations
+            var clipsInBuffer = 0
+            for frame in 0..<frameCount {
+                let leftSample = abs(leftData[frame])
+                if leftSample >= 0.999 {
+                    clipsInBuffer += 1
+                }
+                
+                if channelCount >= 2 {
+                    let rightSample = abs(channelData[1][frame])
+                    if rightSample >= 0.999 {
+                        clipsInBuffer += 1
+                    }
+                }
+            }
+            
             // REAL-TIME SAFE: Write all meter values with lock - no dispatch to main thread.
             // os_unfair_lock is designed for this exact use case (minimal overhead, no priority inversion).
             // The main thread reads these values via the public properties which also use the lock.
@@ -284,6 +336,12 @@ final class MeteringService: @unchecked Sendable {
                 self._loudnessIntegrated = integratedAvg > 0 ? Float(10.0 * log10(integratedAvg)) : -70.0
             }
             
+            // Update clip detection state (Issue #73)
+            if clipsInBuffer > 0 {
+                self._clipCount += clipsInBuffer
+                self._isClipping = true  // Latching indicator
+            }
+            
             os_unfair_lock_unlock(&self.meterLock)
         }
         
@@ -300,6 +358,44 @@ final class MeteringService: @unchecked Sendable {
         _loudnessIntegrated = -70.0
         os_unfair_lock_unlock(&meterLock)
     }
+    
+    // MARK: - Test Support (Issue #73)
+    
+    #if DEBUG
+    /// Process a buffer through clip detection logic for testing.
+    /// This allows unit tests to validate clip detection without requiring the full audio engine.
+    /// - Parameter buffer: The audio buffer to analyze for clipping
+    func processBufferForTesting(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        guard frameCount > 0 else { return }
+        
+        // Detect clips in buffer (same logic as meter tap callback)
+        var clipsInBuffer = 0
+        for frame in 0..<frameCount {
+            let leftSample = abs(channelData[0][frame])
+            if leftSample >= 0.999 {
+                clipsInBuffer += 1
+            }
+            
+            if channelCount >= 2 {
+                let rightSample = abs(channelData[1][frame])
+                if rightSample >= 0.999 {
+                    clipsInBuffer += 1
+                }
+            }
+        }
+        
+        // Update clip detection state (thread-safe)
+        if clipsInBuffer > 0 {
+            os_unfair_lock_lock(&meterLock)
+            _clipCount += clipsInBuffer
+            _isClipping = true  // Latching indicator
+            os_unfair_lock_unlock(&meterLock)
+        }
+    }
+    #endif
     
     // MARK: - Level Queries
     

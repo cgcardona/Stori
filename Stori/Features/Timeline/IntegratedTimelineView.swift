@@ -1011,7 +1011,9 @@ struct IntegratedTimelineView: View {
                     )
                 }
             }
-            .frame(minHeight: 300)
+            // No minHeight — allows the bottom panel to grow to full
+            // screen (Logic-style). The panel's maxContentHeight clamp
+            // ensures the timeline always retains enough space.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             // [V2-MULTISELECT] Selection count badge - ISOLATED VIEW to prevent cascade re-renders

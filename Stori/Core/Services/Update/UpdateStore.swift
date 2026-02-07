@@ -216,4 +216,9 @@ final class UpdateStore {
             defaults.removeObject(forKey: key)
         }
     }
+    
+    // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
+    deinit {
+    }
 }
