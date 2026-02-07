@@ -79,11 +79,9 @@ final class UpdateService {
     @ObservationIgnored
     private let session: URLSession
     
+    /// Centralized cancellation for all async resources
     @ObservationIgnored
-    private var periodicCheckTask: Task<Void, Never>?
-    
-    @ObservationIgnored
-    private var downloadTask: Task<Void, Never>?
+    private let cancels = CancellationBag()
     
     @ObservationIgnored
     private var activeDownloadHandle: URLSessionDownloadTask?
@@ -116,8 +114,9 @@ final class UpdateService {
     }
     
     deinit {
-        periodicCheckTask?.cancel()
-        downloadTask?.cancel()
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
     }
     
     // MARK: - Display Properties
@@ -182,8 +181,7 @@ final class UpdateService {
     
     /// Start background update checks (call from app launch)
     func startBackgroundChecks() {
-        periodicCheckTask?.cancel()
-        periodicCheckTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             
             // Initial delay after launch
@@ -204,12 +202,12 @@ final class UpdateService {
                 }
             }
         }
+        cancels.insert(task: task)
     }
     
     /// Stop background checks
     func stopBackgroundChecks() {
-        periodicCheckTask?.cancel()
-        periodicCheckTask = nil
+        cancels.cancelAll()
     }
     
     // MARK: - Manual Check
@@ -481,10 +479,9 @@ final class UpdateService {
             return
         }
         
-        downloadTask?.cancel()
         activeDownloadHandle?.cancel()
         
-        downloadTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             
             self.state = .downloading(DownloadProgress(bytesDownloaded: 0, totalBytes: release.downloadSize))
@@ -506,13 +503,13 @@ final class UpdateService {
                 }
             }
         }
+        cancels.insert(task: task)
     }
     
     /// Cancel an in-progress download
     func cancelDownload() {
         activeDownloadHandle?.cancel()
-        downloadTask?.cancel()
-        downloadTask = nil
+        cancels.cancelAll()
         activeDownloadHandle = nil
         
         // Restore to idle state if we were downloading

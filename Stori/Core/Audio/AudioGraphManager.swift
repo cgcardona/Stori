@@ -852,10 +852,7 @@ final class AudioGraphManager {
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
     deinit {
-        // Cancel any pending flush timers
+        // Cancel pending flush timer (synchronous cleanup of Foundation.Timer).
         flushTimer?.invalidate()
-        flushTimer = nil
-        
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }

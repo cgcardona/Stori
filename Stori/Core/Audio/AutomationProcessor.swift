@@ -133,8 +133,8 @@ final class AutomationEngine: @unchecked Sendable {
         autoreleaseFrequency: .workItem
     )
     
-    /// High-precision timer for automation updates
-    private var timer: DispatchSourceTimer?
+    /// Centralized cancellation for all async resources
+    private let cancels = CancellationBag()
     
     // MARK: - Lifecycle
     
@@ -157,12 +157,11 @@ final class AutomationEngine: @unchecked Sendable {
             self?.processAutomation()
         }
         timer.resume()
-        self.timer = timer
+        cancels.insert(timer: timer)
     }
     
     func stop() {
-        timer?.cancel()
-        timer = nil
+        cancels.cancelAll()
         
         os_unfair_lock_lock(&stateLock)
         _isRunning = false
@@ -209,11 +208,9 @@ final class AutomationEngine: @unchecked Sendable {
     }
     
     deinit {
-        // CRITICAL: Protective deinit for timer cleanup (Issue #72, ASan Issue #84742+)
-        // Root cause: DispatchSourceTimer with Swift Concurrency TaskLocal can cause
-        // bad-free on deinit if timer isn't explicitly cancelled.
-        // Explicitly cancel timer to prevent TaskLocal cleanup double-free.
-        timer?.cancel()
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
     }
 }
 
