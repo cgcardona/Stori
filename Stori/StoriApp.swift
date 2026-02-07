@@ -44,16 +44,17 @@ class StoriAppDelegate: NSObject, NSApplicationDelegate {
     
     /// Called when app is about to terminate
     func applicationWillTerminate(_ notification: Notification) {
-        NSLog("🛑 [DIAGNOSTIC] App terminating - cleaning up audio engine")
+        NSLog("🛑🛑🛑 [DIAGNOSTIC] App terminating - cleaning up audio engine")
         
-        // Clean up audio engine explicitly (singleton won't deinit)
-        Task { @MainActor in
+        // CRITICAL: This must be SYNCHRONOUS - app terminates immediately after this returns
+        // We must use MainActor.assumeIsolated to call @MainActor method synchronously
+        MainActor.assumeIsolated {
             SharedAudioEngine.shared.cleanup()
         }
         
         TempFileManager.cleanupAll()
         
-        NSLog("✅ [DIAGNOSTIC] App cleanup complete")
+        NSLog("✅✅✅ [DIAGNOSTIC] App cleanup complete")
     }
     
     /// Show existing main window or create a new one
