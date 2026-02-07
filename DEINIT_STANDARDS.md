@@ -1,16 +1,16 @@
 # Deinit Standards (DAW-Grade)
 
-## The Rule (One Sentence)
+## The Rule (One Sentence) - REVISED AFTER ASAN DISCOVERY
 
-**If a type owns async resources, it cancels them explicitly in `deinit`. Otherwise, no `deinit` at all.**
+**If a type owns async resources, it cancels them explicitly in `deinit`. For `@MainActor + @Observable` classes that can be deallocated, use an empty protective deinit (Swift Issue #84742). Otherwise, no `deinit` at all.**
 
 ---
 
-## The Seven Laws
+## The Seven Laws - REVISED AFTER ASAN DISCOVERY
 
-1. **No async resources → no `deinit`.**
+1. **`@MainActor + @Observable` + can deallocate → empty protective deinit (Swift Issue #84742).**
 2. **Async resources → explicit `deinit { cancels.cancelAll() }`.**
-3. **Never use empty or "protective" deinits.**
+3. **Singletons or never-deallocated types → no deinit.**
 4. **Never rely on property teardown order for cancellation.**
 5. **`CancellationBag.deinit` is a backstop, not the primary mechanism.**
 6. **`@Observable` does not change ARC fundamentals.**
@@ -100,7 +100,45 @@ final class AudioEngine {
 
 ---
 
-### Pattern C: Singleton
+### Pattern C: @MainActor + @Observable Without Explicit Async Resources
+
+**When to use:** Class is `@MainActor + @Observable`, can be deallocated (not a singleton), but owns no explicit timers/tasks.
+
+**ASan Discovery:** Swift Issue #84742 - `@MainActor + @Observable` creates implicit TaskLocal storage. Without an empty deinit, ASan detects bad-free during `swift::TaskLocal::StopLookupScope::~StopLookupScope()`.
+
+```swift
+@Observable
+@MainActor
+final class AudioExportService {
+    
+    /// Async functions create transient tasks that complete with the function call
+    func exportOriginal(_ audioFile: AudioFile, regionId: UUID) async throws -> URL {
+        // ... implementation ...
+    }
+    
+    deinit {
+        // REQUIRED: @MainActor + @Observable creates implicit Swift Concurrency TaskLocal storage.
+        // Empty deinit changes teardown codegen to avoid ASan bad-free (Issue #84742).
+    }
+}
+```
+
+**Examples that need this pattern:**
+- AudioExportService (instantiated in IntegratedTimelineView)
+- SelectionManager (instantiated in IntegratedTimelineView)
+- ScrollSyncModel (instantiated in IntegratedTimelineView)
+- AudioAnalyzer (instantiated in ProfessionalWaveformView)
+- VirtualKeyboardState (instantiated in VirtualKeyboardView)
+- RegionDragBehavior (@Observable without @MainActor, still needs protective deinit)
+
+**Examples that DON'T need this (singletons):**
+- AudioEngine (SharedAudioEngine.shared)
+- ProjectManager (singleton)
+- Most Core/Services classes (singletons or never deallocated)
+
+---
+
+### Pattern D: Singleton
 
 **Singletons follow the same rules as normal types.**
 
@@ -123,32 +161,45 @@ final class SharedAudioEngine {
 
 ### ❌ Banned Comments (Delete These)
 
-- "Protective deinit"
-- "Ensures Swift Concurrency cleanup order"
-- "Workaround for ASan Issue #84742"
-- "Implicit @Observable tasks"
-- "Prevents double-free from implicit Swift Concurrency property change notification tasks"
-- "Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order"
+- "Protective deinit" (without explaining WHY)
+- "Ensures Swift Concurrency cleanup order" (vague)
+- "Workaround for ASan Issue #84742" (not a workaround, it's the fix!)
+- "Implicit @Observable tasks" (misleading - it's TaskLocal storage, not tasks)
+- "Prevents double-free from implicit Swift Concurrency property change notification tasks" (wrong - it's TaskLocal, not tasks)
+- "Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order" (vague)
 
 **Why these are banned:**
-- Encode uncertain folklore
+- Encode uncertain folklore or incorrect mental models
 - Age badly
 - Confuse future maintainers
 - Invite cargo-cult coding
 
 ### ✅ Allowed Comments (Factual Ownership Only)
 
+**For async resource owners:**
 ```swift
-// Owns timers and background tasks.
-// Must cancel explicitly on teardown.
+// Deterministic early cancellation of async resources.
+// CancellationBag is nonisolated and safe to call from deinit.
 ```
 
+**For @MainActor + @Observable without async resources:**
+```swift
+// REQUIRED: @MainActor + @Observable creates implicit Swift Concurrency TaskLocal storage.
+// Empty deinit changes teardown codegen to avoid ASan bad-free (Issue #84742).
+```
+
+**For singletons or classes without async resources:**
 ```swift
 // No async resources owned.
 // No deinit required.
 ```
 
-**Rule:** If a comment does not describe **ownership**, it does not belong.
+**For synchronous resource cleanup:**
+```swift
+// Synchronous cleanup of file handle.
+```
+
+**Rule:** If a comment does not describe **ownership** or **WHY** the deinit exists, it does not belong.
 
 ---
 

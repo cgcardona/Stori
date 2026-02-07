@@ -181,8 +181,10 @@ class AudioAnalyzer {
     
     // MARK: - Cleanup
     
-    // No async resources owned.
-    // No deinit required.
+    deinit {
+        // REQUIRED: @MainActor + @Observable creates implicit Swift Concurrency TaskLocal storage.
+        // Empty deinit changes teardown codegen to avoid ASan bad-free (Issue #84742).
+    }
 }
 
 // MARK: - Audio Analysis Errors
