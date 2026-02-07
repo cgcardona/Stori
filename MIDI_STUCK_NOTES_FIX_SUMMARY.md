@@ -2,7 +2,7 @@
 
 ## Summary
 
-Issue #74 reported that MIDI notes could stick (continue sounding indefinitely) when transport stops abruptly. This is **already fixed** in the codebase. The `SampleAccurateMIDIScheduler` implements comprehensive active note tracking and sends Note Off events on stop, seek, and tempo changes. This document verifies the fix and adds extensive regression tests.
+Issue #74 reported that MIDI notes could stick (continue sounding indefinitely) when transport stops abruptly. This is **already fixed** in the codebase. The `SampleAccurateMIDIScheduler` implements comprehensive active note tracking and sends Note Off events on stop, seek, and tempo changes. This document verifies the fix through detailed code inspection and architectural review.
 
 ## Issue Analysis
 
