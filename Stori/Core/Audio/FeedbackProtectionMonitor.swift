@@ -264,12 +264,4 @@ final class FeedbackProtectionMonitor {
         
         AppLogger.shared.error("FEEDBACK PROTECTION TRIGGERED: Auto-muted master output", category: .audio)
     }
-    
-    deinit {
-        // CRITICAL: Protective deinit (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation even without timers.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, AutomationEngine.deinit, MetronomeEngine.deinit
-    }
 }

@@ -107,15 +107,6 @@ final class RegionDragState {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // for property change notifications that can cause double-free on deinit.
-        // See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient,
-        //      AudioAnalysisService, AudioExportService, SelectionManager, ScrollSyncModel
-        // https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-    }
 }
 
 // MARK: - Region Drag Handler

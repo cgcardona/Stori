@@ -242,10 +242,7 @@ class PluginGreylist {
         }
     }
     
-    // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
     // Root cause: @MainActor creates implicit actor isolation task-local storage
-    deinit {
-    }
 }
 
 // MARK: - PluginDescriptor Extension

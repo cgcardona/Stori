@@ -780,12 +780,4 @@ class BusManager {
         
         return sends
     }
-    
-    deinit {
-        // CRITICAL: Protective deinit for @MainActor class owned by @Observable parent (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, AutomationEngine.deinit, FeedbackProtectionMonitor.deinit
-    }
 }

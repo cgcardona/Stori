@@ -106,6 +106,8 @@ class ProjectManager {
         setupNotificationObservers()
     }
     
+    nonisolated deinit {}
+    
     // MARK: - Notification Observers
     private func setupNotificationObservers() {
         NotificationCenter.default.addObserver(
@@ -381,10 +383,10 @@ class ProjectManager {
     /// Use `saveCurrentProject()` for explicit user-triggered saves (Cmd+S).
     func scheduleSave() {
         saveDebounceTask?.cancel()
-        saveDebounceTask = Task { @MainActor in
+        saveDebounceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(saveDebounceMs)))
             guard !Task.isCancelled else { return }
-            saveCurrentProject()
+            self?.saveCurrentProject()
         }
     }
     
@@ -417,22 +419,23 @@ class ProjectManager {
             }
         }
         
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 // CRITICAL (Issue #63): Request playback pause for consistent snapshot
                 // The notification handler will coordinate with TransportController
-                let wasPlayingBeforeSave = await getTransportPlayingState()
+                let wasPlayingBeforeSave = await self.getTransportPlayingState()
                 if wasPlayingBeforeSave {
-                    await pauseTransportForSave()
+                    await self.pauseTransportForSave()
                 }
                 
                 // Capture immutable snapshot AFTER transport is paused
                 // This ensures playheadPosition, automation values, and plugin states are consistent
-                let projectSnapshot = await captureProjectSnapshot()
+                let projectSnapshot = await self.captureProjectSnapshot()
                 
                 // Resume transport BEFORE encoding (encoding can take time, no need to block playback)
                 if wasPlayingBeforeSave {
-                    await resumeTransportAfterSave()
+                    await self.resumeTransportAfterSave()
                 }
                 
                 // Encode snapshot on background thread (I/O heavy, keep off main thread)
@@ -1499,41 +1502,43 @@ class ProjectManager {
         }
         
         
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             // Wait for view to be ready
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
             
             // Verify view has reasonable dimensions (not still laying out)
-            await MainActor.run {
-                guard view.bounds.width > 100 && view.bounds.height > 100 else {
-                    // View not ready, schedule retry with longer delay
-                    Task {
-                        try? await Task.sleep(nanoseconds: 500_000_000) // Additional 500ms
-                        
-                        // Final check before capture
-                        guard view.bounds.width > 100 && view.bounds.height > 100 else {
-                            AppLogger.shared.warning("Project screenshot capture failed: view not ready", category: .services)
-                            return
-                        }
-                        
-                        guard let screenshot = await captureViewScreenshot(view: view) else {
-                            return
-                        }
-                        
-                        await saveProjectThumbnail(screenshot: screenshot, for: project)
-                    }
-                    return
-                }
+            let viewReady = await MainActor.run {
+                view.bounds.width > 100 && view.bounds.height > 100
             }
             
-            // Capture the view on the main thread
-            guard let screenshot = await captureViewScreenshot(view: view) else {
+            guard viewReady else {
+                // View not ready, schedule retry with longer delay
+                try? await Task.sleep(nanoseconds: 500_000_000) // Additional 500ms
+                
+                let retryReady = await MainActor.run {
+                    view.bounds.width > 100 && view.bounds.height > 100
+                }
+                guard retryReady else {
+                    AppLogger.shared.warning("Project screenshot capture failed: view not ready", category: .services)
+                    return
+                }
+                
+                guard let screenshot = await self.captureViewScreenshot(view: view) else {
+                    return
+                }
+                
+                await self.saveProjectThumbnail(screenshot: screenshot, for: project)
                 return
             }
             
+            // Capture the view on the main thread
+            guard let screenshot = await self.captureViewScreenshot(view: view) else {
+                return
+            }
             
             // Process and save on background thread
-            await saveProjectThumbnail(screenshot: screenshot, for: project)
+            await self.saveProjectThumbnail(screenshot: screenshot, for: project)
         }
     }
     
@@ -1660,11 +1665,6 @@ class ProjectManager {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Export Quality

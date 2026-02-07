@@ -59,8 +59,9 @@ struct DAWSheetModifiers: ViewModifier {
                     onExport: onExportWithSettings
                 )
             }
-            .sheet(item: $activeSheet) { sheet in
-                DAWSheetContent(sheet: sheet)
-            }
+            // VK is now presented as an overlay (not a sheet) to avoid
+            // dimming, animation, and playhead stutter during recording.
+            // See MainDAWView overlay for the VK presentation.
+            
     }
 }

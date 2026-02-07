@@ -149,15 +149,27 @@ final class AudioGraphManager {
     /// Performs multiple graph mutations in batch mode (suspends rate limiting).
     /// Use this for bulk operations like project load, multi-track import, etc.
     /// The Logic Pro approach: batch legitimate bulk operations, rate-limit user spam.
-    func performBatchOperation(_ work: () throws -> Void) rethrows {
+    ///
+    /// ARCHITECTURE: Sets _isGraphMutationInProgress so nested modifyGraph calls
+    /// (from rebuildTrackGraphInternal etc.) hit the reentrancy handler and run
+    /// work directly on the running engine. This avoids both:
+    ///   - engine.pause() deadlock (hot-swap mutation)
+    ///   - engine.reset() corrupting freshly attached nodes (structural mutation)
+    /// AVAudioEngine supports connect/disconnect on a running engine; during project
+    /// load there's no active playback so transient disconnects are harmless.
+    func performBatchOperation(_ work: @escaping () throws -> Void) rethrows {
         let wasBatchMode = isBatchMode
+        let wasInProgress = _isGraphMutationInProgress
         isBatchMode = true
-        defer { isBatchMode = wasBatchMode }
+        _isGraphMutationInProgress = true
+        defer {
+            _isGraphMutationInProgress = wasInProgress
+            isBatchMode = wasBatchMode
+            // Clear rate limit history after batch to prevent spillover
+            recentMutationTimestamps.removeAll()
+        }
         
         try work()
-        
-        // Clear rate limit history after batch to prevent spillover
-        recentMutationTimestamps.removeAll()
     }
     
     /// Check if generation is still valid after an await point
@@ -280,9 +292,9 @@ final class AudioGraphManager {
         }
     }
     
-    /// Flush all pending coalesced mutations
+    /// Flush all pending coalesced mutations immediately (public for testing)
     @MainActor
-    private func flushPendingMutations() {
+    func flushPendingMutations() {
         let mutations = pendingMutations.values.sorted { $0.timestamp < $1.timestamp }
         pendingMutations.removeAll()
         
@@ -606,7 +618,7 @@ final class AudioGraphManager {
             do {
                 try engine.start()
             } catch {
-                AppLogger.shared.error("Engine restart failed after hot-swap mutation", category: .audio)
+                AppLogger.shared.error("Engine restart failed after hot-swap mutation: \(error)", category: .audio)
             }
         }
         
@@ -848,14 +860,9 @@ final class AudioGraphManager {
     
     // MARK: - Cleanup
     
-    /// Explicit deinit to prevent Swift Concurrency task leak
-    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
-    /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Cancel any pending flush timers
+    nonisolated deinit {
+        // Cancel pending flush timer to prevent retain cycle.
         flushTimer?.invalidate()
         flushTimer = nil
-        
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
     }
 }

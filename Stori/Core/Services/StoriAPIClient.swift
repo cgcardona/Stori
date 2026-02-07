@@ -69,8 +69,12 @@ class StoriAPIClient {
         project: [String: Any]? = nil
     ) -> AsyncThrowingStream<SSEEvent, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            Task { [weak self] in
                 do {
+                    guard let self else {
+                        continuation.finish()
+                        return
+                    }
                     // Get token
                     let authHeader = try self.authHeader()
                     
@@ -196,8 +200,5 @@ class StoriAPIClient {
         }
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }

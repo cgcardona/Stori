@@ -541,13 +541,12 @@ class AudioEngine: AudioEngineContext {
         recordingController = RecordingController(
             engine: engine,
             mixer: mixer,
-            transportController: transportController,  // NEW: For thread-safe position in audio callbacks
+            transportController: transportController,
             getProject: { [weak self] in self?.currentProject },
             getCurrentPosition: { [weak self] in self?.currentPosition ?? PlaybackPosition() },
             getSelectedTrackId: { [weak self] in self?.selectedTrackId },
             onStartRecordingMode: { [weak self] in self?.transportController?.startRecordingMode() },
             onStopRecordingMode: { [weak self] in self?.transportController?.stopRecordingMode() },
-            onStartPlayback: { [weak self] in self?.startPlayback() },
             onStopPlayback: { [weak self] in self?.stopPlayback() },
             onProjectUpdated: { [weak self] project in self?.currentProject = project },
             onReconnectMetronome: { [weak self] in self?.installedMetronome?.reconnectNodes(dawMixer: self?.mixer ?? AVAudioMixerNode()) },
@@ -606,6 +605,13 @@ class AudioEngine: AudioEngineContext {
         projectLifecycleManager.onSetGraphStable = { [weak self] value in self?.isGraphStable = value }
         projectLifecycleManager.onSetGraphReady = { [weak self] value in self?.isGraphReadyForPlayback = value }
         projectLifecycleManager.onSetTransportStopped = { [weak self] in self?.transportState = .stopped }
+        projectLifecycleManager.onStopAutomationEngine = { [weak self] in
+            self?.automationEngine.updateTrackNodeCache([:], mixerDefaults: [:])
+            self?.automationEngine.stop()
+        }
+        projectLifecycleManager.onStopPositionTimer = { [weak self] in
+            self?.transportController.stopPositionTimer()
+        }
         projectLifecycleManager.logDebug = { [weak self] message, category in self?.logDebug(message, category: category) }
         projectLifecycleManager.onProjectLoaded = { [weak self] project in
             // print("\n🎉 PROJECT LOADED: '\(project.name)'")  // DEBUG: Disabled for production
@@ -824,16 +830,9 @@ class AudioEngine: AudioEngineContext {
         NotificationCenter.default.post(name: .pluginConfigsSaved, object: currentProject)
     }
     
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // for property change notifications that can cause bad-free on deinit.
-        // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
-        // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
-        // Note: Cannot access @MainActor properties in deinit.
-        
-        // FIX Issue #72: Cancel health timer to prevent retain cycle
-        // Timer is @ObservationIgnored so it's safe to access here
+    nonisolated deinit {
+        // Cancel health timer to prevent retain cycle (Issue #72).
+        // Timer is @ObservationIgnored so it's safe to access in nonisolated deinit.
         engineHealthTimer?.cancel()
     }
     
@@ -999,8 +998,6 @@ class AudioEngine: AudioEngineContext {
         if let preGainParam = parameterTree.parameter(withAddress: 2) {
             preGainParam.value = 0.0
         }
-        
-        AppLogger.shared.debug("Master limiter configured for feedback protection (1ms attack, 50ms release)", category: .audio)
     }
     
     /// Install audio taps to detect clipping at various points in the signal chain (DEBUG only)
@@ -1012,8 +1009,8 @@ class AudioEngine: AudioEngineContext {
             // Check for feedback (Issue #57)
             if self.feedbackMonitor.processBuffer(buffer) {
                 // Feedback detected! Trigger emergency protection on main thread
-                Task { @MainActor in
-                    self.triggerFeedbackProtection()
+                Task { @MainActor [weak self] in
+                    self?.triggerFeedbackProtection()
                 }
             }
             
@@ -1158,8 +1155,6 @@ class AudioEngine: AudioEngineContext {
                         }
                     }
                 }
-                
-                AppLogger.shared.info("Audio engine started successfully", category: .audio)
             }
         } catch {
             let errorMsg = "Engine start failed (attempt \(engineStartRetryAttempt + 1)): \(error.localizedDescription)"
@@ -1273,8 +1268,8 @@ class AudioEngine: AudioEngineContext {
             }
             let needCheck = !self._atomicLastKnownEngineRunning || dueForRefresh
             if needCheck {
-                Task { @MainActor in
-                    self.checkEngineHealth()
+                Task { @MainActor [weak self] in
+                    self?.checkEngineHealth()
                 }
             }
         }
@@ -1438,15 +1433,15 @@ class AudioEngine: AudioEngineContext {
                 
                 // BATCH MODE: Wrap multiple track additions in batch to avoid rate limiting
                 // This handles MIDI import creating many tracks at once
-                performBatchGraphOperation {
+                performBatchGraphOperation { [self] in
                     // Set up audio nodes for new tracks
                     for trackId in addedTrackIds {
                         if let newTrack = project.tracks.first(where: { $0.id == trackId }) {
-                            let trackNode = createTrackNode(for: newTrack)
-                            trackNodeManager.storeTrackNode(trackNode, for: trackId)
+                            let trackNode = self.createTrackNode(for: newTrack)
+                            self.trackNodeManager.storeTrackNode(trackNode, for: trackId)
                             
                             // Use centralized rebuild for all connections
-                            rebuildTrackGraph(trackId: trackId)
+                            self.rebuildTrackGraph(trackId: trackId)
                         }
                     }
                 }
@@ -1602,6 +1597,13 @@ class AudioEngine: AudioEngineContext {
     /// (pan → volume → eq) → disconnect/detach instrument source → disconnect/detach player.
     /// Caller must have removed track from all bus sends first (so pan isn't connected to buses).
     private func safeDisconnectTrackNode(_ trackNode: TrackAudioNode) {
+        let trackId = trackNode.id
+        
+        // Remove level-monitoring tap BEFORE entering the graph mutation.
+        // The tap must be removed while volumeNode.engine is still non-nil;
+        // otherwise deinit skips removal and the tap can fire on a detached node.
+        trackNode.removeLevelMonitoring()
+        
         modifyGraphSafely {
             let trackId = trackNode.id
 
@@ -1688,7 +1690,7 @@ class AudioEngine: AudioEngineContext {
     
     /// Performs multiple graph mutations in batch mode (suspends rate limiting).
     /// Use for bulk operations like project load, multi-track import, etc.
-    func performBatchGraphOperation(_ work: () throws -> Void) rethrows {
+    func performBatchGraphOperation(_ work: @escaping () throws -> Void) rethrows {
         try graphManager.performBatchOperation(work)
     }
     

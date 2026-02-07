@@ -326,7 +326,4 @@ final class PlaybackSchedulingCoordinator {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @MainActor classes can have implicit tasks from the Swift Concurrency runtime
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

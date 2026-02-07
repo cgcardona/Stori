@@ -143,6 +143,7 @@ class MetronomeEngine {
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
     func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngineContext, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
+        AppLogger.shared.debug("[METRO] install() called: isInstalled=\(isInstalled)", category: .audio)
         // Idempotent: only install once
         guard !isInstalled else { return }
         
@@ -186,6 +187,7 @@ class MetronomeEngine {
         generateClickSounds(format: finalFormat)
         
         isInstalled = true
+        AppLogger.shared.debug("[METRO] install() complete: sampleRate=\(sampleRate) hasBuffers=\(accentBuffer != nil && normalBuffer != nil)", category: .audio)
     }
     
     /// Reconnect metronome nodes after engine.reset() or track connections disconnect them
@@ -194,7 +196,11 @@ class MetronomeEngine {
         guard isInstalled,
               let engine = avAudioEngine,
               let player = clickPlayer,
-              let metroMix = metronomeMixer else { return }
+              let metroMix = metronomeMixer else {
+            AppLogger.shared.debug("[METRO] reconnectNodes: guard failed - isInstalled=\(isInstalled) hasEngine=\(avAudioEngine != nil) hasPlayer=\(clickPlayer != nil) hasMixer=\(metronomeMixer != nil)", category: .audio)
+            return
+        }
+        AppLogger.shared.debug("[METRO] reconnectNodes: engine.isRunning=\(engine.isRunning) player.engine=\(player.engine != nil)", category: .audio)
         
         // Get device format
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
@@ -213,10 +219,13 @@ class MetronomeEngine {
         // Click buffers contain sample data at specific sample rate and must be regenerated
         generateClickSounds(format: format)
         
-        // Nodes are still attached after reset, just disconnected
+        // CRITICAL: Reset the player node to clear its internal "disconnected state" flag.
+        player.reset()
+        
         // Reconnect: player → metronome mixer → DAW mixer
         engine.connect(player, to: metroMix, format: format)
         engine.connect(metroMix, to: dawMixer, format: format)
+        AppLogger.shared.debug("[METRO] reconnectNodes: done. player.engine=\(player.engine != nil) sampleRate=\(format.sampleRate)", category: .audio)
     }
     
     /// Prepare the player node for playback (called after engine starts)
@@ -290,12 +299,14 @@ class MetronomeEngine {
     
     /// Called when DAW transport starts playing
     func onTransportPlay() {
+        AppLogger.shared.debug("[METRO] onTransportPlay: isEnabled=\(isEnabled) isInstalled=\(isInstalled) isPlaying=\(isPlaying)", category: .audio)
         guard isEnabled, isInstalled else { return }
         startPlaying()
     }
     
     /// Called when DAW transport stops
     func onTransportStop() {
+        AppLogger.shared.debug("[METRO] onTransportStop: isPlaying=\(isPlaying)", category: .audio)
         stopPlaying()
         currentBeat = 1
         lastPlayedBeatIndex = -1
@@ -315,27 +326,37 @@ class MetronomeEngine {
     // MARK: - Playback Control
     
     private func startPlaying() {
+        AppLogger.shared.debug("[METRO] startPlaying: isPlaying=\(isPlaying) isInstalled=\(isInstalled) hasPlayer=\(clickPlayer != nil) hasEngine=\(avAudioEngine != nil) hasMixer=\(metronomeMixer != nil) hasBuffers=\(accentBuffer != nil && normalBuffer != nil)", category: .audio)
         guard !isPlaying, isInstalled,
               let player = clickPlayer,
               let engine = avAudioEngine,
               metronomeMixer != nil,
-              accentBuffer != nil, normalBuffer != nil else { return }
+              accentBuffer != nil, normalBuffer != nil else {
+            AppLogger.shared.debug("[METRO] startPlaying: GUARD FAILED", category: .audio)
+            return
+        }
         
         // Verify engine is running
-        guard engine.isRunning else { return }
+        guard engine.isRunning else {
+            AppLogger.shared.debug("[METRO] startPlaying: engine NOT running", category: .audio)
+            return
+        }
         
-        // SAFETY: Verify player node is still attached to the engine graph.
-        // During graph mutations (track add/remove, engine reset), nodes can
-        // become detached. Calling stop()/play() on a detached node throws an
-        // ObjC NSInternalInconsistencyException that Swift cannot catch.
+        // CRITICAL: Always reconnect before starting playback.
+        // Graph mutations (instrument loading, track add/remove) can sever connections
+        // while the node remains attached (player.engine != nil but connections broken).
+        // reconnectNodes is idempotent — safe to call even if already connected.
+        if let dawEngine = dawAudioEngine {
+            reconnectNodes(dawMixer: dawEngine.sharedMixer)
+        }
         guard player.engine != nil else { return }
         
         isPlaying = true
         
         // Re-arm the player on transport play.
+        // Re-arm the player on transport play.
         // Wrapped in ObjC exception handler because stop()/play() are graph
-        // operations that can throw NSException if the graph is being mutated
-        // concurrently (e.g., by installMetronome or track node reconnection).
+        // operations that can throw NSException if the graph is being mutated.
         do {
             try tryObjC {
                 player.stop()   // Clear stale state
@@ -343,7 +364,6 @@ class MetronomeEngine {
             }
         } catch {
             // Graph operation failed - metronome won't play this time
-            // The user can retry by toggling transport
             isPlaying = false
             return
         }
@@ -387,6 +407,7 @@ class MetronomeEngine {
     }
     
     private func stopPlaying() {
+        AppLogger.shared.debug("[METRO] stopPlaying: wasPlaying=\(isPlaying)", category: .audio)
         isPlaying = false
         beatFlash = false
         
@@ -528,10 +549,10 @@ class MetronomeEngine {
         beatFlashTask?.cancel()
         
         // Store the task so we can cancel it during cleanup
-        beatFlashTask = Task {
+        beatFlashTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 80_000_000)  // 80ms
             await MainActor.run {
-                self.beatFlash = false
+                self?.beatFlash = false
             }
         }
     }
@@ -541,25 +562,54 @@ class MetronomeEngine {
     /// Perform count-in before recording starts
     /// Uses a DispatchSourceTimer for more accurate timing than Task.sleep
     func performCountIn() async {
-        guard countInEnabled, isInstalled,
-              let player = clickPlayer,
-              player.engine != nil else { return }
+        AppLogger.shared.debug("[COUNTIN] performCountIn called: countInEnabled=\(countInEnabled) isInstalled=\(isInstalled) hasPlayer=\(clickPlayer != nil) isPlaying=\(isPlaying)", category: .audio)
+        guard countInEnabled else {
+            AppLogger.shared.debug("[COUNTIN] ABORT: countInEnabled is false", category: .audio)
+            return
+        }
+        guard isInstalled else {
+            AppLogger.shared.debug("[COUNTIN] ABORT: isInstalled is false", category: .audio)
+            return
+        }
+        guard let player = clickPlayer else {
+            AppLogger.shared.debug("[COUNTIN] ABORT: clickPlayer is nil", category: .audio)
+            return
+        }
+        
+        // Stop any ongoing playback before count-in to ensure clean state
+        if isPlaying {
+            AppLogger.shared.debug("[COUNTIN] Stopping ongoing playback first", category: .audio)
+            stopPlaying()
+        }
+        
+        // Always reconnect before count-in — graph mutations can sever connections
+        // and leave the player in a "disconnected state" even though it's attached
+        AppLogger.shared.debug("[COUNTIN] Before reconnect: player.engine=\(player.engine != nil) hasDawEngine=\(dawAudioEngine != nil)", category: .audio)
+        if let dawEngine = dawAudioEngine {
+            reconnectNodes(dawMixer: dawEngine.sharedMixer)
+        }
+        AppLogger.shared.debug("[COUNTIN] After reconnect: player.engine=\(player.engine != nil)", category: .audio)
+        guard player.engine != nil else {
+            AppLogger.shared.debug("[COUNTIN] ABORT: player.engine still nil after reconnect", category: .audio)
+            return
+        }
         
         let beatInterval = 60.0 / tempo
         let totalBeats = countInBars * beatsPerBar
         
         // Re-arm player for count-in (ensure clean state)
-        // BUG FIX (Issue #122): Wrap in tryObjC to handle graph mutations gracefully
+        AppLogger.shared.debug("[COUNTIN] Arming player: player.isPlaying=\(player.isPlaying) tempo=\(tempo) totalBeats=\(totalBeats)", category: .audio)
         do {
             try tryObjC {
                 player.stop()
                 player.play()
             }
         } catch {
-            // Graph operation failed - count-in cannot proceed
+            AppLogger.shared.debug("[COUNTIN] ABORT: player.stop/play ObjC exception: \(error)", category: .audio)
             return
         }
         player.prepare(withFrameCount: 2048)
+        AppLogger.shared.debug("[COUNTIN] Player armed successfully, player.isPlaying=\(player.isPlaying), scheduling \(totalBeats) beats", category: .audio)
         
         // Use a semaphore to synchronize async completion
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -583,20 +633,29 @@ class MetronomeEngine {
                     self.currentBeat = ((beatCount - 1) % self.beatsPerBar) + 1
                     let isDownbeat = self.currentBeat == 1
                     
+                    AppLogger.shared.debug("[COUNTIN] Beat \(beatCount)/\(totalBeats) (beat \(self.currentBeat) in bar, downbeat=\(isDownbeat)) player.isPlaying=\(player.isPlaying)", category: .audio)
+                    
                     // Schedule the click
                     if let buffer = isDownbeat ? self.accentBuffer : self.normalBuffer {
                         player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+                    } else {
+                        AppLogger.shared.debug("[COUNTIN] WARNING: buffer is nil! accent=\(self.accentBuffer != nil) normal=\(self.normalBuffer != nil)", category: .audio)
                     }
                     
                     self.triggerBeatFlash()
                 } else {
                     // Count-in complete
+                    AppLogger.shared.debug("[COUNTIN] Count-in complete! All \(totalBeats) beats played. Transitioning to regular playback.", category: .audio)
                     timer.cancel()
                     
-                    // Don't stop player - let it continue for recording/playback
-                    // The transport will take over scheduling
+                    // CRITICAL: Transition directly into regular metronome playback state.
+                    // Setting isPlaying = true prevents onTransportPlay() → startPlaying()
+                    // from doing player.stop()/play() which would create a gap and drop
+                    // the first beat after count-in.
                     self.currentBeat = 1
                     self.lastPlayedBeatIndex = -1  // Reset so first beat of recording triggers
+                    self.isPlaying = true
+                    self.startFillTimer()  // Begin regular beat scheduling
                     
                     continuation.resume()
                 }
@@ -614,13 +673,9 @@ class MetronomeEngine {
     
     // MARK: - Cleanup
     
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Task holding self reference during @MainActor class cleanup
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+    nonisolated deinit {
+        // Cancel pending tasks to prevent use-after-free.
+        // These are @ObservationIgnored so safe to access in nonisolated deinit.
         beatFlashTask?.cancel()
         fillTimer?.cancel()
     }

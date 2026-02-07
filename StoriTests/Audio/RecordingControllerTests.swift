@@ -33,7 +33,8 @@ final class RecordingControllerTests: XCTestCase {
         
         // Create test project
         mockProject = AudioProject(name: "Test", tempo: 120, timeSignature: .fourFour)
-        mockProject.tracks.append(AudioTrack(name: "Audio Track", trackType: .audio))
+        // Use MIDI track for testing (avoids async microphone permission)
+        mockProject.tracks.append(AudioTrack(name: "MIDI Track", trackType: .midi))
         
         projectUpdates = []
         playbackStartCount = 0
@@ -71,7 +72,6 @@ final class RecordingControllerTests: XCTestCase {
             getSelectedTrackId: { [weak self] in self?.mockProject.tracks.first?.id },
             onStartRecordingMode: { [weak self] in self?.recordingModeStartCount += 1 },
             onStopRecordingMode: { [weak self] in self?.recordingModeStopCount += 1 },
-            onStartPlayback: { [weak self] in self?.playbackStartCount += 1 },
             onStopPlayback: { [weak self] in self?.playbackStopCount += 1 },
             onProjectUpdated: { [weak self] project in self?.projectUpdates.append(project) },
             onReconnectMetronome: { },
@@ -130,8 +130,8 @@ final class RecordingControllerTests: XCTestCase {
         
         sut.record()
         
-        // Recording mode started synchronously
-        XCTAssertEqual(recordingModeStartCount, 1)
+        // For MIDI recording, the callback is synchronous (no mic permission needed)
+        XCTAssertEqual(recordingModeStartCount, 1, "Recording mode should start immediately for MIDI")
         // With the new fix (Issue #120), transport.play() is called instead of onStartPlayback()
         // The TransportController handles playback internally, so we verify recording mode started
         XCTAssertTrue(sut.isRecording, "Recording should be active after record() call")

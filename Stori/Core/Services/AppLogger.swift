@@ -123,7 +123,8 @@ final class AppLogger {
         }
         
         #if DEBUG
-        // Also print to Xcode console in debug builds
+        // Print to Xcode console in debug builds (OSLog .debug is suppressed by default)
+        print(logLine, terminator: "")
         #endif
     }
     

@@ -899,10 +899,7 @@ private func openDocumentation(_ relativePath: String) {
 class AppState {
     var currentProject: AudioProject?
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Notification Names

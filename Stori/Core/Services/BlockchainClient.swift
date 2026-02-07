@@ -71,8 +71,8 @@ class BlockchainClient {
         // See: TokenizeProjectView for payment workflow
         
         // Initialize connection check
-        Task {
-            await checkConnections()
+        Task { [weak self] in
+            await self?.checkConnections()
         }
     }
     
@@ -87,8 +87,8 @@ class BlockchainClient {
             )
             
             // Load user STEMs in background
-            Task {
-                await loadUserSTEMs()
+            Task { [weak self] in
+                await self?.loadUserSTEMs()
             }
         }
     }
@@ -164,12 +164,12 @@ class BlockchainClient {
     
     // MARK: - Initial Data Loading
     private func loadInitialData() async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadNetworkInfo() }
-            group.addTask { await self.loadGasPrice() }
-            group.addTask { await self.loadUserSTEMs() }
-            group.addTask { await self.loadMarketplaceListings() }
-            group.addTask { await self.loadRecentActivity() }
+        await withTaskGroup(of: Void.self) { [weak self] group in
+            group.addTask { [weak self] in await self?.loadNetworkInfo() }
+            group.addTask { [weak self] in await self?.loadGasPrice() }
+            group.addTask { [weak self] in await self?.loadUserSTEMs() }
+            group.addTask { [weak self] in await self?.loadMarketplaceListings() }
+            group.addTask { [weak self] in await self?.loadRecentActivity() }
         }
     }
     
@@ -757,7 +757,7 @@ class BlockchainClient {
         await loadInitialData()
     }
     
-    deinit {
+    nonisolated deinit {
         networkMonitor.cancel()
     }
 }

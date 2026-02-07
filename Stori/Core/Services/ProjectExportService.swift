@@ -64,12 +64,6 @@ class OfflineMIDIRenderer {
             self.startSample = startSample
         }
         
-        deinit {
-            // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
-            // Same pattern as AudioAnalyzer, MetronomeEngine, etc. Explicit deinit changes teardown
-            // codegen and avoids double-free in swift::TaskLocal::StopLookupScope.
-        }
-        
         func release(at sample: AVAudioFramePosition) {
             if envelopeState != .release && envelopeState != .finished {
                 envelopeState = .release
@@ -291,11 +285,6 @@ class OfflineMIDIRenderer {
         activeVoices.removeAll()
         currentSamplePosition = 0
     }
-    
-    deinit {
-        // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
-        // Same pattern as AudioAnalyzer. Explicit deinit changes teardown codegen.
-    }
 }
 
 /// Service for exporting complete projects with full mix processing
@@ -321,8 +310,7 @@ class ProjectExportService {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83020)
-    /// See: MetronomeEngine for detailed explanation of Swift Concurrency cleanup bug
+    /// Task references for cancellation in deinit.
     @ObservationIgnored
     private var cleanupTask: Task<Void, Never>?
     @ObservationIgnored
@@ -398,14 +386,14 @@ class ProjectExportService {
         
         // Reset export state to close the dialog
         // The actual rendering will stop in the next tap callback
-        cleanupTask = Task { @MainActor in
+        cleanupTask = Task { @MainActor [weak self] in
             // Small delay to show "Cancelled" message before closing
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
-            self.isExporting = false
-            self.exportProgress = 0.0
-            self.elapsedTime = 0.0
-            self.estimatedTimeRemaining = nil
-            self.cleanupTask = nil
+            self?.isExporting = false
+            self?.exportProgress = 0.0
+            self?.elapsedTime = 0.0
+            self?.estimatedTimeRemaining = nil
+            self?.cleanupTask = nil
         }
     }
     
@@ -1146,8 +1134,6 @@ class ProjectExportService {
                 preGainParam.value = 0.0
             }
         }
-        
-        AppLogger.shared.info("Export master limiter configured (5ms attack, 100ms release)", category: .audio)
         
         // Disconnect mainMixer from output (if connected) and insert master chain
         // New signal path: mainMixer → masterEQ → masterLimiter → [tap point in renderProjectAudio]
@@ -1967,7 +1953,8 @@ class ProjectExportService {
                     // Update progress and time estimates (based on target frames, not total capacity)
                     // Cancel previous update to prevent task buildup
                     progressUpdateTask?.cancel()
-                    progressUpdateTask = Task { @MainActor in
+                    progressUpdateTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
                         let progress = Double(min(capturedFrames, targetFrameCount)) / Double(targetFrameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
@@ -2015,14 +2002,14 @@ class ProjectExportService {
             
             // Safety timeout - track to prevent memory corruption on deinit
             timeoutTask?.cancel()
-            timeoutTask = Task {
+            timeoutTask = Task { [weak self] in
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
                 if state.tryResume() {
                     renderEngine.mainMixerNode.removeTap(onBus: 0)
                     renderEngine.stop()
                     continuation.resume(throwing: ExportError.renderTimeout)
                 }
-                self.timeoutTask = nil
+                self?.timeoutTask = nil
             }
         }
     }
@@ -2357,14 +2344,9 @@ class ProjectExportService {
     
     // MARK: - Cleanup
     
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine (Issue #83020)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+    nonisolated deinit {
+        // Cancel pending export tasks to prevent use-after-free.
+        // These are @ObservationIgnored so safe to access in nonisolated deinit.
         cleanupTask?.cancel()
         progressUpdateTask?.cancel()
         timeoutTask?.cancel()

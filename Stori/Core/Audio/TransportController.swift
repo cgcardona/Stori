@@ -287,22 +287,27 @@ class TransportController {
     // MARK: - Transport Controls
     
     func play() {
+        AppLogger.shared.debug("[TRANSPORT] play(): transportState=\(transportState) currentBeat=\(currentPosition.beats)", category: .audio)
         // Block during plugin installation
         if isInstallingPlugin() {
+            AppLogger.shared.debug("[TRANSPORT] play(): blocked - installing plugin", category: .audio)
             return
         }
         
         // Block while graph is unstable
         if !isGraphStable() {
+            AppLogger.shared.debug("[TRANSPORT] play(): blocked - graph unstable", category: .audio)
             return
         }
         
         guard let project = getProject() else {
+            AppLogger.shared.debug("[TRANSPORT] play(): no project", category: .audio)
             return
         }
         
         switch transportState {
         case .stopped:
+            AppLogger.shared.debug("[TRANSPORT] play(): from STOPPED → resetting to beat 0", category: .audio)
             playbackStartWallTime = CACurrentMediaTime()
             playbackStartBeat = 0
             transportState = .playing
@@ -388,7 +393,7 @@ class TransportController {
     }
     
     func stop() {
-        // print("⏹️  STOP: Resetting position to beat 0")  // DEBUG: Disabled for production
+        AppLogger.shared.debug("[TRANSPORT] stop(): transportState=\(transportState) currentBeat=\(currentPosition.beats)", category: .audio)
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -416,8 +421,23 @@ class TransportController {
     
     /// Stop recording mode (returns to stopped)
     func stopRecordingMode() {
+        AppLogger.shared.debug("[TRANSPORT] stopRecordingMode: transportState \(transportState) → .stopped, currentBeat=\(currentPosition.beats)", category: .audio)
         transportState = .stopped
         onTransportStateChanged(.stopped)
+        stopPlayback()
+        
+        // Stop position timer
+        stopPositionTimer()
+        
+        // Reset position to beat 0 (Logic Pro behavior: stop = return to beginning)
+        playbackStartBeat = 0
+        if let project = getProject() {
+            currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
+            onPositionChanged(currentPosition)
+        }
+        
+        // Update atomic state
+        updateAtomicBeatPosition(0, isPlaying: false)
     }
     
     // MARK: - Position Control (Beats-First)

@@ -77,22 +77,26 @@ class MIDIDeviceManager {
     
     // MARK: - Private Properties
     
-    private var midiClient: MIDIClientRef = 0
-    private var inputPort: MIDIPortRef = 0
-    private var outputPort: MIDIPortRef = 0
-    private var virtualSource: MIDIEndpointRef = 0
-    private var virtualDestination: MIDIEndpointRef = 0
+    @ObservationIgnored private var midiClient: MIDIClientRef = 0
+    @ObservationIgnored private var inputPort: MIDIPortRef = 0
+    @ObservationIgnored private var outputPort: MIDIPortRef = 0
+    @ObservationIgnored private var virtualSource: MIDIEndpointRef = 0
+    @ObservationIgnored private var virtualDestination: MIDIEndpointRef = 0
     
     // MARK: - Initialization
     
     init() {
         setupMIDI()
     }
+
+    nonisolated deinit {}
     
-    deinit {
-        Task { @MainActor in
-            teardownMIDI()
-        }
+    // MARK: - Cleanup
+    
+    /// Explicitly release CoreMIDI resources. Call from SwiftUI .onDisappear
+    /// or from the owning object's cleanup path before releasing this object.
+    func cleanup() {
+        teardownMIDI()
     }
     
     // MARK: - Setup
@@ -674,9 +678,6 @@ class MIDIRecordingEngine {
         recordedPitchBendEvents.append(event)
     }
     
-    // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 

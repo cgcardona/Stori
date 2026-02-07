@@ -612,7 +612,10 @@ final class TrackAudioNode: @unchecked Sendable {
         levelTapInstalled = true
     }
     
-    private func removeLevelMonitoring() {
+    /// Remove the level-monitoring tap from the volume node.
+    /// Must be called while volumeNode is still attached to an engine (engine != nil);
+    /// otherwise the tap removal is skipped and the callback can fire on a detached node.
+    func removeLevelMonitoring() {
         guard levelTapInstalled else { return }
         
         // Safety check: only remove tap if the node is still attached to an engine

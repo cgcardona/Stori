@@ -115,7 +115,7 @@ final class UpdateService {
         self.currentBuild = currentBuild ?? (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
     }
     
-    deinit {
+    nonisolated deinit {
         periodicCheckTask?.cancel()
         downloadTask?.cancel()
     }

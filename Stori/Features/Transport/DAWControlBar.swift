@@ -26,6 +26,7 @@ struct DAWControlBar: View {
     @State private var showingMetronomeSettings = false
     @State private var editedTempo: Double = 120
     @State private var isCountingIn = false  // True during count-in before recording
+    @State private var showingRecordAlert = false  // Alert when no tracks are armed
     
     var body: some View {
         HStack(spacing: 0) {
@@ -124,7 +125,7 @@ struct DAWControlBar: View {
                     .help("Rewind 1 beat (,)")
                     .keyboardShortcut(",", modifiers: [])
                     
-                    // Play/Pause
+                    // Play/Pause (no count-in — count-in is recording-only, standard DAW behavior)
                     TransportButton(
                         icon: audioEngine.isPlaying ? "pause.fill" : "play.fill",
                         isActive: audioEngine.isPlaying,
@@ -447,6 +448,15 @@ struct DAWControlBar: View {
                     alignment: .top
                 )
         )
+        .alert("No Track Armed for Recording", isPresented: $showingRecordAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Create an audio or MIDI track and arm it for recording (R button) before starting to record.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleRecording)) { _ in
+            // Forward VK's R key press through the same count-in logic
+            handleRecordButton()
+        }
     }
     
     
@@ -467,32 +477,51 @@ struct DAWControlBar: View {
     // MARK: - Record with Count-In
     
     private func handleRecordButton() {
+        AppLogger.shared.debug("[REC] handleRecordButton: isRecording=\(audioEngine.isRecording) isCountingIn=\(isCountingIn)", category: .audio)
         if audioEngine.isRecording {
+            AppLogger.shared.debug("[REC] Stopping recording", category: .audio)
             audioEngine.stopRecording()
             return
         }
         
-        if isCountingIn { return }
+        if isCountingIn {
+            AppLogger.shared.debug("[REC] Already counting in, ignoring", category: .audio)
+            return
+        }
+        
+        // Guard: require at least one track in the project
+        guard let project = projectManager.currentProject, !project.tracks.isEmpty else {
+            AppLogger.shared.debug("[REC] No tracks, showing alert", category: .audio)
+            showingRecordAlert = true
+            return
+        }
+        
+        AppLogger.shared.debug("[REC] countInEnabled=\(metronomeEngine.countInEnabled) metronomeEnabled=\(metronomeEngine.isEnabled) tracks=\(project.tracks.count)", category: .audio)
         
         // Check if count-in is enabled
         if metronomeEngine.countInEnabled {
             isCountingIn = true
             
             Task {
+                AppLogger.shared.debug("[REC] Task started: preparing recording during count-in", category: .audio)
                 // Pre-setup everything BEFORE count-in to avoid delay after
                 await audioEngine.prepareRecordingDuringCountIn()
                 
+                AppLogger.shared.debug("[REC] Preparation complete, starting count-in", category: .audio)
                 // Perform count-in (uses precise DispatchSourceTimer)
                 await metronomeEngine.performCountIn()
                 
+                AppLogger.shared.debug("[REC] Count-in complete, starting recording", category: .audio)
                 // Count-in complete, start recording immediately
                 // Everything is already prepared, just flip the switch
                 await MainActor.run {
                     isCountingIn = false
                     audioEngine.startRecordingAfterCountIn()
+                    AppLogger.shared.debug("[REC] Recording started after count-in", category: .audio)
                 }
             }
         } else {
+            AppLogger.shared.debug("[REC] No count-in, starting recording immediately", category: .audio)
             // No count-in, start recording immediately
             audioEngine.record()
         }
