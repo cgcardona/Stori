@@ -134,6 +134,10 @@ class TransportController {
     @ObservationIgnored
     private var positionTimer: DispatchSourceTimer?
     
+    /// Cancellation bag for clean deinit (eliminates nonisolated(unsafe) anti-pattern)
+    @ObservationIgnored
+    private let cancels = CancellationBag()
+    
     // MARK: - Cycle Loop State (Generation Counter Pattern)
     
     /// Generation counter for cycle jumps - incremented on each jump
@@ -278,10 +282,16 @@ class TransportController {
         }
     }
     
-    nonisolated deinit {
-        // Ensure position timer is stopped to prevent memory leaks
-        // Cancel the timer directly since deinit is nonisolated
-        positionTimer?.cancel()
+    deinit {
+        // DIAGNOSTIC: Check if deinit runs (retain cycle test)
+        print("🧹 [DIAGNOSTIC] TransportController deinit START")
+        
+        // ✅ Clean deinit: cancels is nonisolated, synchronous cancellation
+        // ✅ No nonisolated(unsafe) needed
+        // ✅ Timer uses [weak self] to break retain cycle
+        cancels.cancelAll()
+        
+        print("✅ [DIAGNOSTIC] TransportController deinit COMPLETE")
     }
     
     // MARK: - Transport Controls
@@ -531,11 +541,18 @@ class TransportController {
         }
         timer.resume()
         positionTimer = timer
+        
+        // Add to cancellation bag for clean shutdown
+        cancels.insert(timer: timer)
     }
     
     func stopPositionTimer() {
+        // Cancel timer and clear reference
         positionTimer?.cancel()
         positionTimer = nil
+        
+        // Note: No need to remove from cancels bag - cancelAll() is idempotent
+        // The bag will clean up on deinit if we forget to stop explicitly
     }
     
     private func updatePosition(capturedWallTime: TimeInterval) {

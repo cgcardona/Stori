@@ -28,7 +28,6 @@ import Foundation
 /// let count = clipCount.read()
 /// clipCount.write(0)
 /// ```
-@ObservationIgnored
 final class RTSafeAtomic<Value> where Value: Sendable {
     /// Lock protecting the value
     /// MUST be nonisolated(unsafe) for trylock from RT thread
@@ -116,7 +115,6 @@ final class RTSafeAtomic<Value> where Value: Sendable {
 
 /// RT-safe counter for error tracking
 /// Optimized for increment-heavy workloads (clipping detection, error counts)
-@ObservationIgnored
 final class RTSafeCounter {
     private let atomic: RTSafeAtomic<UInt32>
     
@@ -143,7 +141,6 @@ final class RTSafeCounter {
 
 /// RT-safe max tracker for peak detection
 /// Optimized for compare-and-update pattern (peak metering, clipping detection)
-@ObservationIgnored
 final class RTSafeMaxTracker {
     private let atomic: RTSafeAtomic<Float>
     
@@ -177,7 +174,6 @@ final class RTSafeMaxTracker {
 /// Thread-safe atomic boolean
 /// Use for flags that need to be read/written from multiple threads (NOT RT thread)
 /// For RT thread access, use RTSafeAtomic<Bool> instead
-@ObservationIgnored
 final class AtomicBool {
     private nonisolated(unsafe) var lock = os_unfair_lock_s()
     private nonisolated(unsafe) var value: Bool
@@ -215,7 +211,6 @@ final class AtomicBool {
 /// Thread-safe atomic integer
 /// Use for counters/ticks that need cross-thread access (NOT RT thread)
 /// For RT thread access, use RTSafeCounter or RTSafeAtomic<Int> instead
-@ObservationIgnored
 final class AtomicInt {
     private nonisolated(unsafe) var lock = os_unfair_lock_s()
     private nonisolated(unsafe) var value: Int
@@ -253,7 +248,6 @@ final class AtomicInt {
 
 /// Thread-safe atomic double
 /// Use for timing/position values that need cross-thread access
-@ObservationIgnored
 final class AtomicDouble {
     private nonisolated(unsafe) var lock = os_unfair_lock_s()
     private nonisolated(unsafe) var value: Double

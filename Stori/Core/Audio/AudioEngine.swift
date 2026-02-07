@@ -143,6 +143,10 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     private var rtErrorFlushTimer: DispatchSourceTimer?
     
+    /// Cancellation bag for clean deinit (eliminates nonisolated(unsafe) anti-pattern)
+    @ObservationIgnored
+    private let cancels = CancellationBag()
+    
     // NOTE: Graph mutation coordination is now handled by AudioGraphManager
     
     @ObservationIgnored
@@ -862,19 +866,21 @@ class AudioEngine: AudioEngineContext {
     }
     
     deinit {
+        // DIAGNOSTIC: Check if deinit actually runs (retain cycle test)
+        print("🧹 [DIAGNOSTIC] AudioEngine deinit START - cleaning up timers")
+        
         // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
         // Root cause: @Observable classes have implicit Swift Concurrency tasks
         // for property change notifications that can cause bad-free on deinit.
         // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
         // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
-        // Note: Cannot access @MainActor properties in deinit.
         
-        // FIX Issue #72: Cancel health timer to prevent retain cycle
-        // Timer is @ObservationIgnored so it's safe to access here
-        engineHealthTimer?.cancel()
+        // ✅ Clean deinit: cancels is nonisolated, synchronous cancellation
+        // ✅ No nonisolated(unsafe) needed for timers
+        // ✅ Timers use [weak self] to break retain cycles
+        cancels.cancelAll()
         
-        // FIX Issue #78: Clean up RT error flush timer
-        stopRTErrorFlushTimer()
+        print("✅ [DIAGNOSTIC] AudioEngine deinit COMPLETE")
     }
     
     // MARK: - Lifecycle Management (Issue #72)
@@ -900,11 +906,9 @@ class AudioEngine: AudioEngineContext {
         // Stop metronome if installed (calls stopPlaying internally)
         installedMetronome?.onTransportStop()
         
-        // Stop health monitoring timer (prevents retain cycle - Issue #72)
-        stopEngineHealthMonitoring()
-        
-        // Stop RT error flush timer (prevents retain cycle - Issue #78)
-        stopRTErrorFlushTimer()
+        // Cancel all timers synchronously via cancellation bag
+        // Eliminates retain cycles and ensures deterministic cleanup
+        cancels.cancelAll()
         
         // Stop transport position timer
         transportController.stopPositionTimer()
@@ -1094,6 +1098,7 @@ class AudioEngine: AudioEngineContext {
         timer.resume()
         
         rtErrorFlushTimer = timer
+        cancels.insert(timer: timer)
     }
     
     /// Flush accumulated RT error events to AppLogger (called periodically on utility queue)
@@ -1116,11 +1121,10 @@ class AudioEngine: AudioEngineContext {
     }
     
     /// Stop RT error flush timer
-    /// MainActor-isolated because rtErrorFlushTimer is MainActor property
-    /// For deinit, timer is @ObservationIgnored so direct access is safe
     private func stopRTErrorFlushTimer() {
         rtErrorFlushTimer?.cancel()
         rtErrorFlushTimer = nil
+        // Note: cancels bag handles cleanup on deinit
     }
     
     /// Detect and record clipping in an audio buffer
@@ -1386,6 +1390,7 @@ class AudioEngine: AudioEngineContext {
         }
         timer.resume()
         engineHealthTimer = timer
+        cancels.insert(timer: timer)
     }
     
     /// Check engine health and attempt recovery if needed.
@@ -1448,6 +1453,7 @@ class AudioEngine: AudioEngineContext {
     private func stopEngineHealthMonitoring() {
         engineHealthTimer?.cancel()
         engineHealthTimer = nil
+        // Note: cancels bag handles cleanup on deinit
     }
     
     // MARK: - Position Update State
