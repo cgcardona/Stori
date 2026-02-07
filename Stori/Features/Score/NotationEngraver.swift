@@ -22,11 +22,8 @@ class NotationEngraver {
     
     // MARK: - Deinit Protection (ASan Issue #84742+)
     
-    deinit {
-        // CRITICAL: Protective deinit to prevent ASan crash during test teardown
-        // Even though this class is not @Observable or @MainActor, it can be
-        // deallocated on MainActor during test cleanup, causing task-local issues
-    }
+    // No async resources owned.
+    // No deinit required.
     
     // MARK: - Stem Direction
     

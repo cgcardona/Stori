@@ -80,6 +80,7 @@ final class AppLogger {
     }
     
     deinit {
+        // Clean up file handle (synchronous resource cleanup).
         fileHandle?.closeFile()
     }
     

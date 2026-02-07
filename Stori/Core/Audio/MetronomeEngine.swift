@@ -113,11 +113,9 @@ class MetronomeEngine {
     @ObservationIgnored
     private var transportStartSampleTime: AVAudioFramePosition = 0
     
+    /// Centralized cancellation for all async resources
     @ObservationIgnored
-    private var fillTimer: DispatchSourceTimer?
-    
-    @ObservationIgnored
-    private var beatFlashTask: Task<Void, Never>?
+    private let cancels = CancellationBag()
     
     @ObservationIgnored
     private let lookaheadSeconds: Double = 0.5
@@ -390,13 +388,8 @@ class MetronomeEngine {
         isPlaying = false
         beatFlash = false
         
-        // Cancel beat flash task
-        beatFlashTask?.cancel()
-        beatFlashTask = nil
-        
-        // Stop the fill timer
-        fillTimer?.cancel()
-        fillTimer = nil
+        // Cancel all async resources
+        cancels.cancelAll()
         
         // Stop the player (guard against detached node)
         if let player = clickPlayer, player.engine != nil {
@@ -499,8 +492,6 @@ class MetronomeEngine {
     }
     
     private func startFillTimer() {
-        fillTimer?.cancel()
-        
         // Timer fires every 50ms to keep the queue filled
         // This is NOT the clock - it just maintains the lookahead buffer
         let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -516,7 +507,7 @@ class MetronomeEngine {
         }
         
         timer.resume()
-        fillTimer = timer
+        cancels.insert(timer: timer)
     }
     
     // MARK: - Visual Feedback
@@ -524,16 +515,14 @@ class MetronomeEngine {
     private func triggerBeatFlash() {
         beatFlash = true
         
-        // Cancel any existing flash task to prevent memory issues on deinit
-        beatFlashTask?.cancel()
-        
-        // Store the task so we can cancel it during cleanup
-        beatFlashTask = Task {
+        // Create flash task and track in cancellation bag
+        let task = Task {
             try? await Task.sleep(nanoseconds: 80_000_000)  // 80ms
             await MainActor.run {
                 self.beatFlash = false
             }
         }
+        cancels.insert(task: task)
     }
     
     // MARK: - Count-In
@@ -615,13 +604,8 @@ class MetronomeEngine {
     // MARK: - Cleanup
     
     deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Task holding self reference during @MainActor class cleanup
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
-        beatFlashTask?.cancel()
-        fillTimer?.cancel()
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
     }
 }

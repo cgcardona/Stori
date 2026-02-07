@@ -758,6 +758,7 @@ class BlockchainClient {
     }
     
     deinit {
+        // Cancel network monitor (synchronous cleanup of system resource).
         networkMonitor.cancel()
     }
 }

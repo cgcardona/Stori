@@ -181,15 +181,8 @@ class AudioAnalyzer {
     
     // MARK: - Cleanup
     
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // for property change notifications that can cause double-free on deinit.
-        // See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient,
-        //      AudioAnalysisService, AudioExportService, SelectionManager, ScrollSyncModel,
-        //      RegionDragState
-        // https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 // MARK: - Audio Analysis Errors

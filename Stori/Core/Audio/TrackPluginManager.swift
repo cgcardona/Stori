@@ -757,11 +757,6 @@ class TrackPluginManager {
         sidechainSources.removeValue(forKey: trackId)
     }
     
-    deinit {
-        // CRITICAL: Protective deinit for class owned by @Observable parent (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, BusManager.deinit
-    }
+    // No async resources owned.
+    // No deinit required.
 }

@@ -115,8 +115,8 @@ actor LibraryService {
     
     // CRITICAL: Protective deinit for actor (ASan Issue #84742+)
     // Root cause: actor types have implicit actor isolation mechanisms
-    deinit {
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 // MARK: - Error Types

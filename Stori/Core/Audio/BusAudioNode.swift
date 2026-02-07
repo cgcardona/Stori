@@ -211,8 +211,6 @@ class BusAudioNode {
     }
     
     // MARK: - Cleanup
-    deinit {
-        // Note: Cannot call @MainActor methods in deinit
-        // Level monitoring will be cleaned up automatically when nodes are deallocated
-    }
+    // No async resources owned.
+    // No deinit required.
 }

@@ -1303,11 +1303,8 @@ class SequencerEngine {
     // MARK: - Cleanup
     
     /// Explicit deinit to prevent Swift Concurrency task leak
-    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
-    /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 // MARK: - Drum Player
@@ -1571,9 +1568,6 @@ private class DrumPlayer {
     
     // MARK: - Cleanup
     
-    /// Explicit deinit to prevent Swift Concurrency task leak
-    /// Even simple nested classes can have implicit tasks that cause memory corruption
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
+    // No async resources owned.
+    // No deinit required.
 }

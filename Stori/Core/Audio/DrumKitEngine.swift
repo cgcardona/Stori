@@ -486,11 +486,6 @@ class DrumKitEngine {
         return exp(-(t - attack) * decay)
     }
     
-    deinit {
-        // CRITICAL: Protective deinit (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, BusManager.deinit
-    }
+    // No async resources owned.
+    // No deinit required.
 }

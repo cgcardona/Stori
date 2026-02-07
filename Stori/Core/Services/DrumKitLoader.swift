@@ -346,8 +346,7 @@ class DrumKitLoader {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 

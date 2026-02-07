@@ -812,11 +812,8 @@ class PluginChain {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-        // Note: Cannot access @MainActor-isolated properties from deinit
-        // Cleanup is handled by explicit uninstall() calls in production/tests
-    }
+    // No async resources owned.
+    // No deinit required.
 }
 
 // MARK: - Track Plugin Extension
