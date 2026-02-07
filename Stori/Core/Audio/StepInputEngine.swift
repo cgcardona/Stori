@@ -32,6 +32,9 @@ class StepInputEngine {
     /// Duration of each entered note
     var stepDuration: SnapResolution = .eighth
     
+    /// Time signature for grid calculation (Issue #64). Defaults to 4/4.
+    var timeSignature: TimeSignature = .fourFour
+    
     /// Velocity for new notes (0-127)
     var velocity: UInt8 = 100
     
@@ -66,7 +69,9 @@ class StepInputEngine {
     // MARK: - Initialization
     
     init() {}
-    
+
+    nonisolated deinit {}
+
     /// Configure with MIDI device manager for input
     func configure(
         midiDeviceManager: MIDIDeviceManager,
@@ -115,12 +120,12 @@ class StepInputEngine {
     
     /// Move to the next step position
     func advanceStep() {
-        stepPositionBeats += stepDuration.stepDurationBeats
+        stepPositionBeats += stepDuration.stepDurationBeats(timeSignature: timeSignature)
     }
     
     /// Move to the previous step position
     func goBack() {
-        stepPositionBeats = max(0, stepPositionBeats - stepDuration.stepDurationBeats)
+        stepPositionBeats = max(0, stepPositionBeats - stepDuration.stepDurationBeats(timeSignature: timeSignature))
     }
     
     /// Jump to a specific beat position
@@ -141,12 +146,13 @@ class StepInputEngine {
         
         let noteVelocity = velocity ?? self.velocity
         
+        let gridStep = stepDuration.stepDurationBeats(timeSignature: timeSignature)
         let note = MIDINote(
             id: UUID(),
             pitch: pitch,
             velocity: noteVelocity,
             startBeat: stepPositionBeats,
-            durationBeats: stepDuration.stepDurationBeats,
+            durationBeats: gridStep,
             channel: 0
         )
         
@@ -169,13 +175,14 @@ class StepInputEngine {
     func enterChord(pitches: [(pitch: UInt8, velocity: UInt8)]) {
         guard var region = targetRegion else { return }
         
+        let gridStep = stepDuration.stepDurationBeats(timeSignature: timeSignature)
         for (pitch, vel) in pitches {
             let note = MIDINote(
                 id: UUID(),
                 pitch: pitch,
                 velocity: vel,
                 startBeat: stepPositionBeats,
-                durationBeats: stepDuration.stepDurationBeats,
+                durationBeats: gridStep,
                 channel: 0
             )
             region.addNote(note)
@@ -200,7 +207,7 @@ class StepInputEngine {
         guard var region = targetRegion else { return }
         
         // Find notes at the previous step beat position
-        let prevPositionBeats = max(0, stepPositionBeats - stepDuration.stepDurationBeats)
+        let prevPositionBeats = max(0, stepPositionBeats - stepDuration.stepDurationBeats(timeSignature: timeSignature))
         let notesAtPosition = region.notes.filter { 
             abs($0.startBeat - prevPositionBeats) < 0.001 
         }
@@ -300,10 +307,5 @@ class StepInputEngine {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 

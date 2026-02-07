@@ -146,11 +146,38 @@ final class TrackAudioNodeTests: XCTestCase {
     }
     
     func testSetMuted() {
+        // Contract: setMuted updates isMuted immediately.
+        // Note: volumeNode.outputVolume is updated asynchronously by the automation engine
+        // (applySmoothedAutomation → setVolumeSmoothed); see testSetMutedAppliedWhenAutomationRuns.
         sut.setMuted(true)
-        XCTAssertEqual(sut.volumeNode.outputVolume, 0.0)
+        XCTAssertTrue(sut.isMuted, "setMuted(true) should set isMuted to true")
         
         sut.setMuted(false)
-        XCTAssertGreaterThan(sut.volumeNode.outputVolume, 0.0)
+        XCTAssertFalse(sut.isMuted, "setMuted(false) should set isMuted to false")
+    }
+    
+    /// Verifies that when the automation path runs (setVolumeSmoothed), mute is applied to outputVolume.
+    /// Mute uses smooth fade (~10ms); we run multiple ticks to let the multiplier settle.
+    func testSetMutedAppliedWhenAutomationRuns() {
+        sut.setVolume(0.8)
+        // Simulate automation engine applying volume repeatedly so mute smoothing settles
+        for _ in 0..<30 {
+            sut.setVolumeSmoothed(0.8)
+        }
+        XCTAssertGreaterThan(sut.volumeNode.outputVolume, 0.1, "Unmuted: outputVolume should reflect volume")
+        
+        sut.setMuted(true)
+        for _ in 0..<30 {
+            sut.setVolumeSmoothed(0.8)
+        }
+        XCTAssertEqual(sut.volumeNode.outputVolume, 0.0, accuracy: 0.001,
+                       "Muted: automation should apply mute and set outputVolume to 0")
+        
+        sut.setMuted(false)
+        for _ in 0..<30 {
+            sut.setVolumeSmoothed(0.8)
+        }
+        XCTAssertGreaterThan(sut.volumeNode.outputVolume, 0.1, "Unmuted again: outputVolume should restore")
     }
     
     func testSetSolo() {

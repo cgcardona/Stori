@@ -60,6 +60,10 @@ class AudioAnalyzer {
     @ObservationIgnored
     private var waveformCache: [URL: WaveformData] = [:]
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Analyze audio file and generate waveform data
     func analyzeAudioFile(at url: URL, targetSamples: Int = 1000) async throws -> WaveformData {
         
@@ -180,16 +184,6 @@ class AudioAnalyzer {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // for property change notifications that can cause double-free on deinit.
-        // See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient,
-        //      AudioAnalysisService, AudioExportService, SelectionManager, ScrollSyncModel,
-        //      RegionDragState
-        // https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-    }
 }
 
 // MARK: - Audio Analysis Errors

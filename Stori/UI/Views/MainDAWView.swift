@@ -50,6 +50,10 @@ final class DAWUIState {
     }
     
     private init() {}
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 }
 
 struct MainDAWView: View {
@@ -97,6 +101,12 @@ struct MainDAWView: View {
     
     // Fallback state for when no project is open
     @State private var fallbackShowingInspector: Bool = false  // Composer panel hidden until service is available
+    
+    // MARK: - Drag Start Snapshots (for smooth panel resizing)
+    // Captured at drag start so onDrag never depends on reading back
+    // the current height from the model mid-gesture.
+    @State private var dragStartPanelHeight: CGFloat = 0
+    @State private var dragStartInspectorWidth: CGFloat = 0
     
     private var horizontalZoom: Double {
         projectManager.currentProject?.uiState.horizontalZoom ?? 0.8
@@ -1230,6 +1240,7 @@ struct MainDAWView: View {
                 renameTrackText: $renameTrackText,
                 showingExportSettings: $showingExportSettings,
                 activeSheet: $activeSheet,
+                audioEngine: audioEngine,
                 projectManager: projectManager,
                 exportService: exportService,
                 availableBuses: projectManager.currentProject?.buses ?? [],
@@ -1246,6 +1257,17 @@ struct MainDAWView: View {
             .sheet(isPresented: $showingTokenInput) {
                 TokenInputView(allowDismiss: true)
             }
+        // Virtual Keyboard — presented as overlay (not sheet) to avoid
+        // dimming, animation, and playhead stutter during recording.
+        // Matches Logic Pro's Musical Typing behavior (floating panel).
+        .overlay(alignment: .bottom) {
+            if activeSheet == .virtualKeyboard {
+                VirtualKeyboardView(onClose: { activeSheet = nil })
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         // Update banner (non-blocking, slides in at top)
         .overlay(alignment: .top) {
             if updateService.showBanner,
@@ -1425,11 +1447,12 @@ struct MainDAWView: View {
                 }
             }
         }
-        .onChange(of: projectManager.currentProject) { oldProject, newProject in
-            // Update audio engine when project changes
-            if let newProj = newProject {
-                let isDifferentProject = oldProject?.id != newProj.id
-                if isDifferentProject {
+        .onChange(of: projectManager.currentProject?.id) { oldProjectId, newProjectId in
+            // Update audio engine only when switching to a DIFFERENT project (by ID)
+            // Track additions/deletions/modifications should NOT trigger full reload
+            // BUG FIX (Issue #122): Only reload when project ID changes, not on every mutation
+            if let newProj = projectManager.currentProject {
+                if oldProjectId != newProjectId {
                     // Different project: Full reload with track setup
                     audioEngine.loadProject(newProj)
                     
@@ -1449,13 +1472,9 @@ struct MainDAWView: View {
                     // 🎯 RESTORE COMPLETE UI STATE
                     // Restore all zoom, panels, tabs, metronome, playhead exactly as saved
                     restoreUIState()
-                } else {
-                    // Same project with updates (new regions, moved regions, etc.): Incremental update
-                    // Pass oldProject so AudioEngine can detect what changed (since currentProject is now computed)
-                    audioEngine.updateCurrentProject(newProj, previousProject: oldProject)
                 }
                 
-                // Sync metronome with project tempo and time signature
+                // Sync metronome with project tempo and time signature (always, even for same project)
                 metronomeEngine.tempo = newProj.tempo
                 metronomeEngine.beatsPerBar = newProj.timeSignature.numerator
             }
@@ -1633,7 +1652,16 @@ struct MainDAWView: View {
 extension MainDAWView {
     
     
-    private var centerContentView: some View {
+    /// Maximum height a bottom panel's **content** can occupy.
+    /// Subtracts panel chrome (resize handle + header ≈ 60pt) so the
+    /// content frame never overflows the VStack. The timeline can shrink
+    /// to zero, matching Logic Pro's behaviour where the editor can fill
+    /// the entire window.
+    private func maxPanelContentHeight(availableHeight: CGFloat) -> CGFloat {
+        max(0, availableHeight - 60)
+    }
+    
+    private func centerContentView(availableHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             // Timeline and tracks area - takes remaining space after bottom panels
             VStack(spacing: 0) {
@@ -1677,39 +1705,45 @@ extension MainDAWView {
                     }
                 )
             }
-            .frame(minHeight: 150) // Ensure timeline is always visible
+            // No .frame(minHeight:) here — the panel's maxContentHeight
+            // already reserves 150pt for the timeline, and adding a SwiftUI
+            // minHeight constraint would fight with the panel's fixed height
+            // causing layout oscillation / jitter.
             
             // Bottom area: Mixer panel (when visible)
             if showingMixer {
-                mixerPanelView
+                mixerPanelView(availableHeight: availableHeight)
             }
             
             // Bottom area: Step Sequencer panel (when visible)
             if showingStepSequencer {
-                stepSequencerPanelView
+                stepSequencerPanelView(availableHeight: availableHeight)
             }
             
             // Bottom area: Piano Roll panel (when visible)
             if showingPianoRoll {
-                pianoRollPanelView()
+                pianoRollPanelView(availableHeight: availableHeight)
             }
             
             // Bottom area: Synthesizer panel (when visible)
             if showingSynthesizer {
-                synthesizerPanelView
+                synthesizerPanelView(availableHeight: availableHeight)
             }
         }
     }
     
     @ViewBuilder
-    private func pianoRollPanelView() -> some View {
+    private func pianoRollPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
         VStack(spacing: 0) {
             // Resize Handle - at TOP so it's clear this is a resizable panel
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setPianoRollHeight(max(150, pianoRollHeight - delta))
+                onDragStarted: { dragStartPanelHeight = pianoRollHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setPianoRollHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             
@@ -1792,6 +1826,7 @@ extension MainDAWView {
                     snapToGrid: snapToGrid  // [PHASE-4] Pass snap toggle state
                 )
                 .frame(height: pianoRollHeight)
+                .clipped()
             } else {
                 // Score Notation Content - Multi-track display
                 let midiTracks = projectManager.currentProject?.tracks.filter { $0.isMIDITrack } ?? []
@@ -1814,6 +1849,7 @@ extension MainDAWView {
                         cycleEndBeat: audioEngine.cycleEndBeat
                     )
                     .frame(height: pianoRollHeight)
+                    .clipped()
                 } else {
                     // No MIDI tracks
                     VStack {
@@ -1830,6 +1866,7 @@ extension MainDAWView {
                         Spacer()
                     }
                     .frame(height: pianoRollHeight)
+                    .clipped()
                     .frame(maxWidth: .infinity)
                     .background(Color(nsColor: .textBackgroundColor))
                 }
@@ -1838,8 +1875,10 @@ extension MainDAWView {
         .transition(.move(edge: .bottom))
     }
     
-    private var synthesizerPanelView: some View {
-        VStack(spacing: 0) {
+    private func synthesizerPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
+        return VStack(spacing: 0) {
             // Header with close button
             HStack {
                 Image(systemName: "waveform.path.ecg.rectangle")
@@ -1860,21 +1899,25 @@ extension MainDAWView {
             // Resize Handle
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setSynthesizerHeight(max(150, synthesizerHeight - delta))
+                onDragStarted: { dragStartPanelHeight = synthesizerHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setSynthesizerHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             
             // Synthesizer Content
             SynthesizerPanelContent(audioEngine: audioEngine)
                 .frame(height: synthesizerHeight)
+                .clipped()
         }
         .transition(.move(edge: .bottom))
     }
     
-    private var stepSequencerPanelView: some View {
-        VStack(spacing: 0) {
+    private func stepSequencerPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
+        return VStack(spacing: 0) {
             // Visible top border for drag affordance
             Rectangle()
                 .fill(Color(.separatorColor))
@@ -1883,17 +1926,20 @@ extension MainDAWView {
             // Resize Handle with visible styling
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setStepSequencerHeight(max(150, stepSequencerHeight - delta))
+                onDragStarted: { dragStartPanelHeight = stepSequencerHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setStepSequencerHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
             
-            // Step Sequencer Content
+            // Step Sequencer Content — height applied only here so the
+            // resize handle stays visible even when collapsed to 0.
             StepSequencerView(sequencer: audioEngine.sequencerEngine, projectManager: projectManager, audioEngine: audioEngine, selectedTrackId: $selectedTrackId)
+                .frame(height: stepSequencerHeight)
+                .clipped()
         }
-        .frame(height: stepSequencerHeight)
         .transition(.move(edge: .bottom))
     }
     
@@ -1925,8 +1971,9 @@ extension MainDAWView {
             // Resize Handle
             ResizeHandle(
                 orientation: .vertical,
-                onDrag: { delta in
-                    setInspectorWidth(max(250, min(500, inspectorWidth - delta)))
+                onDragStarted: { dragStartInspectorWidth = inspectorWidth },
+                onDrag: { cumulativeDelta in
+                    setInspectorWidth(max(250, min(500, dragStartInspectorWidth - cumulativeDelta)))
                 }
             )
             
@@ -1936,8 +1983,10 @@ extension MainDAWView {
         .transition(.move(edge: .trailing))
     }
     
-    private var mixerPanelView: some View {
-        VStack(spacing: 0) {
+    private func mixerPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
+        return VStack(spacing: 0) {
             // Visible top border for drag affordance
             Rectangle()
                 .fill(Color(.separatorColor))
@@ -1946,40 +1995,47 @@ extension MainDAWView {
             // Resize Handle with visible styling
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setMixerHeight(max(150, mixerHeight - delta))
+                onDragStarted: { dragStartPanelHeight = mixerHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setMixerHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
             
-            // Mixer Content
+            // Mixer Content — height applied only here so the
+            // resize handle stays visible even when collapsed to 0.
             MixerView(
                 audioEngine: audioEngine,
                 projectManager: projectManager,
                 selectedTrackId: $selectedTrackId,
                 isGraphStable: audioEngine.isGraphStable
             )
+            .frame(height: mixerHeight)
+            .clipped()
         }
-        .frame(height: mixerHeight)
         .transition(.move(edge: .bottom))
     }
     
     private func dawContentView(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Main content area with professional panel layout
-            HStack(spacing: 0) {
-                // Left Panel: Selection Info (when visible)
-                if showingSelection {
-                    selectionPanelView
-                }
-                
-                // Center: Main DAW Content
-                centerContentView
-                
-                // Right Panel: Inspector (when visible)
-                if showingInspector {
-                    rightPanelView
+            // Main content area with professional panel layout.
+            // GeometryReader here measures the ACTUAL space available
+            // after the DAWControlBar — no hardcoded subtraction needed.
+            GeometryReader { contentGeo in
+                HStack(spacing: 0) {
+                    // Left Panel: Selection Info (when visible)
+                    if showingSelection {
+                        selectionPanelView
+                    }
+                    
+                    // Center: Main DAW Content
+                    centerContentView(availableHeight: contentGeo.size.height)
+                    
+                    // Right Panel: Inspector (when visible)
+                    if showingInspector {
+                        rightPanelView
+                    }
                 }
             }
             

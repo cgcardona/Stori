@@ -82,6 +82,10 @@ struct PianoRollView: View {
     // [PHASE-3] Tempo for measure display
     var tempo: Double = 120.0  // BPM, passed from parent
     
+    /// Project time signature for correct quantization in odd meters (Issue #64).
+    /// Defaults to 4/4 when not provided (e.g. test views).
+    var timeSignature: TimeSignature = .fourFour
+    
     // [PHASE-4] Cycle region (synced with main timeline)
     var cycleEnabled: Bool = false
     var cycleStartBeats: Double = 0
@@ -220,10 +224,10 @@ struct PianoRollView: View {
                                     Divider()
                                     
                                     // Grid area (scrolls vertically, tracks offset for keyboard sync)
-                                    // FIX: noteGrid is now a BACKGROUND overlay, viewport-sized, draws in scrolled coordinates
-                                    // This prevents the huge offscreen texture that caused initial paint failures
+                                    // Grid Canvas is full-width (gridWidth), scrolls naturally with horizontal ScrollView
+                                    // Drawing code renders from 0 to size.width, matching timeRuler pattern
                                     ZStack {
-                                        // Background: viewport-sized grid lanes (draws in scrolled coordinates)
+                                        // Background: full-width grid lanes (draws absolute coordinates, scrolls with ScrollView)
                                         noteGrid
                                             .frame(width: gridWidth, height: availableHeight)
                                         
@@ -333,7 +337,8 @@ struct PianoRollView: View {
             MIDITransformView(
                 region: $region,
                 selectedNotes: $selectedNotes,
-                isPresented: $showTransformSheet
+                isPresented: $showTransformSheet,
+                timeSignature: timeSignature
             )
         }
     }
@@ -674,7 +679,7 @@ struct PianoRollView: View {
         for noteId in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == noteId }) {
                 let currentBeat = region.notes[index].startBeat
-                let quantizedBeat = snapResolution.quantize(beat: currentBeat, strength: Float(quantizeStrength / 100.0))
+                let quantizedBeat = snapResolution.quantize(beat: currentBeat, timeSignature: timeSignature, strength: Float(quantizeStrength / 100.0))
                 region.notes[index].startBeat = quantizedBeat
             }
         }
@@ -862,12 +867,12 @@ struct PianoRollView: View {
             let eighthColor = Color.white.opacity(eighthOpacity)
             let sixteenthColor = Color.white.opacity(sixteenthOpacity)
             
-            // Calculate visible bars based on horizontal scroll
-            let firstBar = max(0, Int(floor(hScrollOffset / pxPerBar)))
-            let lastBar = Int(ceil((hScrollOffset + size.width) / pxPerBar)) + 1
+            // Draw all bars from 0 to size.width (full-width Canvas, scrolls naturally)
+            var barIndex = 0
+            var barX: CGFloat = 0
             
-            for barIndex in firstBar..<lastBar {
-                let barX = round(CGFloat(barIndex) * pxPerBar - hScrollOffset)
+            while barX < size.width {
+                barX = round(CGFloat(barIndex) * pxPerBar)
                 
                 // Bar line (strongest)
                 if barX >= 0 && barX < size.width {
@@ -917,9 +922,11 @@ struct PianoRollView: View {
                         }
                     }
                 }
+                
+                barIndex += 1
             }
         }
-        // FIX: Removed .drawingGroup() - with viewport-sized canvas, we don't need offscreen rasterization
+        // FIX: Removed .drawingGroup() - full-width Canvas scrolls naturally with ScrollView
     }
     
     // MARK: - Measure Ruler
@@ -1316,14 +1323,15 @@ struct PianoRollView: View {
                 var startBeat = rawBeat
                 
                 if snapResolution != .off {
-                    startBeat = snapResolution.quantize(beat:rawBeat)
+                    startBeat = snapResolution.quantize(beat: rawBeat, timeSignature: timeSignature)
                 }
                 
+                let gridStep = snapResolution.stepDurationBeats(timeSignature: timeSignature)
                 drawingNote = MIDINote(
                     pitch: pitch,
                     velocity: 100,  // ~78% velocity - standard DAW default
                     startBeat: startBeat,
-                    durationBeats: snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.25
+                    durationBeats: gridStep > 0 ? gridStep : 0.25
                 )
                 
                 onPreviewNote?(pitch)
@@ -1331,9 +1339,10 @@ struct PianoRollView: View {
                 // Update note duration while dragging
                 var endBeat = beatAt(x: value.location.x)
                 if snapResolution != .off {
-                    endBeat = snapResolution.quantize(beat:endBeat)
+                    endBeat = snapResolution.quantize(beat: endBeat, timeSignature: timeSignature)
                 }
-                note.durationBeats = max(snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.1, endBeat - note.startBeat)
+                let gridStep = snapResolution.stepDurationBeats(timeSignature: timeSignature)
+                note.durationBeats = max(gridStep > 0 ? gridStep : 0.1, endBeat - note.startBeat)
                 drawingNote = note
             }
             
@@ -1419,11 +1428,12 @@ struct PianoRollView: View {
             
             // Snap to grid
             if snapResolution != .off {
-                startBeat = snapResolution.quantize(beat:startBeat)
+                startBeat = snapResolution.quantize(beat: startBeat, timeSignature: timeSignature)
             }
             
             // Check if a note already exists at this grid position
-            let duration = snapResolution.stepDurationBeats > 0 ? snapResolution.stepDurationBeats : 0.25
+            let gridStep = snapResolution.stepDurationBeats(timeSignature: timeSignature)
+            let duration = gridStep > 0 ? gridStep : 0.25
             let noteExists = region.notes.contains { note in
                 note.pitch == pitch && 
                 abs(note.startBeat - startBeat) < 0.01  // Same grid position
@@ -1818,7 +1828,7 @@ struct PianoRollView: View {
                 // Calculate absolute position from start
                 var newStartBeat = startPos.beat + rawTimeOffset
                 if snapResolution != .off {
-                    newStartBeat = snapResolution.quantize(beat:newStartBeat)
+                    newStartBeat = snapResolution.quantize(beat: newStartBeat, timeSignature: timeSignature)
                 }
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(startPos.pitch) + pitchOffset)
@@ -1827,7 +1837,7 @@ struct PianoRollView: View {
                 // FIX: Use movedNote.startBeat (not note.startBeat) to preserve relative timing
                 var newStartBeat = movedNote.startBeat + rawTimeOffset
                 if snapResolution != .off {
-                    newStartBeat = snapResolution.quantize(beat: newStartBeat)
+                    newStartBeat = snapResolution.quantize(beat: newStartBeat, timeSignature: timeSignature)
                 }
                 movedNote.startBeat = max(0, newStartBeat)
                 movedNote.pitch = UInt8(clamping: Int(movedNote.pitch) + pitchOffset)
@@ -1915,11 +1925,12 @@ struct PianoRollView: View {
             // BUG FIX (Issue #32): Quantize the END position, not the duration
             // This makes resize behavior predictable and matches professional DAW standards
             let newEndBeat = note.startBeat + newDuration
-            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat)
+            let snappedEndBeat = snapResolution.quantize(beat: newEndBeat, timeSignature: timeSignature)
+            let gridStep = snapResolution.stepDurationBeats(timeSignature: timeSignature)
             
             // Calculate duration from snapped end position
             // Ensure minimum duration is one grid step
-            newDuration = max(snapResolution.stepDurationBeats, snappedEndBeat - note.startBeat)
+            newDuration = max(gridStep, snappedEndBeat - note.startBeat)
         } else {
             // No snap: just ensure minimum duration (prevent zero-length notes)
             newDuration = max(0.01, newDuration)
@@ -1928,7 +1939,8 @@ struct PianoRollView: View {
         // BUG FIX (Issue #79): Prevent overlapping same-pitch notes (invalid MIDI)
         let requestedEndBeat = note.startBeat + newDuration
         let cappedEndBeat = MIDINote.maxEndBeatForResize(resizingNote: note, allNotes: region.notes, requestedEndBeat: requestedEndBeat)
-        newDuration = max(snapResolution != .off ? snapResolution.stepDurationBeats : 0.01, cappedEndBeat - note.startBeat)
+        let gridStep = snapResolution.stepDurationBeats(timeSignature: timeSignature)
+        newDuration = max(snapResolution != .off ? gridStep : 0.01, cappedEndBeat - note.startBeat)
         
         region.notes[index].durationBeats = newDuration
         
@@ -1979,18 +1991,20 @@ struct PianoRollView: View {
         
         for id in selectedNotes {
             if let index = region.notes.firstIndex(where: { $0.id == id }) {
-                // Apply strength-aware quantization to note start time
+                // Apply strength-aware quantization to note start time (Issue #64: time-signature-aware)
                 region.notes[index].startBeat = snapResolution.quantize(
                     beat: region.notes[index].startBeat,
+                    timeSignature: timeSignature,
                     strength: strength
                 )
                 
                 // Duration quantization: Only snap if strength is very high (>90%)
                 // This preserves note lengths at lower strength settings
                 if quantizeStrength > 90 {
+                    let gridStep = snapResolution.stepDurationBeats(timeSignature: timeSignature)
                     region.notes[index].durationBeats = max(
-                        snapResolution.stepDurationBeats,
-                        snapResolution.quantize(beat: region.notes[index].durationBeats, strength: strength)
+                        gridStep,
+                        snapResolution.quantize(beat: region.notes[index].durationBeats, timeSignature: timeSignature, strength: strength)
                     )
                 }
             }

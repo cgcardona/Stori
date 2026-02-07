@@ -19,6 +19,7 @@ struct DAWSheetModifiers: ViewModifier {
     @Binding var showingExportSettings: Bool
     @Binding var activeSheet: DAWSheet?
     
+    let audioEngine: AudioEngine
     let projectManager: ProjectManager
     let exportService: ProjectExportService
     let availableBuses: [MixerBus]
@@ -54,11 +55,13 @@ struct DAWSheetModifiers: ViewModifier {
                 ExportSettingsSheet(
                     projectName: project?.name ?? "Untitled",
                     projectDuration: duration,
+                    audioEngine: audioEngine,
                     onExport: onExportWithSettings
                 )
             }
-            .sheet(item: $activeSheet) { sheet in
-                DAWSheetContent(sheet: sheet)
-            }
+            // VK is now presented as an overlay (not a sheet) to avoid
+            // dimming, animation, and playhead stutter during recording.
+            // See MainDAWView overlay for the VK presentation.
+            
     }
 }

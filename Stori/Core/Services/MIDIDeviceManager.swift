@@ -77,11 +77,11 @@ class MIDIDeviceManager {
     
     // MARK: - Private Properties
     
-    private var midiClient: MIDIClientRef = 0
-    private var inputPort: MIDIPortRef = 0
-    private var outputPort: MIDIPortRef = 0
-    private var virtualSource: MIDIEndpointRef = 0
-    private var virtualDestination: MIDIEndpointRef = 0
+    @ObservationIgnored private var midiClient: MIDIClientRef = 0
+    @ObservationIgnored private var inputPort: MIDIPortRef = 0
+    @ObservationIgnored private var outputPort: MIDIPortRef = 0
+    @ObservationIgnored private var virtualSource: MIDIEndpointRef = 0
+    @ObservationIgnored private var virtualDestination: MIDIEndpointRef = 0
     
     // MARK: - Initialization
     
@@ -89,10 +89,16 @@ class MIDIDeviceManager {
         setupMIDI()
     }
     
-    deinit {
-        Task { @MainActor in
-            teardownMIDI()
-        }
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
+    // MARK: - Cleanup
+    
+    /// Explicitly release CoreMIDI resources. Call from SwiftUI .onDisappear
+    /// or from the owning object's cleanup path before releasing this object.
+    func cleanup() {
+        teardownMIDI()
     }
     
     // MARK: - Setup
@@ -476,6 +482,9 @@ class MIDIRecordingEngine {
     /// Recording quantization
     var quantization: SnapResolution = .off
     
+    /// Time signature for quantization (Issue #64). Defaults to 4/4.
+    var timeSignature: TimeSignature = .fourFour
+    
     /// Replace or overdub mode
     var isOverdubMode = true
     
@@ -491,6 +500,10 @@ class MIDIRecordingEngine {
         self.midiDeviceManager = midiDeviceManager
         setupCallbacks()
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Setup
     
@@ -614,7 +627,7 @@ class MIDIRecordingEngine {
         
         // Apply quantization
         if quantization != .off {
-            startBeat = quantization.quantize(beat: startBeat)
+            startBeat = quantization.quantize(beat: startBeat, timeSignature: timeSignature)
         }
         
         let note = MIDINote(
@@ -637,7 +650,7 @@ class MIDIRecordingEngine {
         
         // Apply quantization to duration
         if quantization != .off {
-            endBeat = quantization.quantize(beat: endBeat)
+            endBeat = quantization.quantize(beat: endBeat, timeSignature: timeSignature)
         }
         
         note.durationBeats = max(0.01, endBeat - note.startBeat) // Minimum duration
@@ -670,5 +683,7 @@ class MIDIRecordingEngine {
         )
         recordedPitchBendEvents.append(event)
     }
+    
+    // Prevents double-free from implicit Swift Concurrency property change notification tasks
 }
 

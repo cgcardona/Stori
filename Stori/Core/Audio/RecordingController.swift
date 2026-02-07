@@ -108,8 +108,6 @@ final class RecordingController: @unchecked Sendable {
     @ObservationIgnored
     private var onStopRecordingMode: () -> Void
     @ObservationIgnored
-    private var onStartPlayback: () -> Void
-    @ObservationIgnored
     private var onStopPlayback: () -> Void
     @ObservationIgnored
     private var onProjectUpdated: (AudioProject) -> Void
@@ -129,7 +127,6 @@ final class RecordingController: @unchecked Sendable {
         getSelectedTrackId: @escaping () -> UUID?,
         onStartRecordingMode: @escaping () -> Void,
         onStopRecordingMode: @escaping () -> Void,
-        onStartPlayback: @escaping () -> Void,
         onStopPlayback: @escaping () -> Void,
         onProjectUpdated: @escaping (AudioProject) -> Void,
         onReconnectMetronome: @escaping () -> Void,
@@ -143,12 +140,13 @@ final class RecordingController: @unchecked Sendable {
         self.getSelectedTrackId = getSelectedTrackId
         self.onStartRecordingMode = onStartRecordingMode
         self.onStopRecordingMode = onStopRecordingMode
-        self.onStartPlayback = onStartPlayback
         self.onStopPlayback = onStopPlayback
         self.onProjectUpdated = onProjectUpdated
         self.onReconnectMetronome = onReconnectMetronome
         self.loadProject = loadProject
     }
+    
+    nonisolated deinit {}
     
     // MARK: - Helpers
     
@@ -177,21 +175,19 @@ final class RecordingController: @unchecked Sendable {
     func prepareRecordingDuringCountIn() async {
         guard let project = getProject() else { return }
         
-        // 1. Request microphone permission
+        let recordTrack = findOrCreateRecordTrack(in: project)
+        countInRecordTrack = recordTrack
+        
+        if recordTrack.isMIDITrack {
+            countInRecordingPrepared = true
+            return
+        }
+        
+        // Audio recording: request microphone permission
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             requestMicPermission { _ in
                 continuation.resume()
             }
-        }
-        
-        // 2. Find record track
-        let recordTrack = findOrCreateRecordTrack(in: project)
-        countInRecordTrack = recordTrack
-        
-        // Skip audio file creation for MIDI tracks
-        if recordTrack.isMIDITrack {
-            countInRecordingPrepared = true
-            return
         }
         
         // 3. Create recording file (this is the slow part - 170ms!)
@@ -217,81 +213,80 @@ final class RecordingController: @unchecked Sendable {
         countInRecordingPrepared = true
     }
     
-    /// Start recording after count-in - everything is already prepared
+    /// Start recording after count-in — everything is already prepared
+    /// Records from the current playhead position (Logic Pro behavior)
     func startRecordingAfterCountIn() {
         guard countInRecordingPrepared, let project = getProject() else {
             record()
             return
         }
-        
-        // Set recording state
-        onStartRecordingMode()
-        isRecording = true
-        
-        // NOTE: recordingStartBeat will be captured when first buffer arrives at the tap
-        // This ensures sample-accurate alignment with the timeline
-        
-        // Start MIDI recording for record-enabled MIDI tracks
-        let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
-        let midiRecordTracks = recordEnabledTracks.filter { $0.isMIDITrack }
-        if let firstMIDITrack = midiRecordTracks.first {
-            let startBeats = getCurrentPosition().beats
-            Task { @MainActor in
-                InstrumentManager.shared.startRecording(trackId: firstMIDITrack.id, atBeats: startBeats)
-            }
+        guard let transport = transportController else {
+            record()
+            return
         }
         
-        // FIX: Install input tap BEFORE starting playback to capture first beat
+        let startBeat = getCurrentPosition().beats
+        
+        isRecording = true
+        recordingStartBeat = startBeat
+        recordingTrackId = countInRecordTrack?.id
+        
+        let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
+        if let firstMIDITrack = recordEnabledTracks.first(where: { $0.isMIDITrack }) {
+            InstrumentManager.shared.startRecording(trackId: firstMIDITrack.id, atBeats: startBeat)
+        }
+        
         if let recordTrack = countInRecordTrack, !recordTrack.isMIDITrack {
             installInputTapForCountIn()
         }
         
-        // Start playback (tap is now ready to capture from beat 0)
-        onStartPlayback()
+        transport.play()
+        onStartRecordingMode()
         
-        // Clear prepared state
         countInRecordingPrepared = false
     }
     
     /// Start recording (standard entry point)
     func record() {
+        guard !isRecording else { return }
         guard let project = getProject() else { return }
+        guard let transport = transportController else { return }
         
-        // Capture recording start beat immediately so we have it even if first buffer is delayed
+        let recordTrack = findOrCreateRecordTrack(in: project)
+        
+        isRecording = true
+        recordingTrackId = recordTrack.id
         recordingStartBeat = getCurrentPosition().beats
         
-        // Check for record-enabled tracks
-        let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
-        
-        // Set recording state
-        onStartRecordingMode()
-        isRecording = true
-        
-        // Start MIDI recording for record-enabled MIDI tracks
-        let midiRecordTracks = recordEnabledTracks.filter { $0.isMIDITrack }
-        if let firstMIDITrack = midiRecordTracks.first {
-            let startBeats = getCurrentPosition().beats
-            Task { @MainActor in
-                InstrumentManager.shared.startRecording(trackId: firstMIDITrack.id, atBeats: startBeats)
+        if recordTrack.isMIDITrack {
+            // MIDI recording: no microphone needed — start transport directly
+            InstrumentManager.shared.startRecording(trackId: recordTrack.id, atBeats: recordingStartBeat)
+            transport.play()
+            onStartRecordingMode()
+        } else {
+            // Audio recording: request microphone permission, then set up input taps
+            requestMicPermission { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.setupAudioRecording()
+                    } else {
+                        self?.stopRecording()
+                    }
+                }
             }
         }
-        
-        // Install tap (and start playback) inside startRecording/setupRecording so we don't miss first buffers
-        startRecording()
     }
     
     /// Stop recording
     func stopRecording() {
         guard isRecording else { return }
         
-        // Stop MIDI recording and capture the region
-        Task { @MainActor in
-            let instrumentManager = InstrumentManager.shared
-            let recordingTrackId = instrumentManager.recordingTrackId
-            if let midiRegion = instrumentManager.stopRecording(),
-               let trackId = recordingTrackId {
-                instrumentManager.projectManager?.addMIDIRegion(midiRegion, to: trackId)
-            }
+        // Stop MIDI recording and capture the region (already on MainActor)
+        let instrumentManager = InstrumentManager.shared
+        let recordingId = instrumentManager.recordingTrackId
+        if let midiRegion = instrumentManager.stopRecording(),
+           let trackId = recordingId {
+            instrumentManager.projectManager?.addMIDIRegion(midiRegion, to: trackId)
         }
         
         stopRecordingInternal()
@@ -303,44 +298,20 @@ final class RecordingController: @unchecked Sendable {
     
     // MARK: - Private Recording Implementation
     
-    private func startRecording() {
-        guard getProject() != nil else { return }
-        
-        requestMicPermission { [weak self] granted in
-            DispatchQueue.main.async {
-                if granted {
-                    self?.setupRecording()
-                } else {
-                    self?.stopRecording()
-                }
-            }
-        }
-    }
-    
     private func requestMicPermission(completion: @escaping (Bool) -> Void) {
-        let usageDescription = Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") as? String
-        
-        if usageDescription == nil {
-            // Missing NSMicrophoneUsageDescription
-        }
-        
         AVCaptureDevice.requestAccess(for: .audio) { result in
             completion(result)
         }
     }
     
-    private func setupRecording() {
+    /// Set up audio input recording (called after mic permission is granted)
+    private func setupAudioRecording() {
         guard let project = getProject() else { return }
+        guard let transport = transportController else { return }
         
         do {
             let recordTrack = findOrCreateRecordTrack(in: project)
             recordingTrackId = recordTrack.id
-            
-            // Skip audio recording for MIDI tracks (start transport so MIDI has timeline)
-            if recordTrack.isMIDITrack {
-                onStartPlayback()
-                return
-            }
             
             // Create recording file URL
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -355,14 +326,12 @@ final class RecordingController: @unchecked Sendable {
             
             recordingFile = try AVAudioFile(forWriting: recordingURL, settings: inputFormat.settings)
             
-            // Create dedicated writer queue with HIGH priority (BUG FIX Issue #55)
-            // Recording I/O must complete quickly to prevent buffer pool exhaustion
-            // .utility QoS is too low for real-time recording - use .userInitiated
+            // High-priority writer queue — recording I/O must complete quickly
+            // to prevent buffer pool exhaustion
             let writerQueue = DispatchQueue(label: "com.stori.recording.writer", qos: .userInitiated, attributes: [], autoreleaseFrequency: .workItem)
             recordingWriterQueue = writerQueue
             
-            // Pre-allocate buffer pool with recording max frame capacity
-            // System may deliver buffers larger than requested tap size (e.g., 4800 frames at 48kHz)
+            // Pre-allocate buffer pool (system may deliver buffers larger than tap size)
             let bufferPool = RecordingBufferPool(
                 format: inputFormat,
                 frameCapacity: AudioConstants.recordingMaxFrameCapacity,
@@ -379,18 +348,13 @@ final class RecordingController: @unchecked Sendable {
             inputNode.installTap(onBus: 0, bufferSize: AudioConstants.recordingTapBufferSize, format: inputFormat) { [weak self] buffer, _ in
                 guard let self = self else { return }
                 
-                // CRITICAL: Capture exact recording start beat on FIRST buffer arrival
-                // This ensures sample-accurate alignment with timeline
-                // REAL-TIME SAFE: Use atomic position accessor from TransportController
+                // Capture exact recording start beat on FIRST buffer arrival
+                // for sample-accurate alignment with timeline
                 if !self.recordingFirstBufferReceived {
                     self.recordingFirstBufferReceived = true
-                    // REAL-TIME SAFETY: Thread-safe read from atomic position
-                    // No fallback - transportController must always be available for recording
                     if let transport = self.transportController {
                         self.recordingStartBeat = transport.atomicBeatPosition
                     } else {
-                        // CRITICAL: TransportController missing - use safe default (0.0)
-                        // This should never happen in production - log error off-thread
                         self.recordingStartBeat = 0.0
                         DispatchQueue.global(qos: .utility).async {
                             AppLogger.shared.error("TransportController unavailable during recording", category: .audio)
@@ -412,7 +376,6 @@ final class RecordingController: @unchecked Sendable {
                     rms = sqrt(sum / Float(max(1, frameCount)))
                 }
                 
-                // Capture file reference before async to avoid Sendable crossing actor boundaries
                 guard let file = recordingFile else {
                     bufferPool.release(bufferCopy)
                     return
@@ -424,10 +387,7 @@ final class RecordingController: @unchecked Sendable {
                         bufferPool.release(bufferCopy)
                         return
                     }
-                    // CRITICAL FIX: Release buffer in defer to prevent memory leak on write errors
-                    defer {
-                        bufferPool.release(bufferCopy)
-                    }
+                    defer { bufferPool.release(bufferCopy) }
                     
                     do {
                         try file.write(from: bufferCopy)
@@ -437,13 +397,11 @@ final class RecordingController: @unchecked Sendable {
                             }
                         }
                     } catch {
-                        // Log error but continue - buffer is released by defer
                         AppLogger.shared.error("Failed to write recording buffer: \(error)", category: .audio)
                     }
                 }
                 
-                // REAL-TIME SAFE: Write input level directly with lock - no dispatch to main thread.
-                // os_unfair_lock is designed for this exact use case (minimal overhead, no priority inversion).
+                // Write input level with lock — real-time safe, no dispatch to main thread
                 let amplifiedLevel = rms * 8.0
                 os_unfair_lock_lock(&self.inputLevelLock)
                 self._inputLevel = amplifiedLevel
@@ -458,8 +416,10 @@ final class RecordingController: @unchecked Sendable {
                 try engine.start()
             }
             
-            // Start playback only after tap is installed so we don't miss the first 10–30 ms of audio
-            onStartPlayback()
+            // Start transport — tap is already installed so we capture from beat 0
+            transport.stop()
+            transport.play()
+            onStartRecordingMode()
             
         } catch {
             stopRecording()
@@ -794,9 +754,4 @@ final class RecordingController: @unchecked Sendable {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

@@ -82,6 +82,10 @@ final class TokenApprovalsService {
         #endif
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     func fetchApprovals(for address: String) async {
         isLoading = true
         error = nil
@@ -125,6 +129,8 @@ final class TokenApprovalsService {
         ]
     }
     #endif
+    
+    // Prevents double-free from implicit Swift Concurrency property change notification tasks
 }
 
 // MARK: - Token Approvals View

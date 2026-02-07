@@ -287,19 +287,9 @@ class TransportController {
     // MARK: - Transport Controls
     
     func play() {
-        // Block during plugin installation
-        if isInstallingPlugin() {
-            return
-        }
-        
-        // Block while graph is unstable
-        if !isGraphStable() {
-            return
-        }
-        
-        guard let project = getProject() else {
-            return
-        }
+        if isInstallingPlugin() { return }
+        if !isGraphStable() { return }
+        guard let project = getProject() else { return }
         
         switch transportState {
         case .stopped:
@@ -388,7 +378,6 @@ class TransportController {
     }
     
     func stop() {
-        // print("⏹️  STOP: Resetting position to beat 0")  // DEBUG: Disabled for production
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -418,6 +407,20 @@ class TransportController {
     func stopRecordingMode() {
         transportState = .stopped
         onTransportStateChanged(.stopped)
+        stopPlayback()
+        
+        // Stop position timer
+        stopPositionTimer()
+        
+        // Reset position to beat 0 (Logic Pro behavior: stop = return to beginning)
+        playbackStartBeat = 0
+        if let project = getProject() {
+            currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
+            onPositionChanged(currentPosition)
+        }
+        
+        // Update atomic state
+        updateAtomicBeatPosition(0, isPlaying: false)
     }
     
     // MARK: - Position Control (Beats-First)

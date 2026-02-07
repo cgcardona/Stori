@@ -809,13 +809,14 @@ class PluginChain {
     
     // MARK: - Cleanup
     
-    /// Explicit deinit to prevent Swift Concurrency task leak
-    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
-    /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-        // Note: Cannot access @MainActor-isolated properties from deinit
-        // Cleanup is handled by explicit uninstall() calls in production/tests
+    nonisolated deinit {
+        // nonisolated prevents the Swift Concurrency runtime from verifying the
+        // MainActor executor during deallocation. Without this, SwiftUI's internal
+        // view tree teardown (hit-testing, hover events) can crash when it
+        // deallocates stale responders that hold PluginChain references.
+        //
+        // All audio node cleanup is handled by uninstall() which is called
+        // explicitly in safeDisconnectTrackNode before the chain is released.
     }
 }
 
@@ -826,7 +827,9 @@ extension TrackAudioNode {
     
     /// Create a plugin chain for this track
     /// Note: This is called from AudioEngine when setting up a track
-    static func createPluginChain() -> PluginChain {
-        return PluginChain(maxSlots: 8)
+    nonisolated static func createPluginChain() -> PluginChain {
+        return MainActor.assumeIsolated {
+            PluginChain(maxSlots: 8)
+        }
     }
 }

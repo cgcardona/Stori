@@ -145,10 +145,12 @@ struct ExportSettingsSheet: View {
     
     let projectName: String
     let projectDuration: TimeInterval
+    let audioEngine: AudioEngine
     let onExport: (ExportSettings) -> Void
     
     @State private var settings = ExportSettings()
     @State private var showingAdvanced = false
+    @State private var showingClipWarning = false  // Issue #73: Clip detection warning
     
     // Estimated file size
     private var estimatedFileSize: String {
@@ -263,8 +265,7 @@ struct ExportSettingsSheet: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
                         if !settings.filename.isEmpty {
-                            onExport(settings)
-                            dismiss()
+                            checkClippingAndExport()
                         }
                     }
                 
@@ -464,8 +465,7 @@ struct ExportSettingsSheet: View {
             Spacer()
             
             Button("Export") {
-                onExport(settings)
-                dismiss()
+                checkClippingAndExport()
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.return)
@@ -473,5 +473,33 @@ struct ExportSettingsSheet: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+        // Clip warning alert (Issue #73)
+        .alert("Clipping Detected", isPresented: $showingClipWarning) {
+            Button("Cancel", role: .cancel) { }
+            Button("Export Anyway", role: .destructive) {
+                proceedWithExport()
+            }
+        } message: {
+            Text("Your mix contains **\(audioEngine.clipCount) clipped sample(s)** exceeding 0dBFS.\n\nThis will cause **permanent digital distortion** in the exported file. Consider reducing levels or enabling normalization before exporting.\n\nExport anyway?")
+        }
+    }
+    
+    // MARK: - Clip Detection Helper (Issue #73)
+    
+    /// Check for clipping before export and warn user
+    private func checkClippingAndExport() {
+        if audioEngine.isClipping {
+            // Show warning dialog
+            showingClipWarning = true
+        } else {
+            // No clipping, proceed directly
+            proceedWithExport()
+        }
+    }
+    
+    /// Proceed with export (called after user confirms or if no clipping)
+    private func proceedWithExport() {
+        onExport(settings)
+        dismiss()
     }
 }

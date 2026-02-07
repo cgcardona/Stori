@@ -104,7 +104,7 @@ final class RecordingBufferPoolTests: XCTestCase {
     }
     
     func testAcquireWhenExhausted() {
-        // Exhaust pool
+        // Exhaust initial pool
         var buffers: [AVAudioPCMBuffer] = []
         for _ in 0..<poolSize {
             if let buffer = pool.acquire() {
@@ -112,11 +112,20 @@ final class RecordingBufferPoolTests: XCTestCase {
             }
         }
         
-        // Try to acquire when exhausted
+        // Try to acquire when initial pool exhausted
+        // NEW BEHAVIOR (Issue #55): Should succeed via emergency allocation (zero data loss)
         let extraBuffer = pool.acquire()
         
-        XCTAssertNil(extraBuffer, "Should return nil when pool is exhausted")
-        XCTAssertEqual(pool.allocationFailures, 1)
+        XCTAssertNotNil(extraBuffer, "Should use emergency allocation when pool exhausted (Issue #55)")
+        XCTAssertGreaterThanOrEqual(pool.allocationFailures, 1, "Should track emergency allocation")
+        
+        // Cleanup
+        if let extraBuffer = extraBuffer {
+            pool.release(extraBuffer)
+        }
+        for buffer in buffers {
+            pool.release(buffer)
+        }
     }
     
     // MARK: - Buffer Release Tests
@@ -387,9 +396,12 @@ final class RecordingBufferPoolTests: XCTestCase {
     }
     
     func testAcquireAndCopyWhenExhausted() {
-        // Exhaust pool
+        // Exhaust initial pool
+        var buffers: [AVAudioPCMBuffer] = []
         for _ in 0..<poolSize {
-            _ = pool.acquire()
+            if let buffer = pool.acquire() {
+                buffers.append(buffer)
+            }
         }
         
         // Create source buffer
@@ -399,10 +411,20 @@ final class RecordingBufferPoolTests: XCTestCase {
         }
         sourceBuffer.frameLength = 512
         
-        // Try to acquire and copy
+        // Try to acquire and copy when initial pool exhausted
+        // NEW BEHAVIOR (Issue #55): Should succeed via emergency allocation
         let result = pool.acquireAndCopy(from: sourceBuffer)
         
-        XCTAssertNil(result, "Should return nil when pool is exhausted")
+        XCTAssertNotNil(result, "Should use emergency allocation when pool exhausted (Issue #55)")
+        XCTAssertEqual(result?.frameLength, sourceBuffer.frameLength, "Should copy frame length")
+        
+        // Cleanup
+        if let result = result {
+            pool.release(result)
+        }
+        for buffer in buffers {
+            pool.release(buffer)
+        }
     }
     
     func testAcquireAndCopySourceTooLarge() {

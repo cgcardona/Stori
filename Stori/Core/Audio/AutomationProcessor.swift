@@ -113,6 +113,13 @@ final class AutomationEngine: @unchecked Sendable {
     private var cachedTrackIds: [UUID] = []
     private var trackIdsCacheLock = os_unfair_lock_s()
     
+    /// Thread-safe track node cache for the automation handler.
+    /// Eliminates cross-thread access to @MainActor-isolated AudioEngine.trackNodes.
+    /// Updated from MainActor when tracks change; read from automationQueue at 120Hz.
+    private var trackNodeCacheLock = os_unfair_lock_s()
+    private var cachedTrackNodes: [UUID: TrackAudioNode] = [:]
+    private var cachedMixerDefaults: [UUID: (volume: Float, pan: Float)] = [:]
+    
     /// Reference to the automation processor
     weak var processor: AutomationProcessor?
     
@@ -167,6 +174,11 @@ final class AutomationEngine: @unchecked Sendable {
         os_unfair_lock_lock(&stateLock)
         _isRunning = false
         os_unfair_lock_unlock(&stateLock)
+        
+        // Drain the automation queue to ensure no in-flight handler is still
+        // accessing track nodes. Without this barrier, a pending processAutomation()
+        // call could access freed TrackAudioNodes after clearAllTracks() runs.
+        automationQueue.sync {}
     }
     
     // MARK: - Track ID Cache Management
@@ -187,9 +199,44 @@ final class AutomationEngine: @unchecked Sendable {
         return ids
     }
     
+    // MARK: - Track Node Cache
+    
+    /// Update the thread-safe track node snapshot (call from MainActor when tracks change).
+    /// The automation handler reads from this cache instead of accessing @MainActor state.
+    func updateTrackNodeCache(_ nodes: [UUID: TrackAudioNode], mixerDefaults: [UUID: (volume: Float, pan: Float)]) {
+        os_unfair_lock_lock(&trackNodeCacheLock)
+        cachedTrackNodes = nodes
+        cachedMixerDefaults = mixerDefaults
+        os_unfair_lock_unlock(&trackNodeCacheLock)
+    }
+    
+    /// Thread-safe lookup of a cached track node by ID
+    func getCachedTrackNode(_ trackId: UUID) -> TrackAudioNode? {
+        os_unfair_lock_lock(&trackNodeCacheLock)
+        let node = cachedTrackNodes[trackId]
+        os_unfair_lock_unlock(&trackNodeCacheLock)
+        return node
+    }
+    
+    /// Thread-safe lookup of cached mixer defaults (volume, pan) for fallback values
+    func getCachedMixerDefaults(_ trackId: UUID) -> (volume: Float, pan: Float)? {
+        os_unfair_lock_lock(&trackNodeCacheLock)
+        let defaults = cachedMixerDefaults[trackId]
+        os_unfair_lock_unlock(&trackNodeCacheLock)
+        return defaults
+    }
+    
     // MARK: - Processing
     
     private func processAutomation() {
+        // Bail early if stopped — prevents accessing freed track nodes
+        // during project reload (stop() sets _isRunning = false before
+        // draining this queue with a sync barrier).
+        os_unfair_lock_lock(&stateLock)
+        let running = _isRunning
+        os_unfair_lock_unlock(&stateLock)
+        guard running else { return }
+        
         guard let currentBeat = beatPositionProvider?(),
               let processor = processor else { return }
         
@@ -206,6 +253,13 @@ final class AutomationEngine: @unchecked Sendable {
         for (trackId, values) in allValues {
             applyValuesHandler?(trackId, values)
         }
+    }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {
+        // Cancel the automation processing timer to prevent retain cycle.
+        timer?.cancel()
     }
 }
 
@@ -294,9 +348,15 @@ final class AutomationProcessor: @unchecked Sendable {
                 let logT = 1 - pow(1 - t, AutomationCurveConstants.logarithmicPower)
                 return p1.value + delta * logT
             case .sCurve:
-                // S-curve using sigmoid function: 1 / (1 + e^(-k*(t-0.5)))
-                let sigmoid = 1.0 / (1.0 + exp(-AutomationCurveConstants.sigmoidSteepness * (Double(t) - 0.5)))
-                return p1.value + delta * Float(sigmoid)
+                // S-curve using normalized sigmoid function: 1 / (1 + e^(-k*(t-0.5)))
+                // Normalize to 0→1 range by subtracting minimum and dividing by range
+                let k = AutomationCurveConstants.sigmoidSteepness
+                let sigmoid = 1.0 / (1.0 + exp(-k * (Double(t) - 0.5)))
+                // Normalize: sigmoid(0) and sigmoid(1) are not exactly 0 and 1
+                let sigmoid0 = 1.0 / (1.0 + exp(k * 0.5))  // Value at t=0
+                let sigmoid1 = 1.0 / (1.0 + exp(-k * 0.5))  // Value at t=1
+                let normalized = (sigmoid - sigmoid0) / (sigmoid1 - sigmoid0)
+                return p1.value + delta * Float(normalized)
             }
         }
     }
@@ -325,6 +385,10 @@ final class AutomationProcessor: @unchecked Sendable {
     // MARK: - Initialization
     
     init() {}
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Data Management (Main Thread)
     
@@ -500,13 +564,8 @@ final class AutomationProcessor: @unchecked Sendable {
     
     // MARK: - Cleanup
     
-    /// CRITICAL: Protective deinit for @Observable / Swift Concurrency (ASan Issue #84742+)
     /// Root cause: TaskLocal::StopLookupScope can bad-free when deinit runs off MainActor.
     /// Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
-    /// See: AudioAnalyzer, AudioEngine, MetronomeEngine; https://github.com/apple/swift/issues/84742
-    deinit {
-        // Empty deinit is sufficient - ensures proper Swift Concurrency cleanup
-    }
 }
 
 // MARK: - Automation Values

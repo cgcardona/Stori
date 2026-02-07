@@ -177,6 +177,10 @@ final class AddressBook {
         loadFromStorage()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     func addEntry(label: String, address: String, color: String = "8B5CF6") {
         let entry = AddressBookEntry(label: label, address: address, color: color)
         entries.append(entry)
@@ -226,4 +230,6 @@ final class AddressBook {
             entries = decoded
         }
     }
+    
+    // Prevents double-free from implicit Swift Concurrency property change notification tasks
 }

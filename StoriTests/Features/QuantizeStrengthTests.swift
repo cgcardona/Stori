@@ -60,7 +60,7 @@ final class QuantizeStrengthTests: XCTestCase {
         
         for note in testNotes {
             let original = note.startBeat
-            let quantized = snapResolution.quantize(beat: original, strength: strength)
+            let quantized = snapResolution.quantize(beat: original, timeSignature: .fourFour, strength: strength)
             
             XCTAssertEqual(quantized, original, accuracy: 0.00001,
                           "0% strength must preserve original timing for note at \(original)")
@@ -74,7 +74,7 @@ final class QuantizeStrengthTests: XCTestCase {
         let expectedResults: [Double] = [0.0, 0.25, 0.5, 1.0]
         
         for (index, note) in testNotes.enumerated() {
-            let quantized = snapResolution.quantize(beat: note.startBeat, strength: strength)
+            let quantized = snapResolution.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: strength)
             
             XCTAssertEqual(quantized, expectedResults[index], accuracy: 0.00001,
                           "100% strength must fully snap note \(index) to grid")
@@ -86,22 +86,22 @@ final class QuantizeStrengthTests: XCTestCase {
         let strength: Float = 0.5
         
         // Note 1: -0.1 -> halfway to 0.0 = -0.05
-        let note1Quantized = snapResolution.quantize(beat: testNotes[0].startBeat, strength: strength)
+        let note1Quantized = snapResolution.quantize(beat: testNotes[0].startBeat, timeSignature: .fourFour, strength: strength)
         XCTAssertEqual(note1Quantized, -0.05, accuracy: 0.00001,
                       "50% strength should move note halfway to grid")
         
         // Note 2: 0.30 -> halfway to 0.25 = 0.275
-        let note2Quantized = snapResolution.quantize(beat: testNotes[1].startBeat, strength: strength)
+        let note2Quantized = snapResolution.quantize(beat: testNotes[1].startBeat, timeSignature: .fourFour, strength: strength)
         XCTAssertEqual(note2Quantized, 0.275, accuracy: 0.00001,
                       "50% strength should preserve some human feel")
         
         // Note 3: 0.42 -> halfway to 0.5 = 0.46
-        let note3Quantized = snapResolution.quantize(beat: testNotes[2].startBeat, strength: strength)
+        let note3Quantized = snapResolution.quantize(beat: testNotes[2].startBeat, timeSignature: .fourFour, strength: strength)
         XCTAssertEqual(note3Quantized, 0.46, accuracy: 0.00001,
                       "50% strength should tighten timing without full snap")
         
         // Note 4: 1.12 -> halfway to 1.0 = 1.06
-        let note4Quantized = snapResolution.quantize(beat: testNotes[3].startBeat, strength: strength)
+        let note4Quantized = snapResolution.quantize(beat: testNotes[3].startBeat, timeSignature: .fourFour, strength: strength)
         XCTAssertEqual(note4Quantized, 1.06, accuracy: 0.00001,
                       "50% strength should maintain groove while improving timing")
     }
@@ -112,8 +112,8 @@ final class QuantizeStrengthTests: XCTestCase {
         
         for note in testNotes {
             let original = note.startBeat
-            let quantized = snapResolution.quantize(beat: original, strength: strength)
-            let fullSnap = snapResolution.quantize(beat: original)
+            let quantized = snapResolution.quantize(beat: original, timeSignature: .fourFour, strength: strength)
+            let fullSnap = snapResolution.quantize(beat: original, timeSignature: .fourFour)
             
             let offset = fullSnap - original
             let expectedMove = offset * 0.25
@@ -138,8 +138,8 @@ final class QuantizeStrengthTests: XCTestCase {
         
         for note in testNotes {
             let original = note.startBeat
-            let quantized = snapResolution.quantize(beat: original, strength: strength)
-            let fullSnap = snapResolution.quantize(beat: original)
+            let quantized = snapResolution.quantize(beat: original, timeSignature: .fourFour, strength: strength)
+            let fullSnap = snapResolution.quantize(beat: original, timeSignature: .fourFour)
             
             let offset = fullSnap - original
             let expectedMove = offset * 0.75
@@ -168,7 +168,7 @@ final class QuantizeStrengthTests: XCTestCase {
         ]
         
         let strength: Float = 0.5
-        let quantized = swingNotes.map { snapResolution.quantize(beat: $0.startBeat, strength: strength) }
+        let quantized = swingNotes.map { snapResolution.quantize(beat: $0.startBeat, timeSignature: .fourFour, strength: strength) }
         
         // With 50% strength, the swing feel should be partially preserved
         XCTAssertEqual(quantized[0], 0.0, accuracy: 0.00001, "On-grid note should stay on grid")
@@ -193,7 +193,7 @@ final class QuantizeStrengthTests: XCTestCase {
         ]
         
         let strength: Float = 1.0
-        let quantized = microTimedNotes.map { snapResolution.quantize(beat: $0.startBeat, strength: strength) }
+        let quantized = microTimedNotes.map { snapResolution.quantize(beat: $0.startBeat, timeSignature: .fourFour, strength: strength) }
         
         // All notes should snap to perfect grid (losing all micro-timing)
         XCTAssertEqual(quantized[0], 0.0, accuracy: 0.00001)
@@ -212,7 +212,7 @@ final class QuantizeStrengthTests: XCTestCase {
         ]
         
         let strength: Float = 0.25
-        let quantized = microTimedNotes.map { snapResolution.quantize(beat: $0.startBeat, strength: strength) }
+        let quantized = microTimedNotes.map { snapResolution.quantize(beat: $0.startBeat, timeSignature: .fourFour, strength: strength) }
         
         // Notes should be slightly tightened but preserve most of the feel
         XCTAssertEqual(quantized[0], 0.0, accuracy: 0.00001)
@@ -231,7 +231,7 @@ final class QuantizeStrengthTests: XCTestCase {
         let strength: Float = 0.5
         let negativeNote = MIDINote(pitch: 60, velocity: 100, startBeat: -0.1, durationBeats: 0.5)
         
-        let quantized = snapResolution.quantize(beat: negativeNote.startBeat, strength: strength)
+        let quantized = snapResolution.quantize(beat: negativeNote.startBeat, timeSignature: .fourFour, strength: strength)
         
         // Should move halfway from -0.1 to 0.0 = -0.05
         XCTAssertEqual(quantized, -0.05, accuracy: 0.00001,
@@ -243,7 +243,7 @@ final class QuantizeStrengthTests: XCTestCase {
         let strength: Float = 0.5
         let largeNote = MIDINote(pitch: 60, velocity: 100, startBeat: 1000.03, durationBeats: 0.5)
         
-        let quantized = snapResolution.quantize(beat: largeNote.startBeat, strength: strength)
+        let quantized = snapResolution.quantize(beat: largeNote.startBeat, timeSignature: .fourFour, strength: strength)
         
         // Should move halfway from 1000.03 to 1000.0 = 1000.015
         XCTAssertEqual(quantized, 1000.015, accuracy: 0.00001,
@@ -263,7 +263,7 @@ final class QuantizeStrengthTests: XCTestCase {
         
         for strength in strengths {
             for note in onGridNotes {
-                let quantized = snapResolution.quantize(beat: note.startBeat, strength: strength)
+                let quantized = snapResolution.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: strength)
                 XCTAssertEqual(quantized, note.startBeat, accuracy: 0.00001,
                               "On-grid note should stay on grid at \(Int(strength * 100))% strength")
             }
@@ -299,6 +299,7 @@ final class QuantizeStrengthTests: XCTestCase {
         for i in quantizedNotes.indices {
             quantizedNotes[i].startBeat = snapResolution.quantize(
                 beat: quantizedNotes[i].startBeat,
+                timeSignature: .fourFour,
                 strength: strength
             )
         }
@@ -317,8 +318,8 @@ final class QuantizeStrengthTests: XCTestCase {
         let strength: Float = 0.5
         
         for note in testNotes {
-            let result1 = snapResolution.quantize(beat: note.startBeat, strength: strength)
-            let result2 = snapResolution.quantize(beat: note.startBeat, strength: strength)
+            let result1 = snapResolution.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: strength)
+            let result2 = snapResolution.quantize(beat: note.startBeat, timeSignature: .fourFour, strength: strength)
             
             XCTAssertEqual(result1, result2, accuracy: 0.00001,
                           "All quantize paths must produce identical results for WYSIWYG")
@@ -343,7 +344,7 @@ final class QuantizeStrengthTests: XCTestCase {
         ]
         
         for (beat, strength, expected) in testCases {
-            let quantized = snapResolution.quantize(beat: beat, strength: strength)
+            let quantized = snapResolution.quantize(beat: beat, timeSignature: .fourFour, strength: strength)
             XCTAssertEqual(quantized, expected, accuracy: 0.00001,
                           "Quantize at \(Int(strength * 100))% strength should match Logic Pro behavior")
         }
@@ -359,11 +360,11 @@ final class QuantizeStrengthTests: XCTestCase {
         var beat = 0.1
         
         // First quantization
-        beat = snapResolution.quantize(beat: beat, strength: strength)
+        beat = snapResolution.quantize(beat: beat, timeSignature: .fourFour, strength: strength)
         XCTAssertEqual(beat, 0.05, accuracy: 0.00001, "First quantize should move halfway")
         
         // Second quantization of the same note (user presses quantize again)
-        beat = snapResolution.quantize(beat: beat, strength: strength)
+        beat = snapResolution.quantize(beat: beat, timeSignature: .fourFour, strength: strength)
         XCTAssertEqual(beat, 0.025, accuracy: 0.00001, "Second quantize should move halfway again")
         
         // This demonstrates that repeated quantization progressively tightens timing

@@ -87,7 +87,7 @@ extension AudioEngine {
         
         // BATCH MODE: Suspend rate limiting for bulk instrument creation
         // This allows importing 15+ track MIDI files without hitting rate limits
-        performBatchGraphOperation {
+        performBatchGraphOperation { [self] in
             for track in project.tracks where track.isMIDITrack {
                 
                 // Get or create instrument for this MIDI track
@@ -97,19 +97,19 @@ extension AudioEngine {
                     // Ensure sampler exists and is attached to engine
                     if instrument.samplerEngine?.sampler == nil {
                         if instrument.pendingSamplerSetup {
-                            instrument.completeSamplerSetup(with: engine)
+                            instrument.completeSamplerSetup(with: self.engine)
                         } else {
-                            instrument.ensureSamplerExists(with: engine)
+                            instrument.ensureSamplerExists(with: self.engine)
                         }
                     }
                     
                     // Attach sampler to engine if needed
                     if let sampler = instrument.samplerEngine?.sampler {
                         if sampler.engine == nil {
-                            engine.attach(sampler)
+                            self.engine.attach(sampler)
                         }
                         // Use centralized rebuild for all connections
-                        rebuildTrackGraphInternal(trackId: track.id)
+                        self.rebuildTrackGraphInternal(trackId: track.id)
                     }
                 }
             }
@@ -291,7 +291,8 @@ extension AudioEngine {
         let beatsPerSecond = tempo / 60.0
         let durationSeconds = event.duration / beatsPerSecond
         
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard self != nil else { return }
             try? await Task.sleep(for: .seconds(durationSeconds))
             InstrumentManager.shared.noteOff(pitch: event.note, forTrack: trackId)
         }
@@ -358,6 +359,13 @@ extension AudioEngine {
             if samplerNode.engine == nil {
                 engine.attach(samplerNode)
             }
+        }
+        
+        // Ensure the track has an audio node in the graph before rebuilding.
+        // This handles the case where a GM instrument is loaded immediately after
+        // track creation, before updateCurrentProject has processed the new track.
+        if let track = currentProject?.tracks.first(where: { $0.id == trackId }) {
+            ensureTrackNodeExists(for: track)
         }
         
         // Use centralized rebuild for all connections

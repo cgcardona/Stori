@@ -72,7 +72,9 @@ class SequencerEngine {
         loadFavoritesFromUserDefaults()
         loadRecentsFromUserDefaults()
     }
-    
+
+    nonisolated deinit {}
+
     // Note: stepTimer cleanup happens via stop() or when the engine is deallocated
     // Cannot access @MainActor properties in deinit
     
@@ -1305,9 +1307,6 @@ class SequencerEngine {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 
 // MARK: - Drum Player
@@ -1328,6 +1327,10 @@ private class DrumPlayer {
     init(soundType: DrumSoundType) {
         self.soundType = soundType
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     func attach(to engine: AVAudioEngine, mixer: AVAudioMixerNode, format: AVAudioFormat) {
         let player = AVAudioPlayerNode()
@@ -1573,7 +1576,4 @@ private class DrumPlayer {
     
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// Even simple nested classes can have implicit tasks that cause memory corruption
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

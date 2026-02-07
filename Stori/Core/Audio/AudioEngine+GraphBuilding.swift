@@ -127,95 +127,149 @@ extension AudioEngine {
         let hasPlugins = pluginChain.hasActivePlugins
         let chainIsRealized = pluginChain.isRealized
         
-        // Use hot-swap mutation for minimal disruption to other tracks
-        modifyGraphForTrack(trackId) {
-            // Reset AU units FIRST before disconnection to clear DSP state
-            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-               let sampler = instrument.samplerEngine?.sampler {
-                sampler.auAudioUnit.reset()
+        // PHASE 1: AU resets BEFORE topology edits.
+        // AU reset can take internal locks that conflict with graph mutation locks,
+        // causing lock-order inversions. Do them outside the mutation closure.
+        if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+           let sampler = instrument.samplerEngine?.sampler {
+            sampler.auAudioUnit.reset()
+        }
+        for plugin in pluginChain.activePlugins {
+            plugin.auAudioUnit?.reset()
+        }
+        
+        // PHASE 2: Check if we have any existing connections.
+        // If the node is freshly created (no output connections), we can skip
+        // the mutation wrapper entirely and just connect directly on the running engine.
+        // This avoids AVAudioEngine's graph-reconfiguration locking which can deadlock
+        // when called from within a MainActor Task (starves the run loop).
+        let hasExistingConnections = !engine.outputConnectionPoints(for: trackNode.eqNode, outputBus: 0).isEmpty
+        
+        if hasExistingConnections {
+            // Node has existing connections — use hot-swap mutation to safely rebuild
+            modifyGraphForTrack(trackId) {
+                self.rebuildTrackGraphTopology(
+                    trackId: trackId, trackNode: trackNode, pluginChain: pluginChain,
+                    hasPlugins: hasPlugins, chainIsRealized: chainIsRealized, format: format,
+                    disconnectFirst: true
+                )
             }
-            for plugin in pluginChain.activePlugins {
-                plugin.auAudioUnit?.reset()
-            }
-            
-            // 1. DISCONNECT downstream-first
-            self.engine.disconnectNodeOutput(trackNode.panNode)
-            self.engine.disconnectNodeOutput(trackNode.volumeNode)
-            self.engine.disconnectNodeOutput(trackNode.eqNode)
-            
-            if chainIsRealized {
-                self.engine.disconnectNodeOutput(pluginChain.outputMixer)
-                self.engine.disconnectNodeOutput(pluginChain.inputMixer)
-                self.engine.disconnectNodeInput(pluginChain.inputMixer)
-            }
-            
-            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-               let sampler = instrument.samplerEngine?.sampler {
-                self.engine.disconnectNodeOutput(sampler)
-                self.engine.disconnectNodeInput(sampler)
-            } else {
-                self.engine.disconnectNodeOutput(trackNode.timePitchUnit)
-            }
-            
-            // Note: fullRenderReset for ALL samplers now happens in modifyGraphSafely
-            // after engine.reset() to prevent cross-track corruption
-            
-            // MIDI Track Mixer State Management
-            if chainIsRealized && InstrumentManager.shared.getInstrument(for: trackId) != nil {
-                let inputBusCount = pluginChain.inputMixer.numberOfInputs
-                pluginChain.resetMixerState()
-                if inputBusCount > 1 {
-                    pluginChain.recreateMixers()
-                }
-            }
-            
-            // 2. CONNECT based on whether plugins exist
-            let sourceNode = self.getSourceNodeInternal(for: trackId, trackNode: trackNode)
-            
-            if hasPlugins {
-                // WITH PLUGINS: source → inputMixer → [plugins] → outputMixer → eq
-                pluginChain.realize()
-                
-                // CRITICAL: Connect outputMixer → trackEQ FIRST to prime output format to 48kHz
-                // This prevents AVAudioEngine from inserting a 48kHz→44.1kHz converter
-                self.engine.connect(pluginChain.outputMixer, to: trackNode.eqNode, format: format)
-                
-                // Rebuild internal chain connections
-                pluginChain.updateFormat(format)
-                pluginChain.rebuildChainConnections(engine: self.engine)
-                
-                // Source → chain input
-                if let source = sourceNode {
-                    self.engine.connect(source, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: format)
-                } else {
-                    self.engine.connect(trackNode.playerNode, to: trackNode.timePitchUnit, fromBus: 0, toBus: 0, format: format)
-                    self.engine.connect(trackNode.timePitchUnit, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: format)
-                }
-                
-            } else {
-                // NO PLUGINS: source → eq (bypass chain entirely)
-                if chainIsRealized {
-                    pluginChain.unrealize()
-                }
-                
-                if let source = sourceNode {
-                    self.engine.connect(source, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: format)
-                } else {
-                    self.engine.connect(trackNode.playerNode, to: trackNode.timePitchUnit, fromBus: 0, toBus: 0, format: format)
-                    self.engine.connect(trackNode.timePitchUnit, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: format)
-                }
-            }
-            
-            // EQ → Volume → Pan → main mixer
-            self.engine.connect(trackNode.eqNode, to: trackNode.volumeNode, format: format)
-            self.engine.connect(trackNode.volumeNode, to: trackNode.panNode, format: format)
-            self.connectPanToDestinationsInternal(trackId: trackId, trackNode: trackNode, format: format)
-            
-            trackNode.timePitchUnit.reset()
+        } else {
+            // Fresh node with no connections — connect directly without mutation wrapper.
+            // AVAudioEngine supports connect() on a running engine; no pause/stop needed.
+            rebuildTrackGraphTopology(
+                trackId: trackId, trackNode: trackNode, pluginChain: pluginChain,
+                hasPlugins: hasPlugins, chainIsRealized: chainIsRealized, format: format,
+                disconnectFirst: false
+            )
         }
         
         // Validate connections after rebuild
         validateTrackConnectionsInternal(trackId: trackId)
+    }
+    
+    /// Core topology editing: disconnect (if needed) then connect track graph.
+    /// Separated from rebuildTrackGraphInternal so it can be called with or without
+    /// a mutation wrapper, and AU resets are always done outside this function.
+    private func rebuildTrackGraphTopology(
+        trackId: UUID,
+        trackNode: TrackAudioNode,
+        pluginChain: PluginChain,
+        hasPlugins: Bool,
+        chainIsRealized: Bool,
+        format: AVAudioFormat,
+        disconnectFirst: Bool
+    ) {
+        // 1. DISCONNECT downstream-first — only if connections actually exist.
+        //    disconnectNodeOutput() enters AVAudioEngine's graph-reconfiguration
+        //    machinery even for "unconnected" nodes, and can deadlock. Guard every
+        //    call with a connection-point check per Apple recommendation.
+        if disconnectFirst {
+            if !engine.outputConnectionPoints(for: trackNode.panNode, outputBus: 0).isEmpty {
+                engine.disconnectNodeOutput(trackNode.panNode)
+            }
+            if !engine.outputConnectionPoints(for: trackNode.volumeNode, outputBus: 0).isEmpty {
+                engine.disconnectNodeOutput(trackNode.volumeNode)
+            }
+            if !engine.outputConnectionPoints(for: trackNode.eqNode, outputBus: 0).isEmpty {
+                engine.disconnectNodeOutput(trackNode.eqNode)
+            }
+            
+            if chainIsRealized {
+                if !engine.outputConnectionPoints(for: pluginChain.outputMixer, outputBus: 0).isEmpty {
+                    engine.disconnectNodeOutput(pluginChain.outputMixer)
+                }
+                if !engine.outputConnectionPoints(for: pluginChain.inputMixer, outputBus: 0).isEmpty {
+                    engine.disconnectNodeOutput(pluginChain.inputMixer)
+                }
+                engine.disconnectNodeInput(pluginChain.inputMixer)
+            }
+            
+            if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
+               let sampler = instrument.samplerEngine?.sampler {
+                if !engine.outputConnectionPoints(for: sampler, outputBus: 0).isEmpty {
+                    engine.disconnectNodeOutput(sampler)
+                }
+                engine.disconnectNodeInput(sampler)
+            } else {
+                if !engine.outputConnectionPoints(for: trackNode.timePitchUnit, outputBus: 0).isEmpty {
+                    engine.disconnectNodeOutput(trackNode.timePitchUnit)
+                }
+            }
+        }
+        
+        // MIDI Track Mixer State Management
+        if chainIsRealized && InstrumentManager.shared.getInstrument(for: trackId) != nil {
+            let inputBusCount = pluginChain.inputMixer.numberOfInputs
+            pluginChain.resetMixerState()
+            if inputBusCount > 1 {
+                pluginChain.recreateMixers()
+            }
+        }
+        
+        // 2. CONNECT based on whether plugins exist
+        let sourceNode = getSourceNodeInternal(for: trackId, trackNode: trackNode)
+        
+        if hasPlugins {
+            // WITH PLUGINS: source → inputMixer → [plugins] → outputMixer → eq
+            pluginChain.realize()
+            
+            // CRITICAL: Connect outputMixer → trackEQ FIRST to prime output format to 48kHz
+            // This prevents AVAudioEngine from inserting a 48kHz→44.1kHz converter
+            engine.connect(pluginChain.outputMixer, to: trackNode.eqNode, format: format)
+            
+            // Rebuild internal chain connections
+            pluginChain.updateFormat(format)
+            pluginChain.rebuildChainConnections(engine: engine)
+            
+            // Source → chain input
+            if let source = sourceNode {
+                engine.connect(source, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: format)
+            } else {
+                engine.connect(trackNode.playerNode, to: trackNode.timePitchUnit, fromBus: 0, toBus: 0, format: format)
+                engine.connect(trackNode.timePitchUnit, to: pluginChain.inputMixer, fromBus: 0, toBus: 0, format: format)
+            }
+            
+        } else {
+            // NO PLUGINS: source → eq (bypass chain entirely)
+            if chainIsRealized {
+                pluginChain.unrealize()
+            }
+            
+            if let source = sourceNode {
+                engine.connect(source, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: format)
+            } else {
+                engine.connect(trackNode.playerNode, to: trackNode.timePitchUnit, fromBus: 0, toBus: 0, format: format)
+                engine.connect(trackNode.timePitchUnit, to: trackNode.eqNode, fromBus: 0, toBus: 0, format: format)
+            }
+        }
+        
+        // EQ → Volume → Pan → main mixer
+        engine.connect(trackNode.eqNode, to: trackNode.volumeNode, format: format)
+        engine.connect(trackNode.volumeNode, to: trackNode.panNode, format: format)
+        connectPanToDestinationsInternal(trackId: trackId, trackNode: trackNode, format: format)
+        
+        trackNode.timePitchUnit.reset()
     }
     
     // MARK: - Graph Validation

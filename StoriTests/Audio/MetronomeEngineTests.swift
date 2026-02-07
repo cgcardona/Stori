@@ -245,6 +245,76 @@ final class MetronomeEngineTests: XCTestCase {
         XCTAssertEqual(countIn3_4, 6)
     }
     
+    // MARK: - Auto-Enable Count-In Tests (Issue #120)
+    
+    func testMetronomeEnableAutoEnablesCountIn() {
+        // Given: Metronome and count-in are both disabled
+        XCTAssertFalse(metronome.isEnabled)
+        XCTAssertFalse(metronome.countInEnabled)
+        
+        // When: User enables metronome
+        metronome.isEnabled = true
+        
+        // Then: Count-in should be automatically enabled
+        XCTAssertTrue(metronome.isEnabled)
+        XCTAssertTrue(metronome.countInEnabled, "Count-in should auto-enable when metronome is enabled")
+    }
+    
+    func testMetronomeDisableDoesNotDisableCountIn() {
+        // Given: Both are enabled
+        metronome.isEnabled = true
+        metronome.countInEnabled = true
+        
+        // When: User disables metronome
+        metronome.isEnabled = false
+        
+        // Then: Count-in should remain enabled (user preference is preserved)
+        XCTAssertFalse(metronome.isEnabled)
+        XCTAssertTrue(metronome.countInEnabled, "Count-in state should be preserved when metronome is disabled")
+    }
+    
+    func testMetronomeReEnableRespectsPreviousCountInState() {
+        // Given: Metronome enabled with count-in
+        metronome.isEnabled = true
+        XCTAssertTrue(metronome.countInEnabled)
+        
+        // When: User manually disables count-in, then disables metronome
+        metronome.countInEnabled = false
+        metronome.isEnabled = false
+        XCTAssertFalse(metronome.countInEnabled)
+        
+        // When: User re-enables metronome
+        metronome.isEnabled = true
+        
+        // Then: Count-in should auto-enable again (fresh start behavior)
+        XCTAssertTrue(metronome.countInEnabled, "Count-in should auto-enable when metronome is re-enabled")
+    }
+    
+    func testMetronomeAutoEnableCountInOnlyIfDisabled() {
+        // Given: Count-in is manually enabled first
+        metronome.countInEnabled = true
+        
+        // When: User enables metronome
+        metronome.isEnabled = true
+        
+        // Then: Count-in should remain enabled (not toggled)
+        XCTAssertTrue(metronome.isEnabled)
+        XCTAssertTrue(metronome.countInEnabled, "Count-in should remain enabled if already enabled")
+    }
+    
+    func testMetronomeToggleAutoEnablesCountIn() {
+        // Given: Metronome is disabled
+        XCTAssertFalse(metronome.isEnabled)
+        XCTAssertFalse(metronome.countInEnabled)
+        
+        // When: User toggles metronome on
+        metronome.toggle()
+        
+        // Then: Both metronome and count-in should be enabled
+        XCTAssertTrue(metronome.isEnabled)
+        XCTAssertTrue(metronome.countInEnabled, "Count-in should auto-enable when toggling metronome on")
+    }
+    
     // MARK: - Beat Tracking Tests
     
     func testCurrentBeatInitialValue() {

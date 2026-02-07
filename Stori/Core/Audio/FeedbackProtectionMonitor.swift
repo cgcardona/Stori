@@ -97,6 +97,10 @@ final class FeedbackProtectionMonitor {
         rmsHistory.reserveCapacity(10)  // Pre-allocate for efficiency
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Monitoring Control
     
     /// Start feedback protection monitoring

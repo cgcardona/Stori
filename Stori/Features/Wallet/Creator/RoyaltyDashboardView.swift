@@ -77,6 +77,10 @@ final class RoyaltyService {
         #endif
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     func fetchRoyalties(for address: String) async {
         isLoading = true
         defer { isLoading = false }
@@ -130,6 +134,8 @@ final class RoyaltyService {
         let tusValue = Double(totalEarned) / 1e18
         return String(format: "%.2f TUS", tusValue)
     }
+    
+    // Prevents double-free from implicit Swift Concurrency property change notification tasks
 }
 
 // MARK: - Royalty Dashboard View

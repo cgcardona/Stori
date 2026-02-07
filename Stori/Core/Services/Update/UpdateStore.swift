@@ -40,6 +40,10 @@ final class UpdateStore {
         self.defaults = defaults
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Last Check
     
     var lastCheckDate: Date? {
@@ -216,4 +220,6 @@ final class UpdateStore {
             defaults.removeObject(forKey: key)
         }
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }

@@ -63,9 +63,9 @@ class AutomationServer {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83459)
-    /// See: MetronomeEngine, ProjectExportService for detailed explanation
-    /// These are nonisolated(unsafe) because Network framework callbacks are nonisolated
+    /// Task references — nonisolated(unsafe) so deinit can cancel them.
+    /// deinit is nonisolated and can't access @MainActor properties,
+    /// but cancelling orphaned tasks is important for cleanup.
     @ObservationIgnored
     nonisolated(unsafe) private var stateChangeTask: Task<Void, Never>?
     @ObservationIgnored
@@ -229,20 +229,21 @@ class AutomationServer {
     private func handleStatus(connection: NWConnection) {
         // Cancel previous status request if overlapping
         statusResponseTask?.cancel()
-        statusResponseTask = Task { @MainActor in
+        statusResponseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             let status: [String: Any] = [
                 "running": true,
-                "port": Int(port),
-                "requestCount": requestCount,
-                "lastRequest": lastRequest ?? NSNull(),
-                "composerConnected": composerClient?.isConnected ?? false,
-                "projectLoaded": projectManager?.currentProject != nil,
-                "projectName": projectManager?.currentProject?.name ?? NSNull()
+                "port": Int(self.port),
+                "requestCount": self.requestCount,
+                "lastRequest": self.lastRequest ?? NSNull(),
+                "composerConnected": self.composerClient?.isConnected ?? false,
+                "projectLoaded": self.projectManager?.currentProject != nil,
+                "projectName": self.projectManager?.currentProject?.name ?? NSNull()
             ]
             
             if let jsonData = try? JSONSerialization.data(withJSONObject: status),
                let jsonString = String(data: jsonData, encoding: .utf8) {
-                sendResponse(connection: connection, statusCode: 200, body: jsonString, contentType: "application/json")
+                self.sendResponse(connection: connection, statusCode: 200, body: jsonString, contentType: "application/json")
             }
             self.statusResponseTask = nil
         }
@@ -301,8 +302,9 @@ class AutomationServer {
         // Execute prompt asynchronously
         // Cancel previous prompt if a new one arrives (user likely wants the new one)
         promptExecutionTask?.cancel()
-        promptExecutionTask = Task { @MainActor in
-            await executePrompt(request: request, connection: connection)
+        promptExecutionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.executePrompt(request: request, connection: connection)
             self.promptExecutionTask = nil
         }
     }
@@ -448,14 +450,9 @@ class AutomationServer {
     
     // MARK: - Cleanup
     
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine, ProjectExportService (Issue #83459)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+    nonisolated deinit {
+        // Cancel pending tasks to prevent use-after-free.
+        // These are nonisolated(unsafe) so safe to access in nonisolated deinit.
         stateChangeTask?.cancel()
         requestHandlerTask?.cancel()
         statusResponseTask?.cancel()

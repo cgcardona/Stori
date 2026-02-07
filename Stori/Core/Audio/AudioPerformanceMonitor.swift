@@ -81,7 +81,11 @@ final class AudioPerformanceMonitor {
     
     static let shared = AudioPerformanceMonitor()
     
-    private init() {}
+    init() {}
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Timing Measurement
     
@@ -180,11 +184,7 @@ final class AudioPerformanceMonitor {
                 category: .audio
             )
         } else if event.isSlow {
-            let contextStr = context.isEmpty ? "" : " (\(context.map { "\($0.key)=\($0.value)" }.joined(separator: ", ")))"
-            AppLogger.shared.debug(
-                "Performance: \(operation) took \(String(format: "%.1f", durationMs))ms\(contextStr)",
-                category: .audio
-            )
+            // Performance logging disabled for production
         }
     }
     
@@ -230,9 +230,4 @@ final class AudioPerformanceMonitor {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

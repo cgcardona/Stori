@@ -60,6 +60,10 @@ class InstrumentPluginHost {
         self.pluginInstance = pluginInstance
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Lifecycle
     
     /// Load the instrument plugin and prepare for playback
@@ -260,11 +264,6 @@ class InstrumentPluginHost {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - InstrumentPluginHost Manager
@@ -277,6 +276,10 @@ class InstrumentPluginHostManager {
     private var hosts: [UUID: InstrumentPluginHost] = [:]
     
     private init() {}
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     /// Get or create a host for a track
     func getHost(for trackId: UUID) -> InstrumentPluginHost? {
@@ -317,4 +320,6 @@ class InstrumentPluginHostManager {
             host.panic()
         }
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }

@@ -64,11 +64,9 @@ class OfflineMIDIRenderer {
             self.startSample = startSample
         }
         
-        deinit {
-            // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
-            // Same pattern as AudioAnalyzer, MetronomeEngine, etc. Explicit deinit changes teardown
-            // codegen and avoids double-free in swift::TaskLocal::StopLookupScope.
-        }
+        /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+        /// the runtime deinits this object on MainActor/task-local context.
+        nonisolated deinit {}
         
         func release(at sample: AVAudioFramePosition) {
             if envelopeState != .release && envelopeState != .finished {
@@ -167,6 +165,10 @@ class OfflineMIDIRenderer {
         self.sampleRate = Float(sampleRate)
         self.volume = volume
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     /// Schedule MIDI events from a region
     func scheduleRegion(_ region: MIDIRegion, tempo: Double, sampleRate: Double) {
@@ -291,11 +293,6 @@ class OfflineMIDIRenderer {
         activeVoices.removeAll()
         currentSamplePosition = 0
     }
-    
-    deinit {
-        // CRITICAL: Protective deinit (ASan/TaskLocal bad-free with default MainActor isolation).
-        // Same pattern as AudioAnalyzer. Explicit deinit changes teardown codegen.
-    }
 }
 
 /// Service for exporting complete projects with full mix processing
@@ -321,8 +318,7 @@ class ProjectExportService {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83020)
-    /// See: MetronomeEngine for detailed explanation of Swift Concurrency cleanup bug
+    /// Task references for cancellation in deinit.
     @ObservationIgnored
     private var cleanupTask: Task<Void, Never>?
     @ObservationIgnored
@@ -398,14 +394,14 @@ class ProjectExportService {
         
         // Reset export state to close the dialog
         // The actual rendering will stop in the next tap callback
-        cleanupTask = Task { @MainActor in
+        cleanupTask = Task { @MainActor [weak self] in
             // Small delay to show "Cancelled" message before closing
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
-            self.isExporting = false
-            self.exportProgress = 0.0
-            self.elapsedTime = 0.0
-            self.estimatedTimeRemaining = nil
-            self.cleanupTask = nil
+            self?.isExporting = false
+            self?.exportProgress = 0.0
+            self?.elapsedTime = 0.0
+            self?.estimatedTimeRemaining = nil
+            self?.cleanupTask = nil
         }
     }
     
@@ -1147,8 +1143,6 @@ class ProjectExportService {
             }
         }
         
-        AppLogger.shared.info("Export master limiter configured (5ms attack, 100ms release)", category: .audio)
-        
         // Disconnect mainMixer from output (if connected) and insert master chain
         // New signal path: mainMixer → masterEQ → masterLimiter → [tap point in renderProjectAudio]
         renderEngine.disconnectNodeOutput(renderEngine.mainMixerNode)
@@ -1709,6 +1703,10 @@ class ProjectExportService {
         // Apply track volume
         playerNode.volume = track.mixerSettings.volume
         
+        // CRITICAL FIX (Issue #76): Apply region fade curves to match playback
+        // Fades must be applied to prevent clicks/pops and match WYSIWYG
+        let hasFades = region.fadeIn > 0 || region.fadeOut > 0
+        
         // Handle looped regions
         let regionDurationSeconds = region.durationSeconds(tempo: tempo)
         if region.isLooped && regionDurationSeconds > loopUnitDuration {
@@ -1722,8 +1720,18 @@ class ProjectExportService {
                 let loopStartFrame = AVAudioFramePosition(currentTimeSeconds * sampleRate)
                 let scheduleTime = AVAudioTime(sampleTime: loopStartFrame, atRate: sampleRate)
                 
-                // Schedule one instance of the audio file (plays for sourceFileDuration, not loopUnitDuration)
-                playerNode.scheduleFile(audioFile, at: scheduleTime)
+                // Apply fades to buffer if needed (Issue #76 fix)
+                if hasFades {
+                    let fadedBuffer = try applyRegionFades(
+                        audioFile: audioFile,
+                        region: region,
+                        sampleRate: sampleRate
+                    )
+                    playerNode.scheduleBuffer(fadedBuffer, at: scheduleTime)
+                } else {
+                    // No fades - direct file scheduling (more efficient)
+                    playerNode.scheduleFile(audioFile, at: scheduleTime)
+                }
                 
                 loopCount += 1
                 // Advance by loopUnitDuration to respect empty space between loop iterations
@@ -1734,8 +1742,75 @@ class ProjectExportService {
         } else {
             // Non-looped or single instance
             let scheduleTime = AVAudioTime(sampleTime: startFrame, atRate: sampleRate)
-            playerNode.scheduleFile(audioFile, at: scheduleTime)
+            
+            // Apply fades to buffer if needed (Issue #76 fix)
+            if hasFades {
+                let fadedBuffer = try applyRegionFades(
+                    audioFile: audioFile,
+                    region: region,
+                    sampleRate: sampleRate
+                )
+                playerNode.scheduleBuffer(fadedBuffer, at: scheduleTime)
+            } else {
+                // No fades - direct file scheduling (more efficient)
+                playerNode.scheduleFile(audioFile, at: scheduleTime)
+            }
         }
+    }
+    
+    /// Apply fade-in and fade-out curves to a region buffer
+    /// CRITICAL FIX (Issue #76): Ensures export includes fades, matching playback WYSIWYG
+    private func applyRegionFades(
+        audioFile: AVAudioFile,
+        region: AudioRegion,
+        sampleRate: Double
+    ) throws -> AVAudioPCMBuffer {
+        
+        // Read entire file into buffer
+        let frameCount = AVAudioFrameCount(audioFile.length)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else {
+            throw ExportError.bufferCreationFailed
+        }
+        
+        try audioFile.read(into: buffer)
+        buffer.frameLength = frameCount
+        
+        // Get channel data for processing
+        guard let channelData = buffer.floatChannelData else {
+            return buffer  // Return unmodified if no channel data
+        }
+        
+        let channelCount = Int(buffer.format.channelCount)
+        let totalFrames = Int(buffer.frameLength)
+        
+        // Calculate fade lengths in samples
+        let fadeInSamples = Int(region.fadeIn * sampleRate)
+        let fadeOutSamples = Int(region.fadeOut * sampleRate)
+        
+        // Clamp fade lengths to buffer size
+        let actualFadeIn = min(fadeInSamples, totalFrames / 2)
+        let actualFadeOut = min(fadeOutSamples, totalFrames / 2)
+        let fadeOutStart = totalFrames - actualFadeOut
+        
+        // Apply fades to each channel
+        for channel in 0..<channelCount {
+            let samples = channelData[channel]
+            
+            // Apply fade-in (linear ramp 0 → 1)
+            for i in 0..<actualFadeIn {
+                let gain = Float(i) / Float(actualFadeIn)
+                samples[i] *= gain
+            }
+            
+            // Apply fade-out (linear ramp 1 → 0)
+            for i in 0..<actualFadeOut {
+                let fadePosition = i
+                let gain = 1.0 - (Float(fadePosition) / Float(actualFadeOut))
+                samples[fadeOutStart + i] *= gain
+            }
+        }
+        
+        return buffer
     }
     
     private func renderProjectAudio(
@@ -1791,6 +1866,10 @@ class ProjectExportService {
                 _isResumed = true
                 return true
             }
+            
+            /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+            /// the runtime deinits this object on MainActor/task-local context.
+            nonisolated deinit {}
         }
         
         let state = ContinuationState()
@@ -1886,7 +1965,8 @@ class ProjectExportService {
                     // Update progress and time estimates (based on target frames, not total capacity)
                     // Cancel previous update to prevent task buildup
                     progressUpdateTask?.cancel()
-                    progressUpdateTask = Task { @MainActor in
+                    progressUpdateTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
                         let progress = Double(min(capturedFrames, targetFrameCount)) / Double(targetFrameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
                         
@@ -1934,14 +2014,14 @@ class ProjectExportService {
             
             // Safety timeout - track to prevent memory corruption on deinit
             timeoutTask?.cancel()
-            timeoutTask = Task {
+            timeoutTask = Task { [weak self] in
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
                 if state.tryResume() {
                     renderEngine.mainMixerNode.removeTap(onBus: 0)
                     renderEngine.stop()
                     continuation.resume(throwing: ExportError.renderTimeout)
                 }
-                self.timeoutTask = nil
+                self?.timeoutTask = nil
             }
         }
     }
@@ -2276,14 +2356,9 @@ class ProjectExportService {
     
     // MARK: - Cleanup
     
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine (Issue #83020)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
+    nonisolated deinit {
+        // Cancel pending export tasks to prevent use-after-free.
+        // These are @ObservationIgnored so safe to access in nonisolated deinit.
         cleanupTask?.cancel()
         progressUpdateTask?.cancel()
         timeoutTask?.cancel()

@@ -50,6 +50,10 @@ class StoriAPIClient {
         AppConfig.validateSecureConnection()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Private Helpers
     
     /// Get authorization header with token from Keychain
@@ -69,8 +73,12 @@ class StoriAPIClient {
         project: [String: Any]? = nil
     ) -> AsyncThrowingStream<SSEEvent, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            Task { [weak self] in
                 do {
+                    guard let self else {
+                        continuation.finish()
+                        return
+                    }
                     // Get token
                     let authHeader = try self.authHeader()
                     
@@ -195,4 +203,6 @@ class StoriAPIClient {
             return false
         }
     }
+    
+    // Prevents double-free from implicit Swift Concurrency property change notification tasks
 }

@@ -57,11 +57,15 @@ class UndoService {
     
     // MARK: - Initialization
     
-    private init() {
+    init() {
         // Configure undo manager
         undoManager.levelsOfUndo = 100  // Maximum undo steps
         undoManager.groupsByEvent = true
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Core Undo API
     
@@ -128,11 +132,6 @@ class UndoService {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Track Operations
@@ -445,54 +444,46 @@ extension UndoService {
 extension UndoService {
     
     /// Register undo for volume change
-    func registerVolumeChange(_ trackId: UUID, from oldVolume: Float, to newVolume: Float, projectManager: ProjectManager) {
-        registerUndo(actionName: "Change Volume") { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.volume = oldVolume
-            }
-        } redo: { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.volume = newVolume
-            }
+    func registerVolumeChange(_ trackId: UUID, from oldVolume: Float, to newVolume: Float, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: "Change Volume") { [weak audioEngine] in
+            // Undo: Restore old volume via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackVolume(trackId: trackId, volume: oldVolume)
+        } redo: { [weak audioEngine] in
+            // Redo: Apply new volume via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackVolume(trackId: trackId, volume: newVolume)
         }
     }
     
     /// Register undo for pan change
-    func registerPanChange(_ trackId: UUID, from oldPan: Float, to newPan: Float, projectManager: ProjectManager) {
-        registerUndo(actionName: "Change Pan") { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.pan = oldPan
-            }
-        } redo: { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.pan = newPan
-            }
+    func registerPanChange(_ trackId: UUID, from oldPan: Float, to newPan: Float, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: "Change Pan") { [weak audioEngine] in
+            // Undo: Restore old pan via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackPan(trackId: trackId, pan: oldPan)
+        } redo: { [weak audioEngine] in
+            // Redo: Apply new pan via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackPan(trackId: trackId, pan: newPan)
         }
     }
     
     /// Register undo for mute toggle
-    func registerMuteToggle(_ trackId: UUID, wasMuted: Bool, projectManager: ProjectManager) {
-        registerUndo(actionName: wasMuted ? "Unmute Track" : "Mute Track") { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.isMuted = wasMuted
-            }
-        } redo: { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.isMuted = !wasMuted
-            }
+    func registerMuteToggle(_ trackId: UUID, wasMuted: Bool, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: wasMuted ? "Unmute Track" : "Mute Track") { [weak audioEngine] in
+            // Undo: Restore old mute state via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackMute(trackId: trackId, isMuted: wasMuted)
+        } redo: { [weak audioEngine] in
+            // Redo: Apply new mute state via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackMute(trackId: trackId, isMuted: !wasMuted)
         }
     }
     
     /// Register undo for solo toggle
-    func registerSoloToggle(_ trackId: UUID, wasSolo: Bool, projectManager: ProjectManager) {
-        registerUndo(actionName: wasSolo ? "Unsolo Track" : "Solo Track") { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.isSolo = wasSolo
-            }
-        } redo: { [weak projectManager] in
-            if let index = projectManager?.currentProject?.tracks.firstIndex(where: { $0.id == trackId }) {
-                projectManager?.currentProject?.tracks[index].mixerSettings.isSolo = !wasSolo
-            }
+    func registerSoloToggle(_ trackId: UUID, wasSolo: Bool, projectManager: ProjectManager, audioEngine: AudioEngine) {
+        registerUndo(actionName: wasSolo ? "Unsolo Track" : "Solo Track") { [weak audioEngine] in
+            // Undo: Restore old solo state via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackSolo(trackId: trackId, isSolo: wasSolo)
+        } redo: { [weak audioEngine] in
+            // Redo: Apply new solo state via audio engine (updates both model and audio - fixes Issue #71)
+            audioEngine?.updateTrackSolo(trackId: trackId, isSolo: !wasSolo)
         }
     }
     

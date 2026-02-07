@@ -48,22 +48,20 @@ class ScrollSyncModel {
         }
     }
     
-    // MARK: - Cleanup
+    // MARK: - Programmatic Scroll (for "Reveal in Timeline")
     
-    deinit {
-        // CRITICAL: Even though this class has no explicit Task blocks or @MainActor,
-        // ASan detected memory corruption during deinit (Issue #84742)
-        // 
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // created by the Observation framework for property change notifications.
-        // 
-        // This deinit ensures ordered cleanup before Swift's implicit deallocation,
-        // preventing race conditions with Swift Concurrency's task-local cleanup.
-        //
-        // See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient,
-        //      AudioAnalysisService, AudioExportService, SelectionManager
-        // https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
+    /// Scroll to show a specific beat position (professional DAW feature)
+    /// Centers the beat at 30% from left edge for optimal viewing context
+    func scrollToBeat(_ beat: Double, pixelsPerBeat: CGFloat, viewportWidth: CGFloat = 1200) {
+        let beatX = CGFloat(beat) * pixelsPerBeat
+        // Center at 30% from left (Logic Pro X style)
+        let targetOffset = max(0, beatX - (viewportWidth * 0.3))
+        updateHorizontalOffset(targetOffset)
     }
+    
+    // MARK: - Cleanup
+    /// Avoid Swift Concurrency deinit isolation / task-local bad-free during SwiftUI view updates (ASan crash in testEngineConcurrentVolumeUpdates).
+    nonisolated deinit {}
 }
 
 // MARK: - DAW Layout Configuration

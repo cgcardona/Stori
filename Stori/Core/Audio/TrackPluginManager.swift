@@ -122,6 +122,10 @@ class TrackPluginManager {
         self.onModifyGraphSafely = onModifyGraphSafely
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Plugin Chain Access
     
     /// Get the plugin chain for a track
@@ -301,9 +305,10 @@ class TrackPluginManager {
         updateDelayCompensation()
         
         // Update project persistence
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             await self.savePluginConfigsToProject(trackId: trackId)
-            logDebug("   ✅ Plugin configuration saved to project after removal")
+            self.logDebug("   ✅ Plugin configuration saved to project after removal")
         }
     }
     
@@ -495,13 +500,21 @@ class TrackPluginManager {
                                 try await instance.load(sampleRate: sampleRate)
                             }
                             
-                            // Restore saved state
+                            // CRITICAL (Issue #77): Restore preset BEFORE allocating render resources
+                            // This ensures the plugin is in the correct state before audio can flow
                             if let stateData = config.fullState {
                                 _ = await instance.restoreState(from: stateData)
                             }
                             
                             // Restore bypass state
                             instance.setBypass(config.isBypassed)
+                            
+                            // CRITICAL (Issue #77): Allocate render resources AFTER preset restoration
+                            // This prevents the first audio callback from rendering with default preset
+                            // Professional DAWs guarantee WYSIWYG: what you saved is what you hear
+                            if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
+                                try au.allocateRenderResources()
+                            }
                             
                             return .success(LoadedPlugin(
                                 trackId: trackId,
