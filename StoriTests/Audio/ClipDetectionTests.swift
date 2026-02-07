@@ -16,6 +16,7 @@ import XCTest
 import AVFoundation
 @testable import Stori
 
+@MainActor
 final class ClipDetectionTests: XCTestCase {
     
     var audioEngine: AudioEngine!
@@ -24,17 +25,15 @@ final class ClipDetectionTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         
-        // Create dependencies
+        // Create dependencies on main actor
         let undoService = UndoService()
         projectManager = ProjectManager(undoService: undoService)
         audioEngine = AudioEngine()
         
         // Configure audio engine
-        audioEngine.configure(
+        audioEngine.configureServices(
             projectManager: projectManager,
-            undoService: undoService,
-            recordingController: nil,
-            midiScheduler: nil
+            undoService: undoService
         )
         
         // Wait for engine to be ready
@@ -220,7 +219,8 @@ final class ClipDetectionTests: XCTestCase {
         track.mixerSettings.volume = 2.0 // Very hot gain
         project.tracks = [track]
         
-        try await projectManager.createProject(project: project)
+        // Load project directly into projectManager
+        projectManager.currentProject = project
         try audioEngine.loadProject(project)
         
         // Add loud audio region

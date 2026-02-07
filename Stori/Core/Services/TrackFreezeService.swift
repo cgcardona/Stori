@@ -342,6 +342,11 @@ class TrackFreezeService {
         let sanitizedName = project.name.replacingOccurrences(of: "/", with: "_")
         return documentsDir.appendingPathComponent("Stori/Projects/\(sanitizedName).stori_assets")
     }
+    
+    // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
+    deinit {
+    }
 }
 
 // NOTE: frozenAudioPath property is defined in AudioTrack model (AudioModels.swift)
