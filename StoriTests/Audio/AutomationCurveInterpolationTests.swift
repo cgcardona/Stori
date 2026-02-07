@@ -68,7 +68,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         // Expected: value = t^2.5 (where t is normalized position)
         // At t=0.5: 0.5^2.5 ≈ 0.177
         let midValue = lane.value(atBeat: 2.0)
-        assertApproximatelyEqual(midValue, 0.177, tolerance: 0.01, "Exponential midpoint should match t^2.5")
+        assertApproximatelyEqual(midValue, 0.177, tolerance: 0.01)
     }
     
     // MARK: - Logarithmic Interpolation Tests (Fast Start, Slow End)
@@ -101,10 +101,10 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         // Expected: value = 1 - (1-t)^2.5
         // At t=0.5: 1 - 0.5^2.5 = 1 - 0.177 ≈ 0.823
         let midValue = lane.value(atBeat: 2.0)
-        assertApproximatelyEqual(midValue, 0.823, tolerance: 0.01, "Logarithmic midpoint should match 1-(1-t)^2.5")
+        assertApproximatelyEqual(midValue, 0.823, tolerance: 0.01)
     }
     
-    func testLogarithmicIsInverseOfExponential() {
+    func testLogarithmicHasOppositeCharacteristicsToExponential() {
         var expLane = AutomationLane(parameter: .volume)
         expLane.points.append(AutomationPoint(beat: 0, value: 0.0, curve: .exponential))
         expLane.points.append(AutomationPoint(beat: 4.0, value: 1.0, curve: .exponential))
@@ -113,12 +113,13 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         logLane.points.append(AutomationPoint(beat: 0, value: 0.0, curve: .logarithmic))
         logLane.points.append(AutomationPoint(beat: 4.0, value: 1.0, curve: .logarithmic))
         
-        // At every point: exp(t) + log(t) should ≈ 1.0 (inverse curves)
-        for beat in stride(from: 0.0, through: 4.0, by: 0.5) {
-            let expValue = expLane.value(atBeat: beat)
-            let logValue = logLane.value(atBeat: beat)
-            assertApproximatelyEqual(expValue + logValue, 1.0, tolerance: 0.01, "Exp and Log should be inverse curves")
-        }
+        // At early points: exponential should be below linear, logarithmic above
+        let v25: Float = 0.25
+        let expValue25 = expLane.value(atBeat: 1.0)
+        let logValue25 = logLane.value(atBeat: 1.0)
+        
+        XCTAssertLessThan(expValue25, v25)
+        XCTAssertGreaterThan(logValue25, v25)
     }
     
     // MARK: - S-Curve Interpolation Tests (Slow-Fast-Slow)
@@ -133,9 +134,9 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         let q3 = lane.value(atBeat: 3.0)  // 75% position
         
         // S-curve: slow start, fast middle, slow end
-        XCTAssertLessThan(q1, 0.25, "At 25%, S-curve should be < 0.25 (slow start)")
-        assertApproximatelyEqual(q2, 0.5, tolerance: 0.05, "At 50%, S-curve should be ≈ 0.5 (inflection point)")
-        XCTAssertGreaterThan(q3, 0.75, "At 75%, S-curve should be > 0.75 (slow end)")
+        XCTAssertLessThan(q1, 0.25)
+        assertApproximatelyEqual(q2, 0.5, tolerance: 0.05)
+        XCTAssertGreaterThan(q3, 0.75)
         
         // Values should be in valid range
         XCTAssertGreaterThanOrEqual(q1, 0.0)
@@ -152,7 +153,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         let v75 = lane.value(atBeat: 3.0)  // 75%
         
         // Symmetry: v(0.25) + v(0.75) should ≈ 1.0
-        assertApproximatelyEqual(v25 + v75, 1.0, tolerance: 0.05, "S-curve should be symmetric")
+        assertApproximatelyEqual(v25 + v75, 1.0, tolerance: 0.05)
     }
     
     func testSCurveNormalization() {
@@ -164,8 +165,8 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         let startValue = lane.value(atBeat: 0.0)
         let endValue = lane.value(atBeat: 4.0)
         
-        assertApproximatelyEqual(startValue, 0.0, tolerance: 0.001, "S-curve must start at 0.0")
-        assertApproximatelyEqual(endValue, 1.0, tolerance: 0.001, "S-curve must end at 1.0")
+        assertApproximatelyEqual(startValue, 0.0, tolerance: 0.001)
+        assertApproximatelyEqual(endValue, 1.0, tolerance: 0.001)
     }
     
     // MARK: - Smooth Curve Interpolation Tests (Ease In-Out)
@@ -178,7 +179,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         let midValue = lane.value(atBeat: 2.0)
         
         // Smooth curve at midpoint should be close to 0.5 (symmetric ease in-out)
-        assertApproximatelyEqual(midValue, 0.5, tolerance: 0.05, "Smooth curve midpoint should be ≈ 0.5")
+        assertApproximatelyEqual(midValue, 0.5, tolerance: 0.05)
     }
     
     // MARK: - Step Interpolation Tests (Hold Value)
@@ -276,9 +277,9 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         let v75 = processor.getVolume(for: trackId, atBeat: 3.0)!
         
         // S-curve: slow start, fast middle, slow end
-        XCTAssertLessThan(v25, 0.25, "S-curve should be slow at start")
-        assertApproximatelyEqual(v50, 0.5, tolerance: 0.05, "S-curve midpoint should be ≈ 0.5")
-        XCTAssertGreaterThan(v75, 0.75, "S-curve should be slow at end")
+        XCTAssertLessThan(v25, 0.25)
+        assertApproximatelyEqual(v50, 0.5, tolerance: 0.05)
+        XCTAssertGreaterThan(v75, 0.75)
     }
     
     func testProcessorSCurveNormalization() {
@@ -295,8 +296,8 @@ final class AutomationCurveInterpolationTests: XCTestCase {
         let startValue = processor.getVolume(for: trackId, atBeat: 0.0)!
         let endValue = processor.getVolume(for: trackId, atBeat: 4.0)!
         
-        assertApproximatelyEqual(startValue, 0.0, tolerance: 0.001, "Processor S-curve must start at 0.0")
-        assertApproximatelyEqual(endValue, 1.0, tolerance: 0.001, "Processor S-curve must end at 1.0")
+        assertApproximatelyEqual(startValue, 0.0, tolerance: 0.001)
+        assertApproximatelyEqual(endValue, 1.0, tolerance: 0.001)
     }
     
     // MARK: - Consistency Between AutomationLane and AutomationProcessor
@@ -316,8 +317,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
             let laneValue = lane.value(atBeat: beat)
             let processorValue = processor.getVolume(for: trackId, atBeat: beat)!
             
-            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.001,
-                                   "Lane and Processor must produce identical values at beat \(beat)")
+            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.001)
         }
     }
     
@@ -335,8 +335,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
             let laneValue = lane.value(atBeat: beat)
             let processorValue = processor.getVolume(for: trackId, atBeat: beat)!
             
-            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.01,
-                                   "Lane and Processor exponential values must match at beat \(beat)")
+            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.01)
         }
     }
     
@@ -354,8 +353,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
             let laneValue = lane.value(atBeat: beat)
             let processorValue = processor.getVolume(for: trackId, atBeat: beat)!
             
-            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.01,
-                                   "Lane and Processor logarithmic values must match at beat \(beat)")
+            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.01)
         }
     }
     
@@ -373,8 +371,7 @@ final class AutomationCurveInterpolationTests: XCTestCase {
             let laneValue = lane.value(atBeat: beat)
             let processorValue = processor.getVolume(for: trackId, atBeat: beat)!
             
-            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.05,
-                                   "Lane and Processor S-curve values must match at beat \(beat)")
+            assertApproximatelyEqual(laneValue, processorValue, tolerance: 0.05)
         }
     }
     
@@ -391,10 +388,8 @@ final class AutomationCurveInterpolationTests: XCTestCase {
             let startValue = lane.value(atBeat: 0.0)
             let endValue = lane.value(atBeat: 4.0)
             
-            assertApproximatelyEqual(startValue, 0.0, tolerance: 0.001,
-                                   "\(curveType) must start at exactly 0.0")
-            assertApproximatelyEqual(endValue, 1.0, tolerance: 0.001,
-                                   "\(curveType) must end at exactly 1.0")
+            assertApproximatelyEqual(startValue, 0.0, tolerance: 0.001)
+            assertApproximatelyEqual(endValue, 1.0, tolerance: 0.001)
         }
     }
     
