@@ -1,18 +1,18 @@
 // TimelineActions.swift
 import SwiftUI
 
-struct TimelineActions {
-    var matchTempoToRegion: (_ targetRegionId: UUID) -> Void = { _ in }
-    var matchPitchToRegion: (_ targetRegionId: UUID) -> Void = { _ in }
-    var autoMatchSelectedRegions: () -> Void = { }
+struct TimelineActions: Sendable {
+    var matchTempoToRegion: @Sendable (_ targetRegionId: UUID) -> Void = { _ in }
+    var matchPitchToRegion: @Sendable (_ targetRegionId: UUID) -> Void = { _ in }
+    var autoMatchSelectedRegions: @Sendable () -> Void = { }
     
     // 🎵 Audio Analysis Actions
-    var analyzeRegion: (_ regionId: UUID) -> Void = { _ in }
+    var analyzeRegion: @Sendable (_ regionId: UUID) -> Void = { _ in }
     
     // 🎧 Audio Export Actions
-    var exportOriginalAudio: (_ regionId: UUID) -> Void = { _ in }
-    var exportProcessedAudio: (_ regionId: UUID) -> Void = { _ in }
-    var exportAudioComparison: (_ regionId: UUID) -> Void = { _ in }
+    var exportOriginalAudio: @Sendable (_ regionId: UUID) -> Void = { _ in }
+    var exportProcessedAudio: @Sendable (_ regionId: UUID) -> Void = { _ in }
+    var exportAudioComparison: @Sendable (_ regionId: UUID) -> Void = { _ in }
 }
 
 private struct TimelineActionsKey: EnvironmentKey {

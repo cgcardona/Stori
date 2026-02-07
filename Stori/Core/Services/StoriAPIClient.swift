@@ -39,7 +39,7 @@ struct SSEEvent: Codable {
 // MARK: - API Client
 
 @Observable
-class StoriAPIClient {
+class StoriAPIClient: @unchecked Sendable {
     static let shared = StoriAPIClient()
     
     /// Base URL for API requests - configured via AppConfig

@@ -182,10 +182,17 @@ final class MockAudioEngineContext: AudioEngineContext {
     
     // MARK: - AudioTimingProvider
     
-    var schedulingContext: AudioSchedulingContext
-    var currentSampleRate: Double { schedulingContext.sampleRate }
-    var currentTempo: Double { schedulingContext.tempo }
-    var currentTimeSignature: TimeSignature { schedulingContext.timeSignature }
+    // These properties must be nonisolated to conform to AudioTimingProvider (Sendable)
+    // Safe because AudioSchedulingContext is a Sendable struct
+    nonisolated var schedulingContext: AudioSchedulingContext {
+        MainActor.assumeIsolated { _schedulingContext }
+    }
+    nonisolated var currentSampleRate: Double { schedulingContext.sampleRate }
+    nonisolated var currentTempo: Double { schedulingContext.tempo }
+    nonisolated var currentTimeSignature: TimeSignature { schedulingContext.timeSignature }
+    
+    // Internal storage (MainActor-isolated)
+    private var _schedulingContext: AudioSchedulingContext
     
     // MARK: - AudioTransportProvider
     
@@ -205,7 +212,12 @@ final class MockAudioEngineContext: AudioEngineContext {
     var sharedAVAudioEngine: AVAudioEngine = AVAudioEngine()
     var sharedMixer: AVAudioMixerNode = AVAudioMixerNode()
     var isGraphStable: Bool = true
-    var isGraphReadyForPlayback: Bool = true
+    
+    // This property must be nonisolated to conform to AudioGraphProvider
+    nonisolated var isGraphReadyForPlayback: Bool {
+        MainActor.assumeIsolated { _isGraphReadyForPlayback }
+    }
+    private var _isGraphReadyForPlayback: Bool = true
     
     // MARK: - Initialization
     
@@ -214,7 +226,7 @@ final class MockAudioEngineContext: AudioEngineContext {
         tempo: Double = 120,
         timeSignature: TimeSignature = .fourFour
     ) {
-        self.schedulingContext = AudioSchedulingContext(
+        self._schedulingContext = AudioSchedulingContext(
             sampleRate: sampleRate,
             tempo: tempo,
             timeSignature: timeSignature
@@ -224,11 +236,11 @@ final class MockAudioEngineContext: AudioEngineContext {
     // MARK: - Test Helpers
     
     func setTempo(_ tempo: Double) {
-        schedulingContext = schedulingContext.with(tempo: tempo)
+        _schedulingContext = _schedulingContext.with(tempo: tempo)
     }
     
     func setSampleRate(_ sampleRate: Double) {
-        schedulingContext = schedulingContext.with(sampleRate: sampleRate)
+        _schedulingContext = _schedulingContext.with(sampleRate: sampleRate)
     }
     
     func setPlaying(_ playing: Bool, at beat: Double = 0) {

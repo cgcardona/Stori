@@ -41,7 +41,8 @@ final class AudioGraphManager {
         let targetKey: String
         
         var isStale: Bool {
-            Date().timeIntervalSince(timestamp) > AudioGraphManager.mutationStalenessThreshold
+            // Access the static property from MainActor context
+            Date().timeIntervalSince(timestamp) > 10.0  // 10 seconds staleness threshold
         }
     }
     

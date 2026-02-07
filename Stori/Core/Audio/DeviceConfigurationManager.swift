@@ -104,7 +104,9 @@ final class DeviceConfigurationManager {
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleHandler()
+            Task { @MainActor in
+                self?.scheduleHandler()
+            }
         }
     }
     

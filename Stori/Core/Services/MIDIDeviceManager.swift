@@ -90,9 +90,9 @@ class MIDIDeviceManager {
     }
     
     deinit {
-        Task { @MainActor in
-            teardownMIDI()
-        }
+        // CRITICAL: Cannot capture self in deinit closure
+        // Call teardownMIDI directly - it's a synchronous function
+        teardownMIDI()
     }
     
     // MARK: - Setup

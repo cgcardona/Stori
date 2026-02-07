@@ -13,6 +13,7 @@ import Observation
 // PERFORMANCE: Using @Observable for fine-grained updates
 // Only views reading specific meter data re-render when that data changes
 @Observable
+@MainActor
 class MeterDataProvider {
     private(set) var trackMeters: [UUID: ChannelMeterData] = [:]
     private(set) var masterMeterData = ChannelMeterData()

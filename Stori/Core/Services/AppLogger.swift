@@ -14,7 +14,7 @@ import AppKit
 
 /// Centralized logging for Stori
 /// Logs to both Console.app (via OSLog) and text files for easy sharing
-final class AppLogger {
+final class AppLogger: @unchecked Sendable {
     
     // MARK: - Singleton
     

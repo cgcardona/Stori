@@ -9,7 +9,7 @@ import Security
 import Foundation
 
 @Observable
-class TokenManager {
+class TokenManager: @unchecked Sendable {
     static let shared = TokenManager()
     
     private let service = "com.tellurstori.stori"

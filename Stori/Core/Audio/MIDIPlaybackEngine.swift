@@ -357,8 +357,8 @@ extension MIDIPlaybackEngine {
             
             // Only schedule background error tracking if this is the first occurrence
             if !wasAlreadyFlagged {
-                // Schedule error tracking OFF the audio thread
-                DispatchQueue.global(qos: .utility).async { [weak self] in
+                // Schedule error tracking on MainActor
+                Task { @MainActor [weak self] in
                     self?.handleMissingMIDIBlock(trackId: trackId)
                 }
             }

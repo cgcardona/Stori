@@ -646,7 +646,7 @@ class PluginInstance: Identifiable {
 /// Prevents DoS when many plugins receive updates simultaneously (e.g. automation).
 ///
 /// LOGGING: Logs a warning when rate limiting kicks in, throttled to at most once per second.
-final class PluginParameterRateLimiter {
+final class PluginParameterRateLimiter: @unchecked Sendable {
     static let shared = PluginParameterRateLimiter()
     
     private var lock = os_unfair_lock()
