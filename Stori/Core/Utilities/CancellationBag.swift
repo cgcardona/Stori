@@ -78,6 +78,8 @@ final class CancellationBag {
         timers.removeAll()
         lock.unlock()
         
+        NSLog("🧹 [DIAGNOSTIC] CancellationBag cancelling \(tasksToCancel.count) tasks, \(timersToCancel.count) timers")
+        
         // Cancel tasks first so they stop scheduling work
         for task in tasksToCancel {
             task.cancel()
@@ -89,6 +91,8 @@ final class CancellationBag {
             timer.setEventHandler {}
             timer.cancel()
         }
+        
+        NSLog("✅ [DIAGNOSTIC] CancellationBag cancel complete")
     }
     
     /// Synchronously cancel everything before deallocation

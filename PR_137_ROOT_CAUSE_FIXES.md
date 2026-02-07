@@ -235,14 +235,29 @@ Apply same pattern to:
 - All other classes with timer/task cleanup
 
 ### 📊 Diagnostic Phase:
-**Next Run App:**
-1. Watch console for deinit logs:
+
+**IMPORTANT: AudioEngine is a SINGLETON** (`SharedAudioEngine.shared`)
+- Singletons never deallocate - they live for entire app lifetime
+- **deinit will NEVER run** in normal operation (this is correct!)
+- For singletons, we test `cleanup()` instead of deinit
+
+**Run App → Quit (Cmd+Q) → Watch Console:**
+1. Should see cleanup sequence:
    ```
-   🧹 [DIAGNOSTIC] AudioEngine deinit START
-   ✅ [DIAGNOSTIC] AudioEngine deinit COMPLETE
+   🛑 [DIAGNOSTIC] App terminating - cleaning up audio engine
+   🧹 [DIAGNOSTIC] AudioEngine.cleanup() START
+   🧹 [DIAGNOSTIC] Cancelling all timers via CancellationBag
+   🧹 [DIAGNOSTIC] CancellationBag cancelling X tasks, Y timers
+   ✅ [DIAGNOSTIC] CancellationBag cancel complete
+   ✅ [DIAGNOSTIC] AudioEngine.cleanup() COMPLETE
+   ✅ [DIAGNOSTIC] App cleanup complete
    ```
-2. If deinit logs appear → No retain cycle ✅
-3. If deinit never appears → Still have cycle somewhere ❌
+2. If cleanup logs appear → Pattern works ✅
+3. If no logs → cleanup() not being called ❌
+
+**For Non-Singleton Objects (Tests):**
+- deinit SHOULD run after scope ends
+- Use `assertDeallocates` to verify no retain cycles
 
 ---
 

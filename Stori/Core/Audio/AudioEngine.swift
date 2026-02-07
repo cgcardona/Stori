@@ -867,7 +867,8 @@ class AudioEngine: AudioEngineContext {
     
     deinit {
         // DIAGNOSTIC: Check if deinit actually runs (retain cycle test)
-        print("🧹 [DIAGNOSTIC] AudioEngine deinit START - cleaning up timers")
+        // Using NSLog to bypass any console filters
+        NSLog("🧹🧹🧹 [DIAGNOSTIC] AudioEngine deinit START - cleaning up timers")
         
         // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
         // Root cause: @Observable classes have implicit Swift Concurrency tasks
@@ -880,7 +881,7 @@ class AudioEngine: AudioEngineContext {
         // ✅ Timers use [weak self] to break retain cycles
         cancels.cancelAll()
         
-        print("✅ [DIAGNOSTIC] AudioEngine deinit COMPLETE")
+        NSLog("✅✅✅ [DIAGNOSTIC] AudioEngine deinit COMPLETE")
     }
     
     // MARK: - Lifecycle Management (Issue #72)
@@ -892,6 +893,8 @@ class AudioEngine: AudioEngineContext {
     /// ARCHITECTURE NOTE: While timers use [weak self], explicitly cancelling them
     /// prevents edge cases where the timer fires during deallocation.
     func cleanup() {
+        NSLog("🧹 [DIAGNOSTIC] AudioEngine.cleanup() START")
+        
         // Stop playback first
         if transportController.transportState.isPlaying {
             transportController.stop()
@@ -906,6 +909,7 @@ class AudioEngine: AudioEngineContext {
         // Stop metronome if installed (calls stopPlaying internally)
         installedMetronome?.onTransportStop()
         
+        NSLog("🧹 [DIAGNOSTIC] Cancelling all timers via CancellationBag")
         // Cancel all timers synchronously via cancellation bag
         // Eliminates retain cycles and ensures deterministic cleanup
         cancels.cancelAll()
@@ -921,6 +925,7 @@ class AudioEngine: AudioEngineContext {
         // Clear all track nodes (delegates to TrackNodeManager)
         trackNodeManager?.clearAllTracks()
         
+        NSLog("✅ [DIAGNOSTIC] AudioEngine.cleanup() COMPLETE")
         AppLogger.shared.debug("AudioEngine cleanup completed", category: .audio)
     }
     

@@ -284,14 +284,15 @@ class TransportController {
     
     deinit {
         // DIAGNOSTIC: Check if deinit runs (retain cycle test)
-        print("🧹 [DIAGNOSTIC] TransportController deinit START")
+        // Using NSLog to bypass any console filters
+        NSLog("🧹🧹🧹 [DIAGNOSTIC] TransportController deinit START")
         
         // ✅ Clean deinit: cancels is nonisolated, synchronous cancellation
         // ✅ No nonisolated(unsafe) needed
         // ✅ Timer uses [weak self] to break retain cycle
         cancels.cancelAll()
         
-        print("✅ [DIAGNOSTIC] TransportController deinit COMPLETE")
+        NSLog("✅✅✅ [DIAGNOSTIC] TransportController deinit COMPLETE")
     }
     
     // MARK: - Transport Controls
