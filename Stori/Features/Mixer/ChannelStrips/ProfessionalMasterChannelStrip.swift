@@ -12,6 +12,7 @@ struct ProfessionalMasterChannelStrip: View {
     var audioEngine: AudioEngine
     var projectManager: ProjectManager
     let meterData: ChannelMeterData
+    var onResetClipIndicator: (() -> Void)? = nil  // Callback to reset clip indicator
     
     @State private var masterHiEQ: Float = 0.5
     @State private var masterMidEQ: Float = 0.5
@@ -163,7 +164,8 @@ struct ProfessionalMasterChannelStrip: View {
                     level: meterData.leftLevel,
                     peak: meterData.peakLeft,
                     isClipping: meterData.isClipping,
-                    height: 180
+                    height: 180,
+                    onResetClip: onResetClipIndicator
                 )
                 
                 // Master Fader
@@ -187,7 +189,8 @@ struct ProfessionalMasterChannelStrip: View {
                     level: meterData.rightLevel,
                     peak: meterData.peakRight,
                     isClipping: meterData.isClipping,
-                    height: 180
+                    height: 180,
+                    onResetClip: onResetClipIndicator
                 )
             }
             .padding(.horizontal, 6)
@@ -416,6 +419,7 @@ struct MasterMeter: View {
     let peak: Float
     let isClipping: Bool
     let height: CGFloat
+    var onResetClip: (() -> Void)? = nil
     
     var body: some View {
         GeometryReader { geometry in
@@ -450,12 +454,16 @@ struct MasterMeter: View {
                         .offset(y: -geometry.size.height * CGFloat(min(1.0, peak)) + 1.5)
                 }
                 
-                // Clip indicator
+                // Clip indicator (Issue #73)
                 if isClipping {
                     Rectangle()
                         .fill(Color.red)
                         .frame(width: 8, height: 6)
                         .offset(y: -geometry.size.height + 3)
+                        .onTapGesture {
+                            onResetClip?()
+                        }
+                        .help("Clipping detected! Click to reset.")
                 }
             }
             .frame(maxWidth: .infinity)

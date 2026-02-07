@@ -207,6 +207,14 @@ final class AutomationEngine: @unchecked Sendable {
             applyValuesHandler?(trackId, values)
         }
     }
+    
+    deinit {
+        // CRITICAL: Protective deinit for timer cleanup (Issue #72, ASan Issue #84742+)
+        // Root cause: DispatchSourceTimer with Swift Concurrency TaskLocal can cause
+        // bad-free on deinit if timer isn't explicitly cancelled.
+        // Explicitly cancel timer to prevent TaskLocal cleanup double-free.
+        timer?.cancel()
+    }
 }
 
 // MARK: - Automation Processor
@@ -294,9 +302,15 @@ final class AutomationProcessor: @unchecked Sendable {
                 let logT = 1 - pow(1 - t, AutomationCurveConstants.logarithmicPower)
                 return p1.value + delta * logT
             case .sCurve:
-                // S-curve using sigmoid function: 1 / (1 + e^(-k*(t-0.5)))
-                let sigmoid = 1.0 / (1.0 + exp(-AutomationCurveConstants.sigmoidSteepness * (Double(t) - 0.5)))
-                return p1.value + delta * Float(sigmoid)
+                // S-curve using normalized sigmoid function: 1 / (1 + e^(-k*(t-0.5)))
+                // Normalize to 0→1 range by subtracting minimum and dividing by range
+                let k = AutomationCurveConstants.sigmoidSteepness
+                let sigmoid = 1.0 / (1.0 + exp(-k * (Double(t) - 0.5)))
+                // Normalize: sigmoid(0) and sigmoid(1) are not exactly 0 and 1
+                let sigmoid0 = 1.0 / (1.0 + exp(k * 0.5))  // Value at t=0
+                let sigmoid1 = 1.0 / (1.0 + exp(-k * 0.5))  // Value at t=1
+                let normalized = (sigmoid - sigmoid0) / (sigmoid1 - sigmoid0)
+                return p1.value + delta * Float(normalized)
             }
         }
     }

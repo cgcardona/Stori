@@ -169,6 +169,7 @@
 				Features/Plugins/PluginEditorView.swift,
 				Features/Score/NotationEngraver.swift,
 				Features/Score/NotationQuantizer.swift,
+				Features/Score/ScoreCoordinateMapper.swift,
 				Features/Score/ScoreEntryController.swift,
 				Features/Score/ScoreExporter.swift,
 				Features/Score/ScoreModels.swift,

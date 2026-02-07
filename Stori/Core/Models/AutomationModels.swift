@@ -444,12 +444,15 @@ struct AutomationLane: Identifiable, Codable, Equatable {
             return p1.value + delta * logT
             
         case .sCurve:
-            // Pronounced S-curve with adjustable tension
+            // Normalized S-curve with adjustable tension
             let tensionFactor: Double = Double(1 + abs(p1.tension) * 2)
-            let tCentered: Double = Double(adjustedT) - 0.5
-            let exponent: Double = -tensionFactor * tCentered * 10
-            let sT: Double = 1.0 / (1.0 + exp(exponent))
-            return p1.value + delta * Float(sT)
+            let k: Double = tensionFactor * 10  // Steepness parameter
+            let sigmoid = 1.0 / (1.0 + exp(-k * (Double(adjustedT) - 0.5)))
+            // Normalize to 0→1 range
+            let sigmoid0 = 1.0 / (1.0 + exp(k * 0.5))
+            let sigmoid1 = 1.0 / (1.0 + exp(-k * 0.5))
+            let normalized = (sigmoid - sigmoid0) / (sigmoid1 - sigmoid0)
+            return p1.value + delta * Float(normalized)
         }
     }
     
