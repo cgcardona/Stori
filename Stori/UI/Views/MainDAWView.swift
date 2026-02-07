@@ -1241,6 +1241,7 @@ struct MainDAWView: View {
                 renameTrackText: $renameTrackText,
                 showingExportSettings: $showingExportSettings,
                 activeSheet: $activeSheet,
+                audioEngine: audioEngine,
                 projectManager: projectManager,
                 exportService: exportService,
                 availableBuses: projectManager.currentProject?.buses ?? [],
