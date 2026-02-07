@@ -166,15 +166,14 @@ final class TrackAudioNode: @unchecked Sendable {
         setupLevelMonitoring()
     }
     
-    deinit {
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {
         removeLevelMonitoring()
-        
-        // Deallocate atomic storage (Issue #59 fix)
         _currentLevelLeft.deinitialize(count: 1)
         _currentLevelRight.deinitialize(count: 1)
         _peakLevelLeft.deinitialize(count: 1)
         _peakLevelRight.deinitialize(count: 1)
-        
         _currentLevelLeft.deallocate()
         _currentLevelRight.deallocate()
         _peakLevelLeft.deallocate()

@@ -213,11 +213,6 @@ final class AudioGraphManager {
             // Replace any existing mutation for same target (coalescing)
             pendingMutations[targetKey] = mutation
             
-            AppLogger.shared.debug(
-                "AudioGraphManager: Coalescing mutation for target '\(targetKey)' (pending: \(pendingMutations.count))",
-                category: .audio
-            )
-            
             // Schedule flush if not already scheduled
             scheduleFlush()
             return
@@ -297,11 +292,6 @@ final class AudioGraphManager {
     func flushPendingMutations() {
         let mutations = pendingMutations.values.sorted { $0.timestamp < $1.timestamp }
         pendingMutations.removeAll()
-        
-        AppLogger.shared.debug(
-            "AudioGraphManager: Flushing \(mutations.count) coalesced mutations",
-            category: .audio
-        )
         
         var executedCount = 0
         var discardedStale = 0

@@ -477,52 +477,32 @@ struct DAWControlBar: View {
     // MARK: - Record with Count-In
     
     private func handleRecordButton() {
-        AppLogger.shared.debug("[REC] handleRecordButton: isRecording=\(audioEngine.isRecording) isCountingIn=\(isCountingIn)", category: .audio)
         if audioEngine.isRecording {
-            AppLogger.shared.debug("[REC] Stopping recording", category: .audio)
             audioEngine.stopRecording()
             return
         }
         
-        if isCountingIn {
-            AppLogger.shared.debug("[REC] Already counting in, ignoring", category: .audio)
-            return
-        }
+        if isCountingIn { return }
         
         // Guard: require at least one track in the project
         guard let project = projectManager.currentProject, !project.tracks.isEmpty else {
-            AppLogger.shared.debug("[REC] No tracks, showing alert", category: .audio)
             showingRecordAlert = true
             return
         }
-        
-        AppLogger.shared.debug("[REC] countInEnabled=\(metronomeEngine.countInEnabled) metronomeEnabled=\(metronomeEngine.isEnabled) tracks=\(project.tracks.count)", category: .audio)
         
         // Check if count-in is enabled
         if metronomeEngine.countInEnabled {
             isCountingIn = true
             
             Task {
-                AppLogger.shared.debug("[REC] Task started: preparing recording during count-in", category: .audio)
-                // Pre-setup everything BEFORE count-in to avoid delay after
                 await audioEngine.prepareRecordingDuringCountIn()
-                
-                AppLogger.shared.debug("[REC] Preparation complete, starting count-in", category: .audio)
-                // Perform count-in (uses precise DispatchSourceTimer)
                 await metronomeEngine.performCountIn()
-                
-                AppLogger.shared.debug("[REC] Count-in complete, starting recording", category: .audio)
-                // Count-in complete, start recording immediately
-                // Everything is already prepared, just flip the switch
                 await MainActor.run {
                     isCountingIn = false
                     audioEngine.startRecordingAfterCountIn()
-                    AppLogger.shared.debug("[REC] Recording started after count-in", category: .audio)
                 }
             }
         } else {
-            AppLogger.shared.debug("[REC] No count-in, starting recording immediately", category: .audio)
-            // No count-in, start recording immediately
             audioEngine.record()
         }
     }

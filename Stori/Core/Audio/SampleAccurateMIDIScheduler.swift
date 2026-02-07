@@ -516,6 +516,10 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         eventBuffer.reserveCapacity(32)
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Configuration (Call from MainActor)
     
     /// Configure timing parameters
@@ -862,7 +866,6 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
                 tempo: tempo,
                 sampleRate: sampleRate
             )
-            AppLogger.shared.info("MIDI: Regenerated stale timing reference at beat \(currentBeat)", category: .audio)
         }
         
         guard let timing = timingReference else {

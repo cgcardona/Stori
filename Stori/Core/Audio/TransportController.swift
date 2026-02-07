@@ -287,27 +287,12 @@ class TransportController {
     // MARK: - Transport Controls
     
     func play() {
-        AppLogger.shared.debug("[TRANSPORT] play(): transportState=\(transportState) currentBeat=\(currentPosition.beats)", category: .audio)
-        // Block during plugin installation
-        if isInstallingPlugin() {
-            AppLogger.shared.debug("[TRANSPORT] play(): blocked - installing plugin", category: .audio)
-            return
-        }
-        
-        // Block while graph is unstable
-        if !isGraphStable() {
-            AppLogger.shared.debug("[TRANSPORT] play(): blocked - graph unstable", category: .audio)
-            return
-        }
-        
-        guard let project = getProject() else {
-            AppLogger.shared.debug("[TRANSPORT] play(): no project", category: .audio)
-            return
-        }
+        if isInstallingPlugin() { return }
+        if !isGraphStable() { return }
+        guard let project = getProject() else { return }
         
         switch transportState {
         case .stopped:
-            AppLogger.shared.debug("[TRANSPORT] play(): from STOPPED → resetting to beat 0", category: .audio)
             playbackStartWallTime = CACurrentMediaTime()
             playbackStartBeat = 0
             transportState = .playing
@@ -393,7 +378,6 @@ class TransportController {
     }
     
     func stop() {
-        AppLogger.shared.debug("[TRANSPORT] stop(): transportState=\(transportState) currentBeat=\(currentPosition.beats)", category: .audio)
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -421,7 +405,6 @@ class TransportController {
     
     /// Stop recording mode (returns to stopped)
     func stopRecordingMode() {
-        AppLogger.shared.debug("[TRANSPORT] stopRecordingMode: transportState \(transportState) → .stopped, currentBeat=\(currentPosition.beats)", category: .audio)
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()

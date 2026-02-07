@@ -27,6 +27,10 @@ class LicenseEnforcer {
         loadPlayCounts()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Permission Checks
     
     /// Check if playback is allowed for a license
@@ -288,6 +292,10 @@ class LicensePlayerState {
     @ObservationIgnored private var streamPlayer: AVPlayer?      // For IPFS streaming
     @ObservationIgnored private var progressTimer: Timer?
     @ObservationIgnored private var timeObserver: Any?
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     var progress: Double {
         guard duration > 0 else { return 0 }

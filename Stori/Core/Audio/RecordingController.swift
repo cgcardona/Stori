@@ -173,18 +173,12 @@ final class RecordingController: @unchecked Sendable {
     
     /// Prepare everything for recording during count-in
     func prepareRecordingDuringCountIn() async {
-        guard let project = getProject() else {
-            AppLogger.shared.debug("[REC] prepareRecordingDuringCountIn: no project", category: .audio)
-            return
-        }
+        guard let project = getProject() else { return }
         
         let recordTrack = findOrCreateRecordTrack(in: project)
         countInRecordTrack = recordTrack
-        AppLogger.shared.debug("[REC] prepareRecordingDuringCountIn: track=\(recordTrack.name) isMIDI=\(recordTrack.isMIDITrack)", category: .audio)
         
-        // MIDI tracks don't need mic permission or audio file setup
         if recordTrack.isMIDITrack {
-            AppLogger.shared.debug("[REC] prepareRecordingDuringCountIn: MIDI track, marking prepared", category: .audio)
             countInRecordingPrepared = true
             return
         }
@@ -222,42 +216,31 @@ final class RecordingController: @unchecked Sendable {
     /// Start recording after count-in — everything is already prepared
     /// Records from the current playhead position (Logic Pro behavior)
     func startRecordingAfterCountIn() {
-        AppLogger.shared.debug("[REC] startRecordingAfterCountIn: countInRecordingPrepared=\(countInRecordingPrepared) hasProject=\(getProject() != nil)", category: .audio)
         guard countInRecordingPrepared, let project = getProject() else {
-            AppLogger.shared.debug("[REC] startRecordingAfterCountIn: guard failed, falling back to record()", category: .audio)
             record()
             return
         }
         guard let transport = transportController else {
-            AppLogger.shared.debug("[REC] startRecordingAfterCountIn: no transport, falling back to record()", category: .audio)
             record()
             return
         }
         
-        // Record from current playhead position (Logic Pro behavior)
         let startBeat = getCurrentPosition().beats
-        AppLogger.shared.debug("[REC] startRecordingAfterCountIn: startBeat=\(startBeat) transportState=\(transport.transportState)", category: .audio)
         
         isRecording = true
         recordingStartBeat = startBeat
         recordingTrackId = countInRecordTrack?.id
         
-        // Start MIDI recording for armed MIDI tracks
         let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
         if let firstMIDITrack = recordEnabledTracks.first(where: { $0.isMIDITrack }) {
-            AppLogger.shared.debug("[REC] startRecordingAfterCountIn: starting MIDI recording for track \(firstMIDITrack.id) at beat \(startBeat)", category: .audio)
             InstrumentManager.shared.startRecording(trackId: firstMIDITrack.id, atBeats: startBeat)
         }
         
-        // Install audio input tap before starting transport
         if let recordTrack = countInRecordTrack, !recordTrack.isMIDITrack {
             installInputTapForCountIn()
         }
         
-        // Start transport from current position
-        AppLogger.shared.debug("[REC] startRecordingAfterCountIn: calling transport.play() (transportState=\(transport.transportState))", category: .audio)
         transport.play()
-        AppLogger.shared.debug("[REC] startRecordingAfterCountIn: transport.play() returned, currentBeat=\(getCurrentPosition().beats) transportState=\(transport.transportState)", category: .audio)
         onStartRecordingMode()
         
         countInRecordingPrepared = false
@@ -296,7 +279,6 @@ final class RecordingController: @unchecked Sendable {
     
     /// Stop recording
     func stopRecording() {
-        AppLogger.shared.debug("[REC] stopRecording: isRecording=\(isRecording) currentBeat=\(getCurrentPosition().beats)", category: .audio)
         guard isRecording else { return }
         
         // Stop MIDI recording and capture the region (already on MainActor)
@@ -308,11 +290,9 @@ final class RecordingController: @unchecked Sendable {
         }
         
         stopRecordingInternal()
-        AppLogger.shared.debug("[REC] stopRecording: calling onStopRecordingMode → transport.stopRecordingMode()", category: .audio)
         onStopRecordingMode()
         isRecording = false
         inputLevel = 0.0
-        AppLogger.shared.debug("[REC] stopRecording: calling onStopPlayback", category: .audio)
         onStopPlayback()
     }
     

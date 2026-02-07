@@ -60,6 +60,8 @@ class ScrollSyncModel {
     }
     
     // MARK: - Cleanup
+    /// Avoid Swift Concurrency deinit isolation / task-local bad-free during SwiftUI view updates (ASan crash in testEngineConcurrentVolumeUpdates).
+    nonisolated deinit {}
 }
 
 // MARK: - DAW Layout Configuration

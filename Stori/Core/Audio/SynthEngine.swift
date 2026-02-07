@@ -65,8 +65,9 @@ private class ParameterSmoother {
         currentValue
     }
     
-    /// Explicit deinit to prevent Swift Concurrency task leak
-    /// Private classes can have implicit tasks that cause memory corruption
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 }
 
 // MARK: - SynthPreset
@@ -407,6 +408,10 @@ class SynthVoice {
         self.baseFrequency = Float(MIDIHelper.frequencyHz(for: pitch))
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Trigger the release phase
     func release(at time: Float) {
         isReleased = true
@@ -633,6 +638,10 @@ class SynthEngine {
         
         // Source node is created lazily when attached to engine
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Engine Integration
     

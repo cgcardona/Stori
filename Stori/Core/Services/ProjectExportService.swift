@@ -64,6 +64,10 @@ class OfflineMIDIRenderer {
             self.startSample = startSample
         }
         
+        /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+        /// the runtime deinits this object on MainActor/task-local context.
+        nonisolated deinit {}
+        
         func release(at sample: AVAudioFramePosition) {
             if envelopeState != .release && envelopeState != .finished {
                 envelopeState = .release
@@ -161,6 +165,10 @@ class OfflineMIDIRenderer {
         self.sampleRate = Float(sampleRate)
         self.volume = volume
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     /// Schedule MIDI events from a region
     func scheduleRegion(_ region: MIDIRegion, tempo: Double, sampleRate: Double) {
@@ -1858,6 +1866,10 @@ class ProjectExportService {
                 _isResumed = true
                 return true
             }
+            
+            /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+            /// the runtime deinits this object on MainActor/task-local context.
+            nonisolated deinit {}
         }
         
         let state = ContinuationState()

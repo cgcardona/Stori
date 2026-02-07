@@ -670,6 +670,10 @@ final class PluginParameterRateLimiter {
         timebaseInfo = info
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Returns true if the update is allowed; false if global limit exceeded.
     /// Uses token bucket algorithm: O(1) time complexity, no allocations.
     /// Logs a throttled warning when updates are dropped.
@@ -788,5 +792,7 @@ class PluginInstanceManager: PluginInstanceManagerProtocol {
         instances.removeAll()
     }
     
-    // Prevents double-free from implicit Swift Concurrency property change notification tasks
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 }

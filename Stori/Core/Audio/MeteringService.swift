@@ -220,6 +220,10 @@ final class MeteringService: @unchecked Sendable {
         self.masterVolumeAccessor = masterVolume
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Master Meter Tap Installation
     
     /// Install the master metering tap on the specified EQ node

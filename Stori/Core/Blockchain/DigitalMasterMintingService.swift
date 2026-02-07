@@ -25,6 +25,10 @@ class IPFSUploadService {
         self.ipfsGatewayURL = StoriEnvironment.ipfsGatewayURL
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Upload binary data directly to IPFS daemon
     func uploadData(_ data: Data, filename: String) async throws -> MintingIPFSResult {
         guard let url = URL(string: "\(ipfsAPIURL)/api/v0/add?pin=true") else {
@@ -108,6 +112,9 @@ struct MintingIPFSResult {
 // MARK: - Contract ABI Encoder
 
 class ContractEncoder {
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     /// Encode mintDigitalMaster function call
     /// Function: mintDigitalMaster(address[], uint256[], uint256, string, uint256)
@@ -254,6 +261,10 @@ class DigitalMasterMintingService {
     private let ipfsService = IPFSUploadService.shared
     @ObservationIgnored
     private let walletService = WalletService.shared
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Mint Digital Master
     

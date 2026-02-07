@@ -59,7 +59,9 @@ class InstrumentPluginHost {
         precondition(pluginInstance.descriptor.category == .instrument, "InstrumentPluginHost requires an instrument plugin")
         self.pluginInstance = pluginInstance
     }
-
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
     nonisolated deinit {}
     
     // MARK: - Lifecycle
@@ -274,6 +276,10 @@ class InstrumentPluginHostManager {
     private var hosts: [UUID: InstrumentPluginHost] = [:]
     
     private init() {}
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     /// Get or create a host for a track
     func getHost(for trackId: UUID) -> InstrumentPluginHost? {

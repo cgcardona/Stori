@@ -143,8 +143,6 @@ class MetronomeEngine {
     /// Install metronome nodes into the DAW's audio engine
     /// MUST be called before engine.start() and only once
     func install(into engine: AVAudioEngine, dawMixer: AVAudioMixerNode, audioEngine: AudioEngineContext, transportController: TransportController, midiScheduler: SampleAccurateMIDIScheduler? = nil) {
-        AppLogger.shared.debug("[METRO] install() called: isInstalled=\(isInstalled)", category: .audio)
-        // Idempotent: only install once
         guard !isInstalled else { return }
         
         self.avAudioEngine = engine
@@ -187,7 +185,6 @@ class MetronomeEngine {
         generateClickSounds(format: finalFormat)
         
         isInstalled = true
-        AppLogger.shared.debug("[METRO] install() complete: sampleRate=\(sampleRate) hasBuffers=\(accentBuffer != nil && normalBuffer != nil)", category: .audio)
     }
     
     /// Reconnect metronome nodes after engine.reset() or track connections disconnect them
@@ -195,12 +192,9 @@ class MetronomeEngine {
     func reconnectNodes(dawMixer: AVAudioMixerNode) {
         guard isInstalled,
               let engine = avAudioEngine,
+              engine.isRunning,
               let player = clickPlayer,
-              let metroMix = metronomeMixer else {
-            AppLogger.shared.debug("[METRO] reconnectNodes: guard failed - isInstalled=\(isInstalled) hasEngine=\(avAudioEngine != nil) hasPlayer=\(clickPlayer != nil) hasMixer=\(metronomeMixer != nil)", category: .audio)
-            return
-        }
-        AppLogger.shared.debug("[METRO] reconnectNodes: engine.isRunning=\(engine.isRunning) player.engine=\(player.engine != nil)", category: .audio)
+              let metroMix = metronomeMixer else { return }
         
         // Get device format
         let deviceFormat = engine.outputNode.inputFormat(forBus: 0)
@@ -225,7 +219,6 @@ class MetronomeEngine {
         // Reconnect: player → metronome mixer → DAW mixer
         engine.connect(player, to: metroMix, format: format)
         engine.connect(metroMix, to: dawMixer, format: format)
-        AppLogger.shared.debug("[METRO] reconnectNodes: done. player.engine=\(player.engine != nil) sampleRate=\(format.sampleRate)", category: .audio)
     }
     
     /// Prepare the player node for playback (called after engine starts)
@@ -299,14 +292,12 @@ class MetronomeEngine {
     
     /// Called when DAW transport starts playing
     func onTransportPlay() {
-        AppLogger.shared.debug("[METRO] onTransportPlay: isEnabled=\(isEnabled) isInstalled=\(isInstalled) isPlaying=\(isPlaying)", category: .audio)
         guard isEnabled, isInstalled else { return }
         startPlaying()
     }
     
     /// Called when DAW transport stops
     func onTransportStop() {
-        AppLogger.shared.debug("[METRO] onTransportStop: isPlaying=\(isPlaying)", category: .audio)
         stopPlaying()
         currentBeat = 1
         lastPlayedBeatIndex = -1
@@ -326,21 +317,12 @@ class MetronomeEngine {
     // MARK: - Playback Control
     
     private func startPlaying() {
-        AppLogger.shared.debug("[METRO] startPlaying: isPlaying=\(isPlaying) isInstalled=\(isInstalled) hasPlayer=\(clickPlayer != nil) hasEngine=\(avAudioEngine != nil) hasMixer=\(metronomeMixer != nil) hasBuffers=\(accentBuffer != nil && normalBuffer != nil)", category: .audio)
         guard !isPlaying, isInstalled,
               let player = clickPlayer,
               let engine = avAudioEngine,
               metronomeMixer != nil,
-              accentBuffer != nil, normalBuffer != nil else {
-            AppLogger.shared.debug("[METRO] startPlaying: GUARD FAILED", category: .audio)
-            return
-        }
-        
-        // Verify engine is running
-        guard engine.isRunning else {
-            AppLogger.shared.debug("[METRO] startPlaying: engine NOT running", category: .audio)
-            return
-        }
+              accentBuffer != nil, normalBuffer != nil else { return }
+        guard engine.isRunning else { return }
         
         // CRITICAL: Always reconnect before starting playback.
         // Graph mutations (instrument loading, track add/remove) can sever connections
@@ -407,7 +389,6 @@ class MetronomeEngine {
     }
     
     private func stopPlaying() {
-        AppLogger.shared.debug("[METRO] stopPlaying: wasPlaying=\(isPlaying)", category: .audio)
         isPlaying = false
         beatFlash = false
         
@@ -419,14 +400,9 @@ class MetronomeEngine {
         fillTimer?.cancel()
         fillTimer = nil
         
-        // Stop the player (guard against detached node)
-        if let player = clickPlayer, player.engine != nil {
-            do {
-                try tryObjC { player.stop() }
-            } catch {
-                // stop() threw ObjC exception - node may already be stopped/detached
-            }
-        }
+        // Do NOT call player.stop() here. After AVAudioEngine.stop(), any graph operation
+        // (including player.stop()) can trigger AVFAudio precondition [_nodes containsObject: ...].
+        // startPlaying() re-arms the player with player.stop()/play() when transport plays again.
     }
     
     // MARK: - Sample-Accurate Scheduling
@@ -474,9 +450,10 @@ class MetronomeEngine {
               let accentBuf = accentBuffer,
               let normalBuf = normalBuffer,
               let dawEngine = dawAudioEngine,
-              player.engine != nil else { return }
+              let eng = player.engine,
+              eng.isRunning else { return }
         
-        // Ensure player is still playing
+        // Ensure player is still playing (only safe when engine is running)
         if !player.isPlaying {
             do {
                 try tryObjC { player.play() }
@@ -562,54 +539,25 @@ class MetronomeEngine {
     /// Perform count-in before recording starts
     /// Uses a DispatchSourceTimer for more accurate timing than Task.sleep
     func performCountIn() async {
-        AppLogger.shared.debug("[COUNTIN] performCountIn called: countInEnabled=\(countInEnabled) isInstalled=\(isInstalled) hasPlayer=\(clickPlayer != nil) isPlaying=\(isPlaying)", category: .audio)
-        guard countInEnabled else {
-            AppLogger.shared.debug("[COUNTIN] ABORT: countInEnabled is false", category: .audio)
-            return
-        }
-        guard isInstalled else {
-            AppLogger.shared.debug("[COUNTIN] ABORT: isInstalled is false", category: .audio)
-            return
-        }
-        guard let player = clickPlayer else {
-            AppLogger.shared.debug("[COUNTIN] ABORT: clickPlayer is nil", category: .audio)
-            return
-        }
+        guard countInEnabled, isInstalled, let player = clickPlayer else { return }
         
-        // Stop any ongoing playback before count-in to ensure clean state
-        if isPlaying {
-            AppLogger.shared.debug("[COUNTIN] Stopping ongoing playback first", category: .audio)
-            stopPlaying()
-        }
+        if isPlaying { stopPlaying() }
         
-        // Always reconnect before count-in — graph mutations can sever connections
-        // and leave the player in a "disconnected state" even though it's attached
-        AppLogger.shared.debug("[COUNTIN] Before reconnect: player.engine=\(player.engine != nil) hasDawEngine=\(dawAudioEngine != nil)", category: .audio)
         if let dawEngine = dawAudioEngine {
             reconnectNodes(dawMixer: dawEngine.sharedMixer)
         }
-        AppLogger.shared.debug("[COUNTIN] After reconnect: player.engine=\(player.engine != nil)", category: .audio)
-        guard player.engine != nil else {
-            AppLogger.shared.debug("[COUNTIN] ABORT: player.engine still nil after reconnect", category: .audio)
-            return
-        }
+        guard player.engine != nil else { return }
         
         let beatInterval = 60.0 / tempo
         let totalBeats = countInBars * beatsPerBar
         
-        // Re-arm player for count-in (ensure clean state)
-        AppLogger.shared.debug("[COUNTIN] Arming player: player.isPlaying=\(player.isPlaying) tempo=\(tempo) totalBeats=\(totalBeats)", category: .audio)
         do {
             try tryObjC {
                 player.stop()
                 player.play()
             }
-        } catch {
-            AppLogger.shared.debug("[COUNTIN] ABORT: player.stop/play ObjC exception: \(error)", category: .audio)
-            return
-        }
+        } catch { return }
         player.prepare(withFrameCount: 2048)
-        AppLogger.shared.debug("[COUNTIN] Player armed successfully, player.isPlaying=\(player.isPlaying), scheduling \(totalBeats) beats", category: .audio)
         
         // Use a semaphore to synchronize async completion
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -633,19 +581,12 @@ class MetronomeEngine {
                     self.currentBeat = ((beatCount - 1) % self.beatsPerBar) + 1
                     let isDownbeat = self.currentBeat == 1
                     
-                    AppLogger.shared.debug("[COUNTIN] Beat \(beatCount)/\(totalBeats) (beat \(self.currentBeat) in bar, downbeat=\(isDownbeat)) player.isPlaying=\(player.isPlaying)", category: .audio)
-                    
-                    // Schedule the click
                     if let buffer = isDownbeat ? self.accentBuffer : self.normalBuffer {
                         player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-                    } else {
-                        AppLogger.shared.debug("[COUNTIN] WARNING: buffer is nil! accent=\(self.accentBuffer != nil) normal=\(self.normalBuffer != nil)", category: .audio)
                     }
                     
                     self.triggerBeatFlash()
                 } else {
-                    // Count-in complete
-                    AppLogger.shared.debug("[COUNTIN] Count-in complete! All \(totalBeats) beats played. Transitioning to regular playback.", category: .audio)
                     timer.cancel()
                     
                     // CRITICAL: Transition directly into regular metronome playback state.

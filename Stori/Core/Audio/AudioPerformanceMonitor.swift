@@ -83,6 +83,10 @@ final class AudioPerformanceMonitor {
     
     init() {}
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Timing Measurement
     
     /// Measure the performance of an operation.
@@ -180,11 +184,7 @@ final class AudioPerformanceMonitor {
                 category: .audio
             )
         } else if event.isSlow {
-            let contextStr = context.isEmpty ? "" : " (\(context.map { "\($0.key)=\($0.value)" }.joined(separator: ", ")))"
-            AppLogger.shared.debug(
-                "Performance: \(operation) took \(String(format: "%.1f", durationMs))ms\(contextStr)",
-                category: .audio
-            )
+            // Performance logging disabled for production
         }
     }
     

@@ -47,6 +47,10 @@ class ContentDeliveryService {
     
     private init() {}
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - IPFS URL Resolution
     
     /// Convert IPFS URI to HTTP gateway URL
