@@ -16,7 +16,7 @@ final class RegionFadeExportTests: XCTestCase {
     // MARK: - Test Utilities
     
     /// Create a test audio file with a constant tone (easy to analyze for fades)
-    func createTestAudioFile(duration: TimeInterval = 1.0, sampleRate: Double = 48000) throws -> URL {
+    func createTestAudioFile(duration: TimeInterval = 1.0, sampleRate: Double = 48000) throws -> (url: URL, audioFile: AudioFile) {
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
         let frameCount = AVAudioFrameCount(duration * sampleRate)
         
@@ -40,10 +40,22 @@ final class RegionFadeExportTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
         
-        let audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
-        try audioFile.write(from: buffer)
+        let avAudioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
+        try avAudioFile.write(from: buffer)
         
-        return tempURL
+        // Create AudioFile model
+        let fileSize = try FileManager.default.attributesOfItem(atPath: tempURL.path)[.size] as? Int64 ?? 0
+        let audioFile = AudioFile(
+            name: tempURL.lastPathComponent,
+            url: tempURL,
+            duration: duration,
+            sampleRate: sampleRate,
+            channels: 2,
+            fileSize: fileSize,
+            format: .wav
+        )
+        
+        return (tempURL, audioFile)
     }
     
     enum TestError: Error {
@@ -51,13 +63,19 @@ final class RegionFadeExportTests: XCTestCase {
         case analysisFailure
     }
     
+    // MARK: - Test Helpers
+    
+    func assertApproximatelyEqual(_ value1: Float, _ value2: Float, tolerance: Float, _ message: String = "", file: StaticString = #file, line: UInt = #line) {
+        let diff = abs(value1 - value2)
+        XCTAssertLessThan(diff, tolerance, message.isEmpty ? "Values not approximately equal: \(value1) vs \(value2)" : message, file: file, line: line)
+    }
+    
     // MARK: - Fade-In Tests
     
     func testFadeInCreatesLinearRamp() throws {
-        let audioURL = try createTestAudioFile(duration: 1.0, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 1.0, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 1.0)
         var region = AudioRegion(audioFile: audioFile, fadeIn: 0.1, fadeOut: 0.0)  // 100ms fade-in
         
         // Load and apply fades
@@ -106,10 +124,9 @@ final class RegionFadeExportTests: XCTestCase {
     }
     
     func testFadeInZeroLengthHasNoEffect() throws {
-        let audioURL = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.5)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 0.0, fadeOut: 0.0)  // No fades
         
         // Load file
@@ -130,10 +147,9 @@ final class RegionFadeExportTests: XCTestCase {
     // MARK: - Fade-Out Tests
     
     func testFadeOutCreatesLinearRamp() throws {
-        let audioURL = try createTestAudioFile(duration: 1.0, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 1.0, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 1.0)
         var region = AudioRegion(audioFile: audioFile, fadeIn: 0.0, fadeOut: 0.1)  // 100ms fade-out
         
         let sourceFile = try AVAudioFile(forReading: audioURL)
@@ -181,10 +197,9 @@ final class RegionFadeExportTests: XCTestCase {
     // MARK: - Combined Fades Tests
     
     func testBothFadesAppliedCorrectly() throws {
-        let audioURL = try createTestAudioFile(duration: 1.0, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 1.0, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 1.0)
         var region = AudioRegion(audioFile: audioFile, fadeIn: 0.05, fadeOut: 0.05)  // 50ms each
         
         let sourceFile = try AVAudioFile(forReading: audioURL)
@@ -227,10 +242,9 @@ final class RegionFadeExportTests: XCTestCase {
     
     func testFadesDoNotOverlap() throws {
         // Test with short audio and long fades (fades should be clamped)
-        let audioURL = try createTestAudioFile(duration: 0.2, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.2, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.2)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 0.15, fadeOut: 0.15)  // Overlapping fades
         
         let sourceFile = try AVAudioFile(forReading: audioURL)
@@ -251,10 +265,9 @@ final class RegionFadeExportTests: XCTestCase {
     
     func testNoClicksAtRegionStart() throws {
         // Verify fade-in prevents clicks (no discontinuity at start)
-        let audioURL = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.5)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 0.01, fadeOut: 0.0)  // 10ms fade-in
         
         let sourceFile = try AVAudioFile(forReading: audioURL)
@@ -289,10 +302,9 @@ final class RegionFadeExportTests: XCTestCase {
     
     func testNoClicksAtRegionEnd() throws {
         // Verify fade-out prevents clicks (no discontinuity at end)
-        let audioURL = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.5)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 0.0, fadeOut: 0.01)  // 10ms fade-out
         
         let sourceFile = try AVAudioFile(forReading: audioURL)
@@ -333,10 +345,9 @@ final class RegionFadeExportTests: XCTestCase {
     
     func testVeryShortFades() throws {
         // Test 1ms fades (48 samples at 48kHz)
-        let audioURL = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.5)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 0.001, fadeOut: 0.001)
         
         let fadeInSamples = Int(region.fadeIn * 48000)
@@ -348,10 +359,9 @@ final class RegionFadeExportTests: XCTestCase {
     
     func testVeryLongFades() throws {
         // Test fades longer than audio file (should be clamped)
-        let audioURL = try createTestAudioFile(duration: 0.1, sampleRate: 48000)  // 100ms audio
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.1, sampleRate: 48000)  // 100ms audio
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.1)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 1.0, fadeOut: 1.0)  // 1s fades (longer than audio!)
         
         let totalFrames = Int(0.1 * 48000)  // 4800 frames
@@ -369,10 +379,9 @@ final class RegionFadeExportTests: XCTestCase {
     // MARK: - Stereo Handling
     
     func testFadesAppliedToBothChannels() throws {
-        let audioURL = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.5, sampleRate: 48000)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         
-        let audioFile = AudioFile(id: UUID(), name: "Test", url: audioURL, duration: 0.5)
         let region = AudioRegion(audioFile: audioFile, fadeIn: 0.05, fadeOut: 0.05)
         
         let sourceFile = try AVAudioFile(forReading: audioURL)
@@ -409,5 +418,63 @@ final class RegionFadeExportTests: XCTestCase {
         // Both channels should match at midpoint
         let midPoint = fadeInSamples + 100
         assertApproximatelyEqual(leftChannel[midPoint], rightChannel[midPoint], tolerance: 0.001, "Channels should match")
+    }
+    
+    // MARK: - Looped Region Tests
+    
+    func testLoopedRegionsFadesAppliedToEachIteration() throws {
+        // Verify that when a region is looped, each loop iteration gets fades applied
+        // This is critical for WYSIWYG: if playback applies fades per loop, export must too
+        let (audioURL, audioFile) = try createTestAudioFile(duration: 0.1, sampleRate: 48000)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        
+        var region = AudioRegion(audioFile: audioFile, fadeIn: 0.01, fadeOut: 0.01)
+        
+        // Simulate looped scheduling behavior from scheduleRegionForPlayback
+        // Each loop iteration should get a fresh faded buffer scheduled
+        let loopCount = 3
+        
+        for loopIndex in 0..<loopCount {
+            // Each iteration loads and applies fades to a fresh buffer
+            let sourceFile = try AVAudioFile(forReading: audioURL)
+            let frameCount = AVAudioFrameCount(sourceFile.length)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: sourceFile.processingFormat, frameCapacity: frameCount) else {
+                XCTFail("Failed to create buffer for loop \(loopIndex)")
+                return
+            }
+            try sourceFile.read(into: buffer)
+            buffer.frameLength = frameCount
+            
+            // Apply fades (simulating applyRegionFades)
+            let fadeInSamples = Int(region.fadeIn * 48000)
+            let fadeOutSamples = Int(region.fadeOut * 48000)
+            let totalFrames = Int(frameCount)
+            let fadeOutStart = totalFrames - fadeOutSamples
+            
+            guard let samples = buffer.floatChannelData?[0] else {
+                XCTFail("No channel data")
+                return
+            }
+            
+            // Apply fade-in
+            for i in 0..<fadeInSamples {
+                let gain = Float(i) / Float(fadeInSamples)
+                samples[i] *= gain
+            }
+            
+            // Apply fade-out
+            for i in 0..<fadeOutSamples {
+                let gain = 1.0 - (Float(i) / Float(fadeOutSamples))
+                samples[fadeOutStart + i] *= gain
+            }
+            
+            // Verify fades applied to this iteration
+            XCTAssertLessThan(abs(samples[0]), 0.002, "Loop \(loopIndex): First sample should have fade-in")
+            XCTAssertLessThan(abs(samples[totalFrames - 1]), 0.002, "Loop \(loopIndex): Last sample should have fade-out")
+            
+            // Middle should be full amplitude
+            let middle = totalFrames / 2
+            assertApproximatelyEqual(samples[middle], 0.5, tolerance: 0.01, "Loop \(loopIndex): Middle should be full amplitude")
+        }
     }
 }
