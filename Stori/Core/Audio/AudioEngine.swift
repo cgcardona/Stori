@@ -830,14 +830,14 @@ class AudioEngine: AudioEngineContext {
             transportController.stop()
         }
         
-        // Stop automation processor
-        automationProcessor.stop()
+        // Stop automation engine (high-priority 120Hz timer)
+        automationEngine.stop()
         
         // Stop MIDI playback and scheduler
         midiPlaybackEngine.stop()
         
-        // Stop metronome
-        metronomeEngine.stop()
+        // Stop metronome if installed (calls stopPlaying internally)
+        installedMetronome?.onTransportStop()
         
         // Stop health monitoring timer (prevents retain cycle - Issue #72)
         stopEngineHealthMonitoring()
@@ -850,11 +850,8 @@ class AudioEngine: AudioEngineContext {
             engine.stop()
         }
         
-        // Clear all audio nodes
-        for node in trackNodes.values {
-            safeDisconnectTrackNode(node)
-        }
-        trackNodes.removeAll()
+        // Clear all track nodes (delegates to TrackNodeManager)
+        trackNodeManager?.clearAllTracks()
         
         AppLogger.shared.debug("AudioEngine cleanup completed", category: .audio)
     }
