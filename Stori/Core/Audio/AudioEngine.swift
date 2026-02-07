@@ -431,6 +431,27 @@ class AudioEngine: AudioEngineContext {
     var loudnessIntegrated: Float { meteringService.loudnessIntegrated }
     var truePeak: Float { meteringService.truePeak }
     
+    // MARK: - Clip Detection (Issue #73 - Delegated to MeteringService)
+    
+    /// Number of samples that exceeded 0dBFS since last reset
+    var clipCount: Int { meteringService.clipCount }
+    
+    /// Whether clipping has occurred (latching indicator)
+    var isClipping: Bool { meteringService.isClipping }
+    
+    /// Reset clip detection state (call when user acknowledges clip indicator)
+    func resetClipIndicator() {
+        meteringService.resetClipIndicator()
+    }
+    
+    #if DEBUG
+    /// Process a buffer through clip detection logic for testing (Issue #73)
+    /// This allows unit tests to validate clip detection without requiring full audio playback
+    func processBufferForClipTesting(_ buffer: AVAudioPCMBuffer) {
+        meteringService.processBufferForTesting(buffer)
+    }
+    #endif
+    
     // MARK: - Current Project (Computed - ProjectManager is Single Source of Truth)
     /// Project state is owned by ProjectManager. This computed property provides
     /// convenient access while ensuring single source of truth.
@@ -828,10 +849,56 @@ class AudioEngine: AudioEngineContext {
         // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
         // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
         // Note: Cannot access @MainActor properties in deinit.
-        // TransportController's timer will be cleaned up automatically.
         
-        // Clean up RT error flush timer
+        // FIX Issue #72: Cancel health timer to prevent retain cycle
+        // Timer is @ObservationIgnored so it's safe to access here
+        engineHealthTimer?.cancel()
+        
+        // FIX Issue #78: Clean up RT error flush timer
         stopRTErrorFlushTimer()
+    }
+    
+    // MARK: - Lifecycle Management (Issue #72)
+    
+    /// Clean up audio engine resources explicitly.
+    /// Call this before releasing references to AudioEngine to ensure proper cleanup.
+    /// This method prevents timer retain cycles and ensures deterministic resource release.
+    ///
+    /// ARCHITECTURE NOTE: While timers use [weak self], explicitly cancelling them
+    /// prevents edge cases where the timer fires during deallocation.
+    func cleanup() {
+        // Stop playback first
+        if transportController.transportState.isPlaying {
+            transportController.stop()
+        }
+        
+        // Stop automation engine (high-priority 120Hz timer)
+        automationEngine.stop()
+        
+        // Stop MIDI playback and scheduler
+        midiPlaybackEngine.stop()
+        
+        // Stop metronome if installed (calls stopPlaying internally)
+        installedMetronome?.onTransportStop()
+        
+        // Stop health monitoring timer (prevents retain cycle - Issue #72)
+        stopEngineHealthMonitoring()
+        
+        // Stop RT error flush timer (prevents retain cycle - Issue #78)
+        stopRTErrorFlushTimer()
+        
+        // Stop transport position timer
+        transportController.stopPositionTimer()
+        
+        // Stop audio engine
+        if engine.isRunning {
+            engine.stop()
+        }
+        
+        // Clear all track nodes (delegates to TrackNodeManager)
+        trackNodeManager?.clearAllTracks()
+        
+        AppLogger.shared.debug("AudioEngine cleanup completed", category: .audio)
     }
     
     // MARK: - Audio Engine Setup
@@ -1986,6 +2053,54 @@ class AudioEngine: AudioEngineContext {
     
     func updateTrackRecordEnabled(trackId: UUID, isRecordEnabled: Bool) {
         mixerController.updateTrackRecordEnabled(trackId: trackId, isRecordEnabled: isRecordEnabled)
+    }
+    
+    // MARK: - Mixer State Getters (for Undo/Redo Verification - Issue #71)
+    
+    /// Get current track volume from project model
+    /// Used by undo/redo tests to verify model state after undo operations
+    /// Note: In production, AudioEngine.currentProject is the source of truth for audio state
+    func getTrackVolume(trackId: UUID) -> Float? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
+        }
+        return project.tracks[trackIndex].mixerSettings.volume
+    }
+    
+    /// Get current track pan from project model
+    func getTrackPan(trackId: UUID) -> Float? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
+        }
+        return project.tracks[trackIndex].mixerSettings.pan
+    }
+    
+    /// Get current track mute state from project model
+    func getTrackMute(trackId: UUID) -> Bool? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
+        }
+        return project.tracks[trackIndex].mixerSettings.isMuted
+    }
+    
+    /// Get current track solo state from project model
+    func getTrackSolo(trackId: UUID) -> Bool? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
+        }
+        return project.tracks[trackIndex].mixerSettings.isSolo
     }
     
     // MARK: - Individual EQ Band Updates (Delegated to MixerController)

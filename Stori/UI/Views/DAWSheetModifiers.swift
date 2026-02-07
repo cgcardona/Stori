@@ -19,6 +19,7 @@ struct DAWSheetModifiers: ViewModifier {
     @Binding var showingExportSettings: Bool
     @Binding var activeSheet: DAWSheet?
     
+    let audioEngine: AudioEngine
     let projectManager: ProjectManager
     let exportService: ProjectExportService
     let availableBuses: [MixerBus]
@@ -54,6 +55,7 @@ struct DAWSheetModifiers: ViewModifier {
                 ExportSettingsSheet(
                     projectName: project?.name ?? "Untitled",
                     projectDuration: duration,
+                    audioEngine: audioEngine,
                     onExport: onExportWithSettings
                 )
             }

@@ -495,13 +495,21 @@ class TrackPluginManager {
                                 try await instance.load(sampleRate: sampleRate)
                             }
                             
-                            // Restore saved state
+                            // CRITICAL (Issue #77): Restore preset BEFORE allocating render resources
+                            // This ensures the plugin is in the correct state before audio can flow
                             if let stateData = config.fullState {
                                 _ = await instance.restoreState(from: stateData)
                             }
                             
                             // Restore bypass state
                             instance.setBypass(config.isBypassed)
+                            
+                            // CRITICAL (Issue #77): Allocate render resources AFTER preset restoration
+                            // This prevents the first audio callback from rendering with default preset
+                            // Professional DAWs guarantee WYSIWYG: what you saved is what you hear
+                            if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
+                                try au.allocateRenderResources()
+                            }
                             
                             return .success(LoadedPlugin(
                                 trackId: trackId,
@@ -747,5 +755,13 @@ class TrackPluginManager {
         
         sidechainConnections.removeValue(forKey: trackId)
         sidechainSources.removeValue(forKey: trackId)
+    }
+    
+    deinit {
+        // CRITICAL: Protective deinit for class owned by @Observable parent (ASan Issue #84742+)
+        // Root cause: Classes owned by @Observable @MainActor parents can experience
+        // Swift Concurrency TaskLocal double-free on deallocation.
+        // Empty deinit ensures proper Swift Concurrency cleanup order.
+        // See: AudioEngine.deinit, BusManager.deinit
     }
 }

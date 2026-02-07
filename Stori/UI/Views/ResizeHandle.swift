@@ -14,7 +14,23 @@ struct ResizeHandle: View {
     }
     
     let orientation: Orientation
+    /// Called once when the drag gesture begins.
+    let onDragStarted: () -> Void
+    /// Called on every drag movement with the **cumulative** delta from
+    /// the gesture start. Callers should use a captured start-value
+    /// (snapshotted in `onDragStarted`) so they never depend on reading
+    /// back the current model value mid-drag.
     let onDrag: (CGFloat) -> Void
+    
+    /// Convenience initialiser that omits `onDragStarted` for call sites
+    /// that don't need it (e.g. the inspector width handle).
+    init(orientation: Orientation,
+         onDragStarted: @escaping () -> Void = {},
+         onDrag: @escaping (CGFloat) -> Void) {
+        self.orientation = orientation
+        self.onDragStarted = onDragStarted
+        self.onDrag = onDrag
+    }
     
     @State private var isHovered = false
     @State private var isDragging = false
@@ -56,10 +72,15 @@ struct ResizeHandle: View {
             isHovered = hovering
         }
         .gesture(
-            DragGesture()
+            // IMPORTANT: Use .global coordinate space. The handle lives
+            // inside the panel it resizes. With the default .local space,
+            // each height change shifts the coordinate origin, corrupting
+            // the cumulative translation and causing oscillation / jitter.
+            DragGesture(coordinateSpace: .global)
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
+                        onDragStarted()
                     }
                     let delta = orientation == .vertical ? value.translation.width : value.translation.height
                     onDrag(delta)

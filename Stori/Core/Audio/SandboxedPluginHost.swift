@@ -176,6 +176,13 @@ class SandboxedPluginHost {
         defaults.set(Array(cannotSandbox), forKey: "plugin.cannotSandbox")
         defaults.set(defaultMode.rawValue, forKey: "plugin.defaultMode")
     }
+    
+    deinit {
+        // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
+        // Root cause: @MainActor classes can experience Swift Concurrency TaskLocal double-free.
+        // Empty deinit ensures proper Swift Concurrency cleanup order.
+        // See: AudioEngine.deinit, BusManager.deinit
+    }
 }
 
 // MARK: - PluginDescriptor Extension

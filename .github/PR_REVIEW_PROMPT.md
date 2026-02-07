@@ -16,7 +16,7 @@ You have full authority to:
 ---
 
 ## INPUT
-- **Pull Request:** https://github.com/cgcardona/Stori/pull/127
+- **Pull Request:** https://github.com/cgcardona/Stori/pull/131
 
 ---
 
