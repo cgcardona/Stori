@@ -413,6 +413,27 @@ class AudioEngine: AudioEngineContext {
     var loudnessIntegrated: Float { meteringService.loudnessIntegrated }
     var truePeak: Float { meteringService.truePeak }
     
+    // MARK: - Clip Detection (Issue #73 - Delegated to MeteringService)
+    
+    /// Number of samples that exceeded 0dBFS since last reset
+    var clipCount: Int { meteringService.clipCount }
+    
+    /// Whether clipping has occurred (latching indicator)
+    var isClipping: Bool { meteringService.isClipping }
+    
+    /// Reset clip detection state (call when user acknowledges clip indicator)
+    func resetClipIndicator() {
+        meteringService.resetClipIndicator()
+    }
+    
+    #if DEBUG
+    /// Process a buffer through clip detection logic for testing (Issue #73)
+    /// This allows unit tests to validate clip detection without requiring full audio playback
+    func processBufferForClipTesting(_ buffer: AVAudioPCMBuffer) {
+        meteringService.processBufferForTesting(buffer)
+    }
+    #endif
+    
     // MARK: - Current Project (Computed - ProjectManager is Single Source of Truth)
     /// Project state is owned by ProjectManager. This computed property provides
     /// convenient access while ensuring single source of truth.
