@@ -178,9 +178,9 @@ final class AudioEngineTests: XCTestCase {
     func testEngineLoadEmptyProject() async throws {
         let project = AudioProject(name: "Empty Project", tempo: 120.0)
         
-        engine.play()
-        
         engine.loadProject(project)
+        
+        engine.play()
         
         // Project should be loaded
         XCTAssertEqual(engine.currentProject?.name, "Empty Project")
@@ -192,9 +192,9 @@ final class AudioEngineTests: XCTestCase {
         project.addTrack(AudioTrack(name: "Track 1", trackType: .audio, color: .blue))
         project.addTrack(AudioTrack(name: "Track 2", trackType: .midi, color: .red))
         
-        engine.play()
-        
         engine.loadProject(project)
+        
+        engine.play()
         
         XCTAssertEqual(engine.currentProject?.tracks.count, 2)
         XCTAssertEqual(engine.currentProject?.tracks[0].name, "Track 1")
@@ -205,8 +205,8 @@ final class AudioEngineTests: XCTestCase {
         var project = AudioProject(name: "Original", tempo: 120.0)
         project.addTrack(AudioTrack(name: "Track 1", trackType: .audio, color: .blue))
         
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         // Update project data
         var updatedProject = project
@@ -251,8 +251,8 @@ final class AudioEngineTests: XCTestCase {
         let track = AudioTrack(name: "Track 1", trackType: .audio, color: .blue)
         project.addTrack(track)
         
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         // Ensure node exists
         engine.ensureTrackNodeExists(for: track)
@@ -268,8 +268,8 @@ final class AudioEngineTests: XCTestCase {
         project.addTrack(AudioTrack(name: "Track 1", trackType: .audio, color: .blue))
         let trackId = project.tracks[0].id
         
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         engine.setTrackVolume(trackId, volume: 0.5)
         
@@ -284,8 +284,8 @@ final class AudioEngineTests: XCTestCase {
         project.addTrack(AudioTrack(name: "Track 1", trackType: .audio, color: .blue))
         let trackId = project.tracks[0].id
         
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         engine.setTrackPan(trackId, pan: -0.3)
         
@@ -299,8 +299,8 @@ final class AudioEngineTests: XCTestCase {
         project.addTrack(AudioTrack(name: "Track 1", trackType: .audio, color: .blue))
         let trackId = project.tracks[0].id
         
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         engine.muteTrack(trackId, muted: true)
         
@@ -393,8 +393,8 @@ final class AudioEngineTests: XCTestCase {
     
     func testEngineSeekToSeconds() async throws {
         let project = AudioProject(name: "Test", tempo: 120.0)
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         // 2 seconds at 120 BPM = 4 beats
         engine.seek(toSeconds: 2.0)
@@ -468,8 +468,8 @@ final class AudioEngineTests: XCTestCase {
     
     func testEngineAddBus() async throws {
         let project = AudioProject(name: "Test", tempo: 120.0)
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         let bus = MixerBus(name: "Reverb", outputLevel: 0.8)
         engine.addBus(bus)
@@ -480,8 +480,8 @@ final class AudioEngineTests: XCTestCase {
     
     func testEngineRemoveBus() async throws {
         let project = AudioProject(name: "Test", tempo: 120.0)
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         let bus = MixerBus(name: "Reverb", outputLevel: 0.8)
         engine.addBus(bus)
@@ -627,11 +627,10 @@ final class AudioEngineTests: XCTestCase {
             project.addTrack(AudioTrack(name: "Track \(i)", trackType: .audio, color: .blue))
         }
         
-        engine.play()
-        
         measure {
             Task { @MainActor in
                 engine.loadProject(project)
+                engine.play()
             }
         }
     }
@@ -669,8 +668,8 @@ final class AudioEngineTests: XCTestCase {
         project.addTrack(AudioTrack(name: "Track 1", trackType: .audio, color: .blue))
         let trackId = project.tracks[0].id
         
-        engine.play()
         engine.loadProject(project)
+        engine.play()
         
         // Perform concurrent volume updates
         await withTaskGroup(of: Void.self) { group in
