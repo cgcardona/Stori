@@ -136,6 +136,7 @@
 				Core/Services/Update/UpdateStore.swift,
 				Core/Services/UserManager.swift,
 				Core/Utilities/CancellationBag.swift,
+				Core/Utilities/DiagnosticLogger.swift,
 				Core/Utilities/FileNameSanitizer.swift,
 				Core/Utilities/ObjCExceptionBridge.swift,
 				Core/Utilities/ObjCExceptionCatcher.m,

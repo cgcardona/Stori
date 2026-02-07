@@ -893,7 +893,7 @@ class AudioEngine: AudioEngineContext {
     /// ARCHITECTURE NOTE: While timers use [weak self], explicitly cancelling them
     /// prevents edge cases where the timer fires during deallocation.
     func cleanup() {
-        NSLog("🧹 [DIAGNOSTIC] AudioEngine.cleanup() START")
+        DiagnosticLogger.shared.log("🧹 AudioEngine.cleanup() START")
         
         // Stop playback first
         if transportController.transportState.isPlaying {
@@ -909,7 +909,7 @@ class AudioEngine: AudioEngineContext {
         // Stop metronome if installed (calls stopPlaying internally)
         installedMetronome?.onTransportStop()
         
-        NSLog("🧹 [DIAGNOSTIC] Cancelling all timers via CancellationBag")
+        DiagnosticLogger.shared.log("🧹 Cancelling all timers via CancellationBag")
         // Cancel all timers synchronously via cancellation bag
         // Eliminates retain cycles and ensures deterministic cleanup
         cancels.cancelAll()
@@ -925,7 +925,7 @@ class AudioEngine: AudioEngineContext {
         // Clear all track nodes (delegates to TrackNodeManager)
         trackNodeManager?.clearAllTracks()
         
-        NSLog("✅ [DIAGNOSTIC] AudioEngine.cleanup() COMPLETE")
+        DiagnosticLogger.shared.log("✅ AudioEngine.cleanup() COMPLETE")
         AppLogger.shared.debug("AudioEngine cleanup completed", category: .audio)
     }
     

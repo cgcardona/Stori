@@ -33,6 +33,12 @@ class SharedAudioEngine {
 // MARK: - App Delegate
 /// Handles macOS app lifecycle events like reopening windows
 class StoriAppDelegate: NSObject, NSApplicationDelegate {
+    
+    /// Called when app finishes launching
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DiagnosticLogger.shared.log("🚀🚀🚀 App DID FINISH LAUNCHING - delegate is working!")
+    }
+    
     /// Called when user clicks dock icon with no windows open
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
@@ -42,9 +48,20 @@ class StoriAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
     
+    /// Called when app becomes active
+    func applicationDidBecomeActive(_ notification: Notification) {
+        DiagnosticLogger.shared.log("👀 App became active")
+    }
+    
+    /// Called before app terminates - SHOULD be called
+    func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
+        DiagnosticLogger.shared.log("⚠️⚠️⚠️ applicationShouldTerminate called")
+        return .terminateNow
+    }
+    
     /// Called when app is about to terminate
     func applicationWillTerminate(_ notification: Notification) {
-        NSLog("🛑🛑🛑 [DIAGNOSTIC] App terminating - cleaning up audio engine")
+        DiagnosticLogger.shared.log("🛑🛑🛑 App terminating - cleaning up audio engine")
         
         // CRITICAL: This must be SYNCHRONOUS - app terminates immediately after this returns
         // We must use MainActor.assumeIsolated to call @MainActor method synchronously
@@ -54,7 +71,7 @@ class StoriAppDelegate: NSObject, NSApplicationDelegate {
         
         TempFileManager.cleanupAll()
         
-        NSLog("✅✅✅ [DIAGNOSTIC] App cleanup complete")
+        DiagnosticLogger.shared.log("✅✅✅ App cleanup complete")
     }
     
     /// Show existing main window or create a new one
