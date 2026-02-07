@@ -1913,39 +1913,48 @@ class AudioEngine: AudioEngineContext {
     
     // MARK: - Mixer State Getters (for Undo/Redo Verification - Issue #71)
     
-    /// Get current track volume from audio engine
-    /// Used by undo/redo to verify synchronization with project model
-    func getTrackVolume(trackId: UUID) -> Float {
-        guard let project = currentProject,
-              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
-            return 0.8 // Default volume
+    /// Get current track volume from project model
+    /// Used by undo/redo tests to verify model state after undo operations
+    /// Note: In production, AudioEngine.currentProject is the source of truth for audio state
+    func getTrackVolume(trackId: UUID) -> Float? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
         }
         return project.tracks[trackIndex].mixerSettings.volume
     }
     
-    /// Get current track pan from audio engine
-    func getTrackPan(trackId: UUID) -> Float {
-        guard let project = currentProject,
-              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
-            return 0.0 // Center pan
+    /// Get current track pan from project model
+    func getTrackPan(trackId: UUID) -> Float? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
         }
         return project.tracks[trackIndex].mixerSettings.pan
     }
     
-    /// Get current track mute state from audio engine
-    func getTrackMute(trackId: UUID) -> Bool {
-        guard let project = currentProject,
-              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
-            return false
+    /// Get current track mute state from project model
+    func getTrackMute(trackId: UUID) -> Bool? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
         }
         return project.tracks[trackIndex].mixerSettings.isMuted
     }
     
-    /// Get current track solo state from audio engine
-    func getTrackSolo(trackId: UUID) -> Bool {
-        guard let project = currentProject,
-              let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
-            return false
+    /// Get current track solo state from project model
+    func getTrackSolo(trackId: UUID) -> Bool? {
+        guard let project = currentProject else {
+            return nil
+        }
+        guard let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) else {
+            return nil
         }
         return project.tracks[trackIndex].mixerSettings.isSolo
     }
