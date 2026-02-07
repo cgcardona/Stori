@@ -497,6 +497,15 @@ struct ProfessionalChannelStrip: View {
                         set: { newValue in
                             // Convert -1.0 to +1.0 range (knob provides) to 0.0-1.0 range (stored)
                             let storedValue = (newValue + 1.0) / 2.0
+                            // Register undo for pan change (Issue #71)
+                            let oldValue = track.mixerSettings.pan
+                            UndoService.shared.registerPanChange(
+                                trackId,
+                                from: oldValue,
+                                to: storedValue,
+                                projectManager: projectManager,
+                                audioEngine: audioEngine
+                            )
                             audioEngine.updateTrackPan(trackId: trackId, pan: storedValue)
                         }
                     ),
@@ -514,6 +523,15 @@ struct ProfessionalChannelStrip: View {
             value: Binding(
                 get: { track.mixerSettings.volume },
                 set: { newValue in
+                    // Register undo for volume change (Issue #71)
+                    let oldValue = track.mixerSettings.volume
+                    UndoService.shared.registerVolumeChange(
+                        trackId,
+                        from: oldValue,
+                        to: newValue,
+                        projectManager: projectManager,
+                        audioEngine: audioEngine
+                    )
                     audioEngine.updateTrackVolume(trackId: trackId, volume: newValue)
                 }
             ),
@@ -820,12 +838,27 @@ struct ProfessionalChannelStrip: View {
     private func toggleGroupedMute() {
         let newMuteState = !track.mixerSettings.isMuted
         
+        // Register undo for mute toggle (Issue #71)
+        UndoService.shared.registerMuteToggle(
+            trackId,
+            wasMuted: track.mixerSettings.isMuted,
+            projectManager: projectManager,
+            audioEngine: audioEngine
+        )
+        
         // Update this track
         audioEngine.updateTrackMute(trackId: trackId, isMuted: newMuteState)
         
         // Update grouped tracks if mute is linked
         if linkedParameters.contains(.mute) {
             for groupedTrack in groupedTracks {
+                // Register undo for each grouped track
+                UndoService.shared.registerMuteToggle(
+                    groupedTrack.id,
+                    wasMuted: groupedTrack.mixerSettings.isMuted,
+                    projectManager: projectManager,
+                    audioEngine: audioEngine
+                )
                 audioEngine.updateTrackMute(trackId: groupedTrack.id, isMuted: newMuteState)
             }
         }
@@ -834,12 +867,27 @@ struct ProfessionalChannelStrip: View {
     private func toggleGroupedSolo() {
         let newSoloState = !track.mixerSettings.isSolo
         
+        // Register undo for solo toggle (Issue #71)
+        UndoService.shared.registerSoloToggle(
+            trackId,
+            wasSolo: track.mixerSettings.isSolo,
+            projectManager: projectManager,
+            audioEngine: audioEngine
+        )
+        
         // Update this track
         audioEngine.updateTrackSolo(trackId: trackId, isSolo: newSoloState)
         
         // Update grouped tracks if solo is linked
         if linkedParameters.contains(.solo) {
             for groupedTrack in groupedTracks {
+                // Register undo for each grouped track
+                UndoService.shared.registerSoloToggle(
+                    groupedTrack.id,
+                    wasSolo: groupedTrack.mixerSettings.isSolo,
+                    projectManager: projectManager,
+                    audioEngine: audioEngine
+                )
                 audioEngine.updateTrackSolo(trackId: groupedTrack.id, isSolo: newSoloState)
             }
         }
