@@ -9,7 +9,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Accelerate
 
 // MARK: - Parameter Smoother

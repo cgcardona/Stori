@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 
 // MARK: - Transport Delegate Protocol
 

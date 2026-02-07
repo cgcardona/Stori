@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 import os.lock
 

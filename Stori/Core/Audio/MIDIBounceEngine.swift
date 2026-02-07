@@ -9,7 +9,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 
 // MARK: - Bounce State

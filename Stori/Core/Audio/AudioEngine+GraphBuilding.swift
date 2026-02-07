@@ -18,7 +18,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 
 // MARK: - Graph State Snapshot
 

@@ -12,7 +12,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 
 /// Coordinates audio track scheduling and cycle loop handling

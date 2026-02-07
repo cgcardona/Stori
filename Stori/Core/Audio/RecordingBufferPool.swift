@@ -17,7 +17,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import os.lock
 
 // MARK: - Recording Buffer Pool

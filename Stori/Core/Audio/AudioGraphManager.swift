@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 
 /// Manages audio graph mutations with tiered performance characteristics

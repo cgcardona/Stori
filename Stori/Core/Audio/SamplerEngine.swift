@@ -40,7 +40,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 
 // MARK: - General MIDI Instrument

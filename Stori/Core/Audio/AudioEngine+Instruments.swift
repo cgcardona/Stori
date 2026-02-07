@@ -14,7 +14,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 
 // MARK: - Instruments Extension
 

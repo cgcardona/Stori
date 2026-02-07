@@ -22,7 +22,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 
 /// Manages deferred deallocation of plugins to prevent use-after-free during hot-swap

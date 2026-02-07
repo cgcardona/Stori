@@ -18,7 +18,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 
 // TimeSignature is defined in AudioModels.swift and will be available when this file is compiled as part of the target
 

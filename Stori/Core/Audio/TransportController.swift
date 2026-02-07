@@ -18,7 +18,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import QuartzCore
 import os.lock
 

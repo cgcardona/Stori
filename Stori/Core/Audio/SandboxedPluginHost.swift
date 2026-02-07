@@ -8,7 +8,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import AudioToolbox
 
 // MARK: - Sandboxed Plugin Host

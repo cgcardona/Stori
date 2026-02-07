@@ -13,7 +13,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// Manages track audio node lifecycle: creation, destruction, and access
 @MainActor

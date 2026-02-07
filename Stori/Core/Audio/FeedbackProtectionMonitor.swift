@@ -22,7 +22,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Accelerate
 import os.lock
 

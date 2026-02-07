@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import AudioToolbox
 import CoreAudioKit
 import Combine

@@ -18,7 +18,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import AVKit
 import os.lock
 

@@ -38,7 +38,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import os.lock
 
 // MARK: - Audio Debug Configuration

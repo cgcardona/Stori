@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
 
 /// Manages audio hardware configuration changes (e.g., switching audio interfaces)

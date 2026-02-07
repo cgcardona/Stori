@@ -106,7 +106,7 @@ final class AudioPerformanceMonitor {
     }
     
     /// Measure async operation performance
-    func measureAsync<T>(
+    func measureAsync<T: Sendable>(
         operation: String,
         context: [String: String] = [:],
         _ work: () async throws -> T
