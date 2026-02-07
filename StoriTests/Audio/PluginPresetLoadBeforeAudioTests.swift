@@ -14,18 +14,39 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
     
     var engine: AVAudioEngine!
     var pluginInstanceManager: PluginInstanceManager!
+    var attachedNodes: [AVAudioNode] = []
     
     override func setUp() async throws {
         engine = AVAudioEngine()
         pluginInstanceManager = PluginInstanceManager()
-        try engine.start()
+        attachedNodes = []
+        // Don't start engine - not needed for these tests
     }
     
     override func tearDown() async throws {
-        engine.stop()
+        // Stop engine first
+        if engine.isRunning {
+            engine.stop()
+        }
+        
+        // Detach all nodes we attached during tests
+        for node in attachedNodes {
+            engine.detach(node)
+        }
+        attachedNodes.removeAll()
+        
+        // Unload all plugin instances
         pluginInstanceManager.unloadAll()
+        
+        // Nil everything
         engine = nil
         pluginInstanceManager = nil
+    }
+    
+    // Helper to track attached nodes
+    private func attach(_ node: AVAudioNode) {
+        engine.attach(node)
+        attachedNodes.append(node)
     }
     
     // MARK: - Core Regression Tests
@@ -44,9 +65,6 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
         // Load plugin
         try await instance.load(sampleRate: sampleRate)
         
-        // Save current state
-        let originalState = try instance.saveState()
-        
         // Modify a parameter to create a custom preset
         if let firstParam = instance.parameters.first {
             let modifiedValue = firstParam.maxValue * 0.75 // Set to 75% of max
@@ -62,6 +80,9 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
             // Restore custom state
             let restored = await instance.restoreState(from: customState)
             XCTAssertTrue(restored, "Preset restoration should succeed")
+            
+            // CRITICAL: Attach to engine BEFORE allocating render resources
+            attach(try XCTUnwrap(instance.avAudioUnit))
             
             // CRITICAL: Allocate render resources AFTER preset restoration
             let au = try XCTUnwrap(instance.auAudioUnit)
@@ -99,14 +120,14 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
         let restored = await instance.restoreState(from: customState)
         XCTAssertTrue(restored)
         
+        // Attach to engine FIRST
+        attach(try XCTUnwrap(instance.avAudioUnit))
+        
         // CRITICAL: Allocate resources AFTER restoration
         let au = try XCTUnwrap(instance.auAudioUnit)
         if !au.renderResourcesAllocated {
             try au.allocateRenderResources()
         }
-        
-        // Attach to engine
-        engine.attach(try XCTUnwrap(instance.avAudioUnit))
         
         // Verify plugin is ready (resources allocated)
         XCTAssertTrue(au.renderResourcesAllocated,
@@ -142,7 +163,8 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
             try await instance.load(sampleRate: 48000.0)
             _ = await instance.restoreState(from: state)
             
-            // Allocate resources
+            // Attach to engine and allocate resources
+            attach(try XCTUnwrap(instance.avAudioUnit))
             if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
                 try au.allocateRenderResources()
             }
@@ -179,6 +201,7 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
         XCTAssertFalse(restored, "Empty data should fail gracefully")
         
         // Plugin should still be usable with default state
+        attach(try XCTUnwrap(instance.avAudioUnit))
         let au = try XCTUnwrap(instance.auAudioUnit)
         if !au.renderResourcesAllocated {
             try au.allocateRenderResources()
@@ -211,6 +234,7 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
         XCTAssertLessThan(duration, 5.0, "Preset restoration should complete within timeout")
         
         // Verify resources can be allocated after restoration
+        attach(try XCTUnwrap(instance.avAudioUnit))
         if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
             try au.allocateRenderResources()
         }
@@ -239,7 +263,8 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
         _ = await instance.restoreState(from: state)
         instance.setBypass(true)
         
-        // Allocate resources (even for bypassed plugins)
+        // Attach to engine and allocate resources (even for bypassed plugins)
+        attach(try XCTUnwrap(instance.avAudioUnit))
         if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
             try au.allocateRenderResources()
         }
@@ -259,18 +284,22 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
             throw XCTSkip("No suitable test plugin found")
         }
         
-        measure {
-            Task { @MainActor in
-                let instance = self.pluginInstanceManager.createInstance(from: descriptor)
-                try? await instance.load(sampleRate: 48000.0)
-                
-                if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
-                    try? au.allocateRenderResources()
-                }
-                
-                instance.unload()
-            }
+        let instance = pluginInstanceManager.createInstance(from: descriptor)
+        try await instance.load(sampleRate: 48000.0)
+        
+        attach(try XCTUnwrap(instance.avAudioUnit))
+        
+        // Measure allocation time
+        let start = CFAbsoluteTimeGetCurrent()
+        if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
+            try au.allocateRenderResources()
         }
+        let duration = CFAbsoluteTimeGetCurrent() - start
+        
+        // Should complete in < 10ms (typically 1-5ms)
+        XCTAssertLessThan(duration, 0.01, "Render resource allocation should be fast (< 10ms)")
+        
+        instance.unload()
     }
     
     // MARK: - Helper Methods
@@ -298,7 +327,7 @@ final class PluginPresetLoadBeforeAudioTests: XCTestCase {
             manufacturer: "Apple",
             version: "1.0",
             category: .effect,
-            componentDescription: AudioUnitComponentDescription(audioComponentDescription: componentDesc),
+            componentDescription: AudioComponentDescriptionCodable(from: componentDesc),
             auType: .aufx,
             supportsPresets: true,
             hasCustomUI: false,
