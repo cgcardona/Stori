@@ -64,9 +64,6 @@ struct ScoreView: View {
     @State private var entryMode: ScoreEntryMode = .select
     @State private var currentDuration: NoteDuration = .quarter
     
-    // Track view size for accurate tap detection
-    @State private var viewSize: CGSize = .zero
-    
     // For preview/playback - PERF: Uses isolated ScorePlayhead component
     var onPreviewNote: ((UInt8) -> Void)?
     var tempo: Double = 120.0
@@ -76,13 +73,23 @@ struct ScoreView: View {
     var cycleStartBeat: Double = 0
     var cycleEndBeat: Double = 4
     
-    // Layout constants
-    let measureWidth: CGFloat = 200
-    let rulerHeight: CGFloat = 30
-    let staffRowHeight: CGFloat = 120  // Height per staff row (enough for ledger lines and stems)
-    let trackLabelWidth: CGFloat = 100  // Width for track labels on left
+    // Layout metrics — single source of truth for all spacing constants.
+    // Every coordinate decision flows through ScoreLayoutMetrics.
+    private let metrics = ScoreLayoutMetrics()
     
     private let renderer = StaffRenderer()
+    
+    /// Create a coordinate mapper for a specific clef.
+    /// Both rendering and interaction MUST use this to guarantee coordinate agreement.
+    private func makeMapper(for clef: Clef) -> ScoreCoordinateMapper {
+        ScoreCoordinateMapper(
+            metrics: metrics,
+            clef: clef,
+            keySignature: configuration.keySignature,
+            timeSignature: configuration.timeSignature,
+            horizontalZoom: horizontalZoom
+        )
+    }
     
     // Computed property for track data
     private var scoreTracks: [ScoreTrackData] {
@@ -103,11 +110,11 @@ struct ScoreView: View {
             
             // Score content - multi-track layout
             GeometryReader { geometry in
-                let scaledMeasureWidth = measureWidth * horizontalZoom
-                let contentStartX: CGFloat = trackLabelWidth + 60  // Track label + clef/sig area
+                let defaultMapper = makeMapper(for: scoreTracks.first?.clef ?? .treble)
+                let scaledMeasureWidth = defaultMapper.scaledMeasureWidth
+                let contentStartX = metrics.trackLabelWidth + defaultMapper.contentStartX
                 let maxMeasures = scoreTracks.compactMap { $0.region?.notes.map { $0.endBeat }.max() }.max().map { Int(ceil($0 / configuration.timeSignature.measureDuration)) } ?? 4
                 let totalWidth = max(geometry.size.width, CGFloat(max(4, maxMeasures)) * scaledMeasureWidth + contentStartX + 50)
-                let totalStaffHeight = CGFloat(max(1, scoreTracks.count)) * staffRowHeight
                 
                 ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -116,7 +123,7 @@ struct ScoreView: View {
                             // Empty space for track labels column
                             Rectangle()
                                 .fill(Color(nsColor: .controlBackgroundColor))
-                                .frame(width: trackLabelWidth, height: rulerHeight)
+                                .frame(width: metrics.trackLabelWidth, height: metrics.rulerHeight)
                             
                             ZStack(alignment: .topLeading) {
                                 // Ruler background
@@ -125,27 +132,29 @@ struct ScoreView: View {
                                 
                                 // Cycle region overlay
                                 if cycleEnabled {
-                                    scoreCycleOverlay(contentStartX: 60, scaledMeasureWidth: scaledMeasureWidth)
+                                    scoreCycleOverlay(contentStartX: defaultMapper.contentStartX, scaledMeasureWidth: scaledMeasureWidth)
                                 }
                                 
-                                // Measure ruler (contentStartX is relative to this view, so use 60)
-                                scoreRuler(contentStartX: 60, scaledMeasureWidth: scaledMeasureWidth, totalWidth: totalWidth - trackLabelWidth)
+                                // Measure ruler — uses mapper's contentStartX for exact alignment
+                                scoreRuler(contentStartX: defaultMapper.contentStartX, scaledMeasureWidth: scaledMeasureWidth, totalWidth: totalWidth - metrics.trackLabelWidth)
                                 
                                 // Playhead in ruler
                                 ScorePlayhead(
-                                    contentStartX: 60,
+                                    contentStartX: defaultMapper.contentStartX,
                                     scaledMeasureWidth: scaledMeasureWidth,
                                     measureDuration: configuration.timeSignature.measureDuration,
-                                    height: rulerHeight
+                                    height: metrics.rulerHeight
                                 )
                             }
-                            .frame(width: totalWidth - trackLabelWidth, height: rulerHeight)
+                            .frame(width: totalWidth - metrics.trackLabelWidth, height: metrics.rulerHeight)
                         }
                         
                         Divider()
                         
                         // MARK: - Multi-Track Staff Rows
                         ForEach(scoreTracks) { trackData in
+                            let trackMapper = makeMapper(for: trackData.clef)
+                            
                             HStack(spacing: 0) {
                                 // Track label on the left
                                 VStack(alignment: .leading, spacing: 2) {
@@ -159,23 +168,30 @@ struct ScoreView: View {
                                         .fill(trackData.color)
                                         .frame(width: 40, height: 4)
                                 }
-                                .frame(width: trackLabelWidth - 8, alignment: .leading)
+                                .frame(width: metrics.trackLabelWidth - 8, alignment: .leading)
                                 .padding(.horizontal, 4)
                                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                                 
                                 // Staff content for this track
                                 ZStack(alignment: .topLeading) {
-                                    staffRowContent(for: trackData, scaledMeasureWidth: scaledMeasureWidth, totalWidth: totalWidth - trackLabelWidth)
+                                    staffRowContent(for: trackData, mapper: trackMapper, totalWidth: totalWidth - metrics.trackLabelWidth)
                                     
                                     // Playhead in staff
                                     ScorePlayhead(
-                                        contentStartX: 60,
+                                        contentStartX: trackMapper.contentStartX,
                                         scaledMeasureWidth: scaledMeasureWidth,
                                         measureDuration: configuration.timeSignature.measureDuration,
-                                        height: staffRowHeight
+                                        height: metrics.staffRowHeight
                                     )
                                 }
-                                .frame(width: totalWidth - trackLabelWidth, height: staffRowHeight)
+                                .frame(width: totalWidth - metrics.trackLabelWidth, height: metrics.staffRowHeight)
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    SpatialTapGesture()
+                                        .onEnded { value in
+                                            handleTap(at: value.location, trackData: trackData)
+                                        }
+                                )
                             }
                             
                             // Divider between track rows
@@ -189,11 +205,7 @@ struct ScoreView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .onAppear {
-                    viewSize = geometry.size
                     quantizeAllTracks()
-                }
-                .onChange(of: geometry.size) { _, newSize in
-                    viewSize = newSize
                 }
             }
             .background(Color(nsColor: .textBackgroundColor))
@@ -219,53 +231,64 @@ struct ScoreView: View {
     
     // MARK: - Staff Row Content (per track)
     
-    private func staffRowContent(for trackData: ScoreTrackData, scaledMeasureWidth: CGFloat, totalWidth: CGFloat) -> some View {
-        let trackMeasures = self.trackMeasures[trackData.id] ?? []
+    /// Renders a single staff row using the shared coordinate mapper.
+    /// Note positions come from the mapper, guaranteeing exact agreement
+    /// with hit-testing coordinates. Decorations (clef, key sig, time sig)
+    /// are drawn incrementally, and their widths match the mapper's
+    /// contentStartX computation.
+    private func staffRowContent(for trackData: ScoreTrackData, mapper: ScoreCoordinateMapper, totalWidth: CGFloat) -> some View {
+        let trackMeasureArray = self.trackMeasures[trackData.id] ?? []
         
         return Canvas { context, size in
-            var currentX: CGFloat = 10
-            let yOffset: CGFloat = 30  // Top padding within row (centers staff in 120pt row)
+            // Draw decorations — positions match mapper's contentStartX calculation
+            var drawX = mapper.metrics.clefStartX
             
             // Draw clef
             renderer.drawClef(
                 context: context,
                 clef: trackData.clef,
-                x: currentX,
-                yOffset: yOffset
+                x: drawX,
+                yOffset: mapper.yOffset
             )
-            currentX += 35
+            drawX += mapper.metrics.clefWidth
             
-            // Draw time signature (only on first visible measure concept)
-            currentX = renderer.drawTimeSignature(
+            // Draw key signature (was missing from multi-track path)
+            drawX = renderer.drawKeySignature(
+                context: context,
+                keySignature: configuration.keySignature,
+                clef: trackData.clef,
+                x: drawX,
+                yOffset: mapper.yOffset
+            )
+            
+            // Draw time signature
+            drawX = renderer.drawTimeSignature(
                 context: context,
                 timeSignature: configuration.timeSignature,
-                x: currentX,
-                yOffset: yOffset
+                x: drawX,
+                yOffset: mapper.yOffset
             )
-            currentX += 10
+            // drawX now equals mapper.contentStartX - postTimeSigSpacing (by construction)
             
-            let contentStartX = currentX
-            
-            // Draw staff lines
+            // Draw staff lines across entire width
             renderer.drawStaffLines(
                 context: context,
                 width: totalWidth,
-                yOffset: yOffset
+                yOffset: mapper.yOffset
             )
             
-            // Draw measures with notes
-            for (measureIndex, measure) in trackMeasures.enumerated() {
-                let measureStartX = contentStartX + CGFloat(measureIndex) * scaledMeasureWidth
+            // Draw measures with notes — all positions from the mapper
+            for (measureIndex, measure) in trackMeasureArray.enumerated() {
+                let measureStartX = mapper.measureStartX(at: measureIndex)
                 
                 // Bar line
                 if measureIndex > 0 {
-                    renderer.drawBarLine(context: context, x: measureStartX, yOffset: yOffset)
+                    renderer.drawBarLine(context: context, x: measureStartX, yOffset: mapper.yOffset)
                 }
                 
-                // Draw notes
+                // Draw notes using mapper for exact positioning
                 for note in measure.notes {
-                    let noteBeatInMeasure = note.startBeat - Double(measureIndex) * configuration.timeSignature.measureDuration
-                    let noteX = measureStartX + 15 + CGFloat(noteBeatInMeasure / configuration.timeSignature.measureDuration) * (scaledMeasureWidth - 30)
+                    let noteX = mapper.xForNoteInMeasure(note, measureIndex: measureIndex)
                     
                     let isSelected = selectedNotes.contains(note.id)
                     renderer.drawNote(
@@ -273,16 +296,16 @@ struct ScoreView: View {
                         note: note,
                         x: noteX,
                         clef: trackData.clef,
-                        yOffset: yOffset,
+                        yOffset: mapper.yOffset,
                         isSelected: isSelected
                     )
                 }
             }
             
             // Final bar line
-            if !trackMeasures.isEmpty {
-                let finalX = contentStartX + CGFloat(trackMeasures.count) * scaledMeasureWidth
-                renderer.drawBarLine(context: context, x: finalX, yOffset: yOffset, style: .final)
+            if !trackMeasureArray.isEmpty {
+                let finalX = mapper.measureStartX(at: trackMeasureArray.count)
+                renderer.drawBarLine(context: context, x: finalX, yOffset: mapper.yOffset, style: .final)
             }
         }
         .drawingGroup()
@@ -355,7 +378,7 @@ struct ScoreView: View {
                 }
             }
         }
-        .frame(width: totalWidth, height: rulerHeight)
+        .frame(width: totalWidth, height: metrics.rulerHeight)
         .drawingGroup()
     }
     
@@ -369,32 +392,91 @@ struct ScoreView: View {
         
         return Rectangle()
             .fill(Color.yellow.opacity(0.3))
-            .frame(width: max(0, cycleWidth), height: rulerHeight - 10)
+            .frame(width: max(0, cycleWidth), height: metrics.rulerHeight - 10)
             .offset(x: cycleStartX, y: 2)
             .overlay(
                 RoundedRectangle(cornerRadius: 3)
                     .stroke(Color.yellow.opacity(0.6), lineWidth: 1)
-                    .frame(width: max(0, cycleWidth), height: rulerHeight - 10)
+                    .frame(width: max(0, cycleWidth), height: metrics.rulerHeight - 10)
                     .offset(x: cycleStartX, y: 2)
             )
     }
     
     // MARK: - Toolbar
     
+    /// Toolbar styled to match Piano Roll: icon tools, dropdown menus, slider zoom.
     private var scoreToolbar: some View {
-        HStack(spacing: 12) {
-            // Entry mode selector (no label to prevent text wrapping)
-            Picker("", selection: $entryMode) {
-                ForEach(ScoreEntryMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
+        HStack(spacing: 0) {
+            // LEFT: Score-specific menus (Clef, Key, Time)
+            scoreMenuBar
+                .padding(.leading, 8)
+            
+            scoreToolbarDivider
+            
+            // CENTER-LEFT: Tool selector (icon buttons matching Piano Roll style)
+            ScoreToolSelector(selection: $entryMode)
+                .padding(.horizontal, 8)
+            
+            scoreToolbarDivider
+            
+            // Duration palette (when in draw mode)
+            if entryMode == .draw {
+                durationPalette
+                    .padding(.horizontal, 8)
+                scoreToolbarDivider
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 180)
             
-            Divider().frame(height: 20)
+            // Transform menu (when notes are selected)
+            if !selectedNotes.isEmpty {
+                transformMenu
+                    .padding(.horizontal, 8)
+                scoreToolbarDivider
+            }
             
+            // Export / refresh
+            HStack(spacing: 6) {
+                Menu {
+                    Button(action: exportToPDF) {
+                        Label("Export PDF...", systemImage: "doc.fill")
+                    }
+                    Button(action: exportToMusicXML) {
+                        Label("Export MusicXML...", systemImage: "doc.text")
+                    }
+                    Divider()
+                    Button(action: printScore) {
+                        Label("Print...", systemImage: "printer")
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Export or Print")
+                
+                Button(action: quantizeMIDI) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Re-quantize from MIDI")
+            }
+            .padding(.horizontal, 8)
+            
+            Spacer()
+            
+            // RIGHT: Zoom control (slider matching Piano Roll style)
+            scoreZoomControl
+                .padding(.horizontal, 12)
+        }
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+    
+    /// Dropdown menus for score configuration (Clef, Key Signature, Time Signature)
+    private var scoreMenuBar: some View {
+        HStack(spacing: 2) {
             // Clef selector
             Menu {
                 ForEach(Clef.allCases) { clef in
@@ -408,11 +490,17 @@ struct ScoreView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Image(systemName: configuration.clef.iconName)
+                        .font(.system(size: 10))
                     Text(configuration.clef.displayName.components(separatedBy: " ").first ?? "")
+                        .font(.system(size: 11, weight: .medium))
                 }
+                .foregroundColor(.primary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
             }
+            .menuStyle(.borderlessButton)
             
             // Key signature selector
             Menu {
@@ -428,7 +516,12 @@ struct ScoreView: View {
                 }
             } label: {
                 Text(configuration.keySignature.displayName.components(separatedBy: " / ").first ?? "C Major")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
             }
+            .menuStyle(.borderlessButton)
             
             // Time signature selector
             Menu {
@@ -439,75 +532,46 @@ struct ScoreView: View {
                 Button("2/2 (Cut)") { configuration.timeSignature = .cut }
             } label: {
                 Text(configuration.timeSignature.displayString)
-                    .font(.system(.body, design: .serif))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
             }
-            
-            Divider().frame(height: 20)
-            
-            // Duration palette (when in draw mode)
-            if entryMode == .draw {
-                durationPalette
-            }
-            
-            // Transform menu (when notes are selected)
-            if !selectedNotes.isEmpty {
-                Divider().frame(height: 20)
-                transformMenu
-            }
-            
-            Spacer()
-            
-            // Zoom controls
-            HStack(spacing: 4) {
-                Button(action: { horizontalZoom = max(0.5, horizontalZoom - 0.25) }) {
-                    Image(systemName: "minus.magnifyingglass")
-                }
-                .buttonStyle(.borderless)
-                
-                Text("\(Int(horizontalZoom * 100))%")
-                    .frame(width: 50)
-                    .font(.caption)
-                
-                Button(action: { horizontalZoom = min(2.0, horizontalZoom + 0.25) }) {
-                    Image(systemName: "plus.magnifyingglass")
-                }
-                .buttonStyle(.borderless)
-            }
-            
-            Divider().frame(height: 20)
-            
-            // Export menu
-            Menu {
-                Button(action: exportToPDF) {
-                    Label("Export PDF...", systemImage: "doc.fill")
-                }
-                
-                Button(action: exportToMusicXML) {
-                    Label("Export MusicXML...", systemImage: "doc.text")
-                }
-                
-                Divider()
-                
-                Button(action: printScore) {
-                    Label("Print...", systemImage: "printer")
-                }
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .help("Export or Print")
-            
-            Divider().frame(height: 20)
-            
-            // Refresh button
-            Button(action: quantizeMIDI) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help("Re-quantize from MIDI")
+            .menuStyle(.borderlessButton)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor))
+    }
+    
+    /// Zoom control matching Piano Roll style (arrow icon + slider)
+    private var scoreZoomControl: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.left.and.right")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            
+            Button(action: { horizontalZoom = max(0.5, horizontalZoom - 0.25) }) {
+                Image(systemName: "minus")
+                    .font(.system(size: 10))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            
+            Slider(value: $horizontalZoom, in: 0.5...2.0, step: 0.25)
+                .frame(width: 70)
+            
+            Button(action: { horizontalZoom = min(2.0, horizontalZoom + 0.25) }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+        }
+    }
+    
+    /// Consistent divider for toolbar sections
+    private var scoreToolbarDivider: some View {
+        Divider()
+            .frame(height: 20)
+            .padding(.horizontal, 4)
     }
     
     // MARK: - Export Actions
@@ -754,393 +818,54 @@ struct ScoreView: View {
         quantizeMIDI()
     }
     
-    // MARK: - Score Content
+    // MARK: - Interaction (Mapper-Based)
     
-    private var scoreContent: some View {
-        let scaledMeasureWidth = measureWidth * horizontalZoom
-        let staffHeight = renderer.staffHeight
-        let totalWidth = max(800, CGFloat(max(1, measures.count)) * scaledMeasureWidth + 150)
-        let totalHeight = staffHeight + 60  // Compact: staff + padding
+    /// Handle tap gesture on a staff row.
+    /// Uses the shared ScoreCoordinateMapper so that click coordinates
+    /// and rendering coordinates are guaranteed to agree.
+    private func handleTap(at location: CGPoint, trackData: ScoreTrackData) {
+        let mapper = makeMapper(for: trackData.clef)
+        let trackMeasureArray = trackMeasures[trackData.id] ?? []
         
-        return Canvas { context, size in
-            var currentX: CGFloat = 40
-            // Position staff at top with fixed padding (not centered)
-            let yOffset: CGFloat = 30  // Fixed top padding
-            
-            // Draw initial clef
-            renderer.drawClef(
-                context: context,
-                clef: configuration.clef,
-                x: currentX,
-                yOffset: yOffset
-            )
-            currentX += 40
-            
-            // Draw key signature
-            currentX = renderer.drawKeySignature(
-                context: context,
-                keySignature: configuration.keySignature,
-                clef: configuration.clef,
-                x: currentX,
-                yOffset: yOffset
-            )
-            
-            // Draw time signature
-            currentX = renderer.drawTimeSignature(
-                context: context,
-                timeSignature: configuration.timeSignature,
-                x: currentX + 10,
-                yOffset: yOffset
-            )
-            currentX += 20
-            
-            let contentStartX = currentX
-            
-            // Draw staff lines across entire width
-            renderer.drawStaffLines(
-                context: context,
-                width: totalWidth,
-                yOffset: yOffset
-            )
-            
-            // Draw measures
-            for (measureIndex, measure) in measures.enumerated() {
-                let measureStartX = contentStartX + CGFloat(measureIndex) * scaledMeasureWidth
-                
-                // Draw measure number above staff (every measure, or every 4 if zoomed out)
-                let showEveryMeasure = scaledMeasureWidth > 80
-                let showNumber = showEveryMeasure || (measureIndex % 4 == 0) || measureIndex == 0
-                
-                if showNumber {
-                    let measureNumberText = Text("\(measureIndex + 1)")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundColor(.secondary)
-                    context.draw(
-                        measureNumberText,
-                        at: CGPoint(x: measureStartX + 4, y: yOffset - 12),
-                        anchor: .bottomLeading
-                    )
-                }
-                
-                // Draw bar line at start of measure (except first)
-                if measureIndex > 0 {
-                    renderer.drawBarLine(
-                        context: context,
-                        x: measureStartX,
-                        yOffset: yOffset,
-                        style: measure.repeatStart ? .repeatStart : .single
-                    )
-                }
-                
-                // Calculate note positions within measure
-                let noteSpacing = scaledMeasureWidth / CGFloat(max(1, measure.notes.count + 1))
-                
-                // Draw rests
-                for (restIndex, rest) in measure.rests.enumerated() {
-                    let restBeatInMeasure = rest.startBeat - Double(measureIndex) * configuration.timeSignature.measureDuration
-                    let restX = measureStartX + 20 + CGFloat(restBeatInMeasure / configuration.timeSignature.measureDuration) * (scaledMeasureWidth - 40)
-                    
-                    renderer.drawRest(
-                        context: context,
-                        rest: rest,
-                        x: restX,
-                        yOffset: yOffset
-                    )
-                }
-                
-                // Group notes by beam group
-                var beamGroups: [UUID: [ScoreNote]] = [:]
-                var unbeamedNotes: [ScoreNote] = []
-                
-                for note in measure.notes {
-                    if let groupId = note.beamGroupId {
-                        beamGroups[groupId, default: []].append(note)
-                    } else {
-                        unbeamedNotes.append(note)
-                    }
-                }
-                
-                // Draw beamed groups
-                for (_, groupNotes) in beamGroups {
-                    let sortedNotes = groupNotes.sorted { $0.startBeat < $1.startBeat }
-                    
-                    renderer.drawBeam(
-                        context: context,
-                        notes: sortedNotes,
-                        clef: configuration.clef,
-                        getXPosition: { note in
-                            let noteBeatInMeasure = note.startBeat - Double(measureIndex) * configuration.timeSignature.measureDuration
-                            return measureStartX + 20 + CGFloat(noteBeatInMeasure / configuration.timeSignature.measureDuration) * (scaledMeasureWidth - 40)
-                        },
-                        yOffset: yOffset
-                    )
-                    
-                    // Draw noteheads (without stems, as beam drawing handles them)
-                    for note in sortedNotes {
-                        let noteBeatInMeasure = note.startBeat - Double(measureIndex) * configuration.timeSignature.measureDuration
-                        let noteX = measureStartX + 20 + CGFloat(noteBeatInMeasure / configuration.timeSignature.measureDuration) * (scaledMeasureWidth - 40)
-                        
-                        // Draw just the notehead
-                        let staffPosition = note.pitch.staffPosition(for: configuration.clef)
-                        let noteY = yOffset + renderer.staffHeight - (CGFloat(staffPosition) * renderer.staffLineSpacing / 2)
-                        
-                        let isSelected = selectedNotes.contains(note.id)
-                        let color = isSelected ? renderer.selectedNoteColor : renderer.noteColor
-                        
-                        let rect = CGRect(
-                            x: noteX - renderer.noteheadWidth / 2,
-                            y: noteY - renderer.noteheadHeight / 2,
-                            width: renderer.noteheadWidth,
-                            height: renderer.noteheadHeight
-                        )
-                        let notePath = Path(ellipseIn: rect)
-                        context.fill(notePath, with: .color(color))
-                    }
-                }
-                
-                // Draw unbeamed notes
-                for note in unbeamedNotes {
-                    let noteBeatInMeasure = note.startBeat - Double(measureIndex) * configuration.timeSignature.measureDuration
-                    let noteX = measureStartX + 20 + CGFloat(noteBeatInMeasure / configuration.timeSignature.measureDuration) * (scaledMeasureWidth - 40)
-                    
-                    let isSelected = selectedNotes.contains(note.id)
-                    
-                    renderer.drawNote(
-                        context: context,
-                        note: note,
-                        x: noteX,
-                        clef: configuration.clef,
-                        yOffset: yOffset,
-                        isSelected: isSelected
-                    )
-                }
-                
-                // Draw measure number (show for every measure)
-                if configuration.showMeasureNumbers {
-                    let measureNumText = Text("\(measure.measureNumber)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    context.draw(
-                        measureNumText,
-                        at: CGPoint(x: measureStartX + 5, y: yOffset - 15),
-                        anchor: .bottomLeading
-                    )
-                }
-            }
-            
-            // Draw final bar line
-            if !measures.isEmpty {
-                let finalX = contentStartX + CGFloat(measures.count) * scaledMeasureWidth
-                renderer.drawBarLine(
-                    context: context,
-                    x: finalX,
-                    yOffset: yOffset,
-                    style: .final
-                )
-            }
-            
-            // PERF: Playhead is now drawn by isolated ScorePlayhead component
-            // that observes AudioEngine directly, preventing full score redraws
-        }
-        .drawingGroup()  // PERF: Rasterize score rendering to prevent redraws
-        .frame(
-            minWidth: totalWidth,
-            minHeight: totalHeight
-        )
-        .contentShape(Rectangle())
-        .gesture(tapGesture)
-    }
-    
-    // MARK: - Gestures
-    
-    private var tapGesture: some Gesture {
-        SpatialTapGesture()
-            .onEnded { value in
-                handleTap(at: value.location)
-            }
-    }
-    
-    private func handleTap(at location: CGPoint) {
         switch entryMode {
         case .select:
-            // Find note at location and select it
-            if let note = findNote(at: location, in: viewSize) {
-                // Check if Shift key is held for multi-select
+            if let note = mapper.findNote(at: location, in: trackMeasureArray) {
                 let shiftHeld = NSEvent.modifierFlags.contains(.shift)
-                
                 if shiftHeld {
-                    // Shift+click: toggle note in selection
                     if selectedNotes.contains(note.id) {
                         selectedNotes.remove(note.id)
                     } else {
                         selectedNotes.insert(note.id)
                     }
                 } else {
-                    // Regular click: clear selection and select only this note
-                    selectedNotes.removeAll()
-                    selectedNotes.insert(note.id)
+                    selectedNotes = [note.id]
                 }
-                
-                // Preview the note
                 onPreviewNote?(note.pitch)
             } else {
-                // Clicked on empty space: clear selection
                 selectedNotes.removeAll()
             }
             
         case .draw:
-            // Add note at location
-            addNote(at: location, in: viewSize)
+            guard midiTracks.isEmpty else { return } // Only editable in single-track mode
+            let pitch = mapper.pitchAtY(location.y)
+            let beat = mapper.beatAtX(location.x)
+            let newNote = MIDINote(
+                pitch: pitch,
+                velocity: 80,
+                startBeat: beat,
+                durationBeats: currentDuration.rawValue
+            )
+            region.notes.append(newNote)
+            onPreviewNote?(pitch)
+            quantizeAllTracks()
             
         case .erase:
-            // Delete note at location
-            if let note = findNote(at: location, in: viewSize) {
-                deleteNote(note)
+            guard midiTracks.isEmpty else { return }
+            if let note = mapper.findNote(at: location, in: trackMeasureArray) {
+                region.notes.removeAll { $0.id == note.midiNoteId }
+                quantizeAllTracks()
             }
         }
-    }
-    
-    // MARK: - Note Operations
-    
-    private func findNote(at location: CGPoint, in size: CGSize? = nil) -> ScoreNote? {
-        let scaledMeasureWidth = measureWidth * horizontalZoom
-        
-        // Calculate yOffset to match Canvas rendering (centered vertically)
-        let staffHeight = renderer.staffHeight
-        let viewHeight = size?.height ?? 300
-        let yOffset = max(40, (viewHeight - staffHeight) / 2 - 20)
-        
-        // Calculate contentStartX EXACTLY as in rendering
-        var currentX: CGFloat = 40 // Initial X
-        currentX += 40 // Clef width
-        
-        // Key signature width (depends on number of accidentals)
-        let accidentalCount = abs(configuration.keySignature.sharps)
-        if accidentalCount > 0 {
-            currentX += CGFloat(accidentalCount) * renderer.staffLineSpacing * 1.2
-            currentX += renderer.staffLineSpacing // Return spacing from drawKeySignature
-        }
-        
-        currentX += 10 // Space before time signature
-        currentX += renderer.staffLineSpacing * 2 // Time signature width (from drawTimeSignature)
-        currentX += 20 // Final spacing
-        
-        let contentStartX = currentX
-        
-        for measure in measures {
-            for note in measure.notes {
-                let measureIndex = measure.measureNumber - 1
-                let measureStartX = contentStartX + CGFloat(measureIndex) * scaledMeasureWidth
-                let noteBeatInMeasure = note.startBeat - Double(measureIndex) * configuration.timeSignature.measureDuration
-                let noteX = measureStartX + 20 + CGFloat(noteBeatInMeasure / configuration.timeSignature.measureDuration) * (scaledMeasureWidth - 40)
-                
-                let staffPosition = note.pitch.staffPosition(for: configuration.clef)
-                // Calculate noteY using the same formula as rendering
-                let noteY = yOffset + staffHeight - (CGFloat(staffPosition) * renderer.staffLineSpacing / 2)
-                
-                // Check if tap is near this note (increased hit area for easier selection)
-                let distance = hypot(location.x - noteX, location.y - noteY)
-                if distance < 20 {
-                    return note
-                }
-            }
-        }
-        
-        return nil
-    }
-    
-    private func addNote(at location: CGPoint, in size: CGSize? = nil) {
-        let scaledMeasureWidth = measureWidth * horizontalZoom
-        
-        // Calculate yOffset to match Canvas rendering
-        let staffHeight = renderer.staffHeight
-        let viewHeight = size?.height ?? 300
-        let yOffset = max(40, (viewHeight - staffHeight) / 2 - 20)
-        
-        // Calculate contentStartX EXACTLY as in rendering
-        var currentX: CGFloat = 40 // Initial X
-        currentX += 40 // Clef width
-        
-        // Key signature width (depends on number of accidentals)
-        let accidentalCount = abs(configuration.keySignature.sharps)
-        if accidentalCount > 0 {
-            currentX += CGFloat(accidentalCount) * renderer.staffLineSpacing * 1.2
-            currentX += renderer.staffLineSpacing // Return spacing from drawKeySignature
-        }
-        
-        currentX += 10 // Space before time signature
-        currentX += renderer.staffLineSpacing * 2 // Time signature width (from drawTimeSignature)
-        currentX += 20 // Final spacing
-        
-        let contentStartX = currentX
-        
-        // Calculate pitch from Y position (relative to the staff)
-        // Inverse of: noteY = yOffset + staffHeight - (staffPosition * staffLineSpacing / 2)
-        // Note: Subtract 2 to correct for coordinate system offset between rendering and click detection
-        let rawStaffPosition = Int(round((yOffset + staffHeight - location.y) / (renderer.staffLineSpacing / 2)))
-        let staffPosition = rawStaffPosition - 2
-        let pitch = pitchFromStaffPosition(staffPosition, clef: configuration.clef)
-        
-        // Calculate beat from X position
-        let measureFloat = (location.x - contentStartX) / scaledMeasureWidth
-        let measureIndex = max(0, Int(measureFloat))
-        let beatInMeasure = (measureFloat - Double(measureIndex)) * configuration.timeSignature.measureDuration
-        let totalBeat = Double(measureIndex) * configuration.timeSignature.measureDuration + beatInMeasure
-        
-        // Create MIDI note
-        // Note: MIDI note startBeat and durationBeats are stored in BEATS, not seconds!
-        let newNote = MIDINote(
-            pitch: pitch,
-            velocity: 80,
-            startBeat: totalBeat,
-            durationBeats: currentDuration.rawValue
-        )
-        
-        region.notes.append(newNote)
-        onPreviewNote?(pitch)
-    }
-    
-    private func deleteNote(_ scoreNote: ScoreNote) {
-        region.notes.removeAll { $0.id == scoreNote.midiNoteId }
-    }
-    
-    private func pitchFromStaffPosition(_ position: Int, clef: Clef) -> UInt8 {
-        // Exact inverse of UInt8.staffPosition(for:) in ScoreModels.swift
-        
-        // Remove clef offset first
-        let clefOffset: Int
-        switch clef {
-        case .treble:
-            clefOffset = -6  // Middle C is one ledger line below treble staff
-        case .bass:
-            clefOffset = 6   // Middle C is one ledger line above bass staff
-        case .alto:
-            clefOffset = 0   // Middle C is on the middle line
-        case .tenor:
-            clefOffset = 2   // Middle C is on the fourth line
-        case .percussion:
-            return 60  // Default for percussion
-        }
-        
-        let positionWithoutClef = position - clefOffset
-        
-        // Calculate octave and note offset
-        let octaveOffset = positionWithoutClef / 7
-        let noteOffset = ((positionWithoutClef % 7) + 7) % 7  // Handle negative modulo
-        
-        // Convert octave offset back to actual octave
-        let middleCOctave = 4
-        let octave = middleCOctave + octaveOffset
-        
-        // Map noteOffset to semitones: C=0, D=2, E=4, F=5, G=7, A=9, B=11
-        let noteToSemitone = [0, 2, 4, 5, 7, 9, 11]
-        let semitone = noteToSemitone[noteOffset]
-        
-        // Calculate MIDI pitch
-        let pitch = (octave + 1) * 12 + semitone
-        
-        return UInt8(max(0, min(127, pitch)))
     }
     
     // MARK: - Quantization
@@ -1168,6 +893,90 @@ enum ScoreEntryMode: String, CaseIterable {
         case .select: return "Select"
         case .draw: return "Draw"
         case .erase: return "Erase"
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .select: return "arrow.up.left.and.arrow.down.right"
+        case .draw: return "pencil"
+        case .erase: return "eraser"
+        }
+    }
+    
+    var shortcut: String {
+        switch self {
+        case .select: return "V"
+        case .draw: return "P"
+        case .erase: return "E"
+        }
+    }
+}
+
+// MARK: - Score Tool Selector
+
+/// Icon-only tool selector matching Piano Roll style
+private struct ScoreToolSelector: View {
+    @Binding var selection: ScoreEntryMode
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(ScoreEntryMode.allCases, id: \.self) { mode in
+                ScoreToolButton(
+                    mode: mode,
+                    isSelected: selection == mode,
+                    action: { selection = mode }
+                )
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(6)
+    }
+}
+
+/// Individual tool button with icon and hover state (matches Piano Roll's ToolButton)
+private struct ScoreToolButton: View {
+    let mode: ScoreEntryMode
+    let isSelected: Bool
+    let action: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: mode.icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(foregroundColor)
+                .frame(width: 26, height: 22)
+                .background(backgroundColor)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .help("\(mode.displayName) (\(mode.shortcut))")
+    }
+    
+    private var foregroundColor: Color {
+        if isSelected {
+            return .white
+        } else if isHovered {
+            return .primary
+        } else {
+            return .secondary
+        }
+    }
+    
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor
+        } else if isHovered {
+            return Color(nsColor: .controlBackgroundColor)
+        } else {
+            return Color.clear
         }
     }
 }
@@ -1211,7 +1020,7 @@ private struct ScorePlayhead: View {
         let x = contentStartX + CGFloat(measurePosition) * scaledMeasureWidth
         
         Rectangle()
-            .fill(Color.green)
+            .fill(Color.red)
             .frame(width: 2, height: height)
             .offset(x: x - 1)
             .allowsHitTesting(false)

@@ -39,6 +39,12 @@ class MetronomeEngine {
             if !isEnabled && isPlaying {
                 stopPlaying()
             }
+            // Auto-enable count-in when metronome is enabled (Issue #120)
+            // Professional DAWs enable count-in by default with metronome
+            // This provides the expected behavior: one toggle enables complete functionality
+            if isEnabled && !countInEnabled {
+                countInEnabled = true
+            }
         }
     }
     
@@ -216,12 +222,15 @@ class MetronomeEngine {
     /// Prepare the player node for playback (called after engine starts)
     /// This starts the player node so it's ready to receive scheduled buffers
     func preparePlayerNode() {
-        guard let player = clickPlayer, player.engine != nil else { return }
+        guard let player = clickPlayer, 
+              player.engine != nil,
+              avAudioEngine?.isRunning == true else { return }
         if !player.isPlaying {
             do {
                 try tryObjC { player.play() }
             } catch {
                 // play() threw ObjC exception - engine may not be fully ready
+                // or graph is being mutated - metronome will retry on next transport play
             }
         }
     }
@@ -533,14 +542,23 @@ class MetronomeEngine {
     /// Uses a DispatchSourceTimer for more accurate timing than Task.sleep
     func performCountIn() async {
         guard countInEnabled, isInstalled,
-              let player = clickPlayer else { return }
+              let player = clickPlayer,
+              player.engine != nil else { return }
         
         let beatInterval = 60.0 / tempo
         let totalBeats = countInBars * beatsPerBar
         
         // Re-arm player for count-in (ensure clean state)
-        player.stop()
-        player.play()
+        // BUG FIX (Issue #122): Wrap in tryObjC to handle graph mutations gracefully
+        do {
+            try tryObjC {
+                player.stop()
+                player.play()
+            }
+        } catch {
+            // Graph operation failed - count-in cannot proceed
+            return
+        }
         player.prepare(withFrameCount: 2048)
         
         // Use a semaphore to synchronize async completion

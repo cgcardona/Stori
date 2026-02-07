@@ -224,30 +224,51 @@ final class RecordingController: @unchecked Sendable {
             return
         }
         
-        // Set recording state
-        onStartRecordingMode()
-        isRecording = true
+        // CRITICAL FIX (Issue #120): Start transport properly BEFORE starting recording
+        // The transport controller's play() method sets up timing state, starts position
+        // timer, and triggers audio/MIDI playback. Without this, the playhead doesn't move
+        // and the UI becomes unresponsive.
+        //
+        // Previous bug: Called onStartRecordingMode() and onStartPlayback() directly,
+        // which set transport state to .recording but never called transport.play().
+        // This left the position timer stopped and timing state uninitialized.
+        //
+        // Correct flow:
+        // 1. Call transport.play() to start from beat 0 with proper timing setup
+        // 2. Switch transport state from .playing to .recording
+        // 3. Set recording flag and install taps
         
-        // NOTE: recordingStartBeat will be captured when first buffer arrives at the tap
-        // This ensures sample-accurate alignment with the timeline
+        guard let transport = transportController else {
+            record()
+            return
+        }
+        
+        // Ensure we're at beat 0 for recording
+        transport.stop()
+        
+        // Set recording flag (before installing tap)
+        isRecording = true
         
         // Start MIDI recording for record-enabled MIDI tracks
         let recordEnabledTracks = project.tracks.filter { $0.mixerSettings.isRecordEnabled }
         let midiRecordTracks = recordEnabledTracks.filter { $0.isMIDITrack }
         if let firstMIDITrack = midiRecordTracks.first {
-            let startBeats = getCurrentPosition().beats
             Task { @MainActor in
-                InstrumentManager.shared.startRecording(trackId: firstMIDITrack.id, atBeats: startBeats)
+                InstrumentManager.shared.startRecording(trackId: firstMIDITrack.id, atBeats: 0)
             }
         }
         
-        // FIX: Install input tap BEFORE starting playback to capture first beat
+        // Install input tap BEFORE starting transport (ensures we capture from beat 0)
         if let recordTrack = countInRecordTrack, !recordTrack.isMIDITrack {
             installInputTapForCountIn()
         }
         
-        // Start playback (tap is now ready to capture from beat 0)
-        onStartPlayback()
+        // Start transport - this triggers audio/MIDI playback AND sets up position tracking
+        // CRITICAL: This must come AFTER tap installation to capture first beat
+        transport.play()
+        
+        // Switch transport state to recording (transport is now playing with proper timing)
+        onStartRecordingMode()
         
         // Clear prepared state
         countInRecordingPrepared = false
@@ -338,7 +359,15 @@ final class RecordingController: @unchecked Sendable {
             
             // Skip audio recording for MIDI tracks (start transport so MIDI has timeline)
             if recordTrack.isMIDITrack {
-                onStartPlayback()
+                // CRITICAL FIX (Issue #120): Start transport properly for MIDI recording
+                // Must call transport.play() to set up timing state and position tracking
+                if let transport = transportController {
+                    transport.stop()  // Ensure we're at beat 0
+                    transport.play()  // Start transport with proper timing
+                    onStartRecordingMode()  // Switch to recording mode
+                } else {
+                    onStartPlayback()  // Fallback (shouldn't happen)
+                }
                 return
             }
             
@@ -458,8 +487,17 @@ final class RecordingController: @unchecked Sendable {
                 try engine.start()
             }
             
-            // Start playback only after tap is installed so we don't miss the first 10–30 ms of audio
-            onStartPlayback()
+            // CRITICAL FIX (Issue #120): Start transport properly for audio recording
+            // Must call transport.play() to set up timing state and position tracking
+            // Tap is already installed above, so we'll capture from beat 0
+            if let transport = transportController {
+                transport.stop()  // Ensure we're at beat 0
+                transport.play()  // Start transport with proper timing
+                onStartRecordingMode()  // Switch to recording mode
+            } else {
+                // Fallback (shouldn't happen) - use old broken path
+                onStartPlayback()
+            }
             
         } catch {
             stopRecording()

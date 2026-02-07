@@ -207,6 +207,14 @@ final class AutomationEngine: @unchecked Sendable {
             applyValuesHandler?(trackId, values)
         }
     }
+    
+    deinit {
+        // CRITICAL: Protective deinit for timer cleanup (Issue #72, ASan Issue #84742+)
+        // Root cause: DispatchSourceTimer with Swift Concurrency TaskLocal can cause
+        // bad-free on deinit if timer isn't explicitly cancelled.
+        // Explicitly cancel timer to prevent TaskLocal cleanup double-free.
+        timer?.cancel()
+    }
 }
 
 // MARK: - Automation Processor
