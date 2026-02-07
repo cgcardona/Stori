@@ -1709,6 +1709,10 @@ class ProjectExportService {
         // Apply track volume
         playerNode.volume = track.mixerSettings.volume
         
+        // CRITICAL FIX (Issue #76): Apply region fade curves to match playback
+        // Fades must be applied to prevent clicks/pops and match WYSIWYG
+        let hasFades = region.fadeIn > 0 || region.fadeOut > 0
+        
         // Handle looped regions
         let regionDurationSeconds = region.durationSeconds(tempo: tempo)
         if region.isLooped && regionDurationSeconds > loopUnitDuration {
@@ -1722,8 +1726,18 @@ class ProjectExportService {
                 let loopStartFrame = AVAudioFramePosition(currentTimeSeconds * sampleRate)
                 let scheduleTime = AVAudioTime(sampleTime: loopStartFrame, atRate: sampleRate)
                 
-                // Schedule one instance of the audio file (plays for sourceFileDuration, not loopUnitDuration)
-                playerNode.scheduleFile(audioFile, at: scheduleTime)
+                // Apply fades to buffer if needed (Issue #76 fix)
+                if hasFades {
+                    let fadedBuffer = try applyRegionFades(
+                        audioFile: audioFile,
+                        region: region,
+                        sampleRate: sampleRate
+                    )
+                    playerNode.scheduleBuffer(fadedBuffer, at: scheduleTime)
+                } else {
+                    // No fades - direct file scheduling (more efficient)
+                    playerNode.scheduleFile(audioFile, at: scheduleTime)
+                }
                 
                 loopCount += 1
                 // Advance by loopUnitDuration to respect empty space between loop iterations
@@ -1734,8 +1748,75 @@ class ProjectExportService {
         } else {
             // Non-looped or single instance
             let scheduleTime = AVAudioTime(sampleTime: startFrame, atRate: sampleRate)
-            playerNode.scheduleFile(audioFile, at: scheduleTime)
+            
+            // Apply fades to buffer if needed (Issue #76 fix)
+            if hasFades {
+                let fadedBuffer = try applyRegionFades(
+                    audioFile: audioFile,
+                    region: region,
+                    sampleRate: sampleRate
+                )
+                playerNode.scheduleBuffer(fadedBuffer, at: scheduleTime)
+            } else {
+                // No fades - direct file scheduling (more efficient)
+                playerNode.scheduleFile(audioFile, at: scheduleTime)
+            }
         }
+    }
+    
+    /// Apply fade-in and fade-out curves to a region buffer
+    /// CRITICAL FIX (Issue #76): Ensures export includes fades, matching playback WYSIWYG
+    private func applyRegionFades(
+        audioFile: AVAudioFile,
+        region: AudioRegion,
+        sampleRate: Double
+    ) throws -> AVAudioPCMBuffer {
+        
+        // Read entire file into buffer
+        let frameCount = AVAudioFrameCount(audioFile.length)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else {
+            throw ExportError.bufferCreationFailed
+        }
+        
+        try audioFile.read(into: buffer)
+        buffer.frameLength = frameCount
+        
+        // Get channel data for processing
+        guard let channelData = buffer.floatChannelData else {
+            return buffer  // Return unmodified if no channel data
+        }
+        
+        let channelCount = Int(buffer.format.channelCount)
+        let totalFrames = Int(buffer.frameLength)
+        
+        // Calculate fade lengths in samples
+        let fadeInSamples = Int(region.fadeIn * sampleRate)
+        let fadeOutSamples = Int(region.fadeOut * sampleRate)
+        
+        // Clamp fade lengths to buffer size
+        let actualFadeIn = min(fadeInSamples, totalFrames / 2)
+        let actualFadeOut = min(fadeOutSamples, totalFrames / 2)
+        let fadeOutStart = totalFrames - actualFadeOut
+        
+        // Apply fades to each channel
+        for channel in 0..<channelCount {
+            let samples = channelData[channel]
+            
+            // Apply fade-in (linear ramp 0 → 1)
+            for i in 0..<actualFadeIn {
+                let gain = Float(i) / Float(actualFadeIn)
+                samples[i] *= gain
+            }
+            
+            // Apply fade-out (linear ramp 1 → 0)
+            for i in 0..<actualFadeOut {
+                let fadePosition = i
+                let gain = 1.0 - (Float(fadePosition) / Float(actualFadeOut))
+                samples[fadeOutStart + i] *= gain
+            }
+        }
+        
+        return buffer
     }
     
     private func renderProjectAudio(
