@@ -79,8 +79,6 @@ final class CancellationBag {
         timers.removeAll()
         lock.unlock()
         
-        DiagnosticLogger.shared.log("🧹 CancellationBag cancelling \(tasksToCancel.count) tasks, \(timersToCancel.count) timers")
-        
         // Cancel tasks first so they stop scheduling work
         for task in tasksToCancel {
             task.cancel()
@@ -92,8 +90,6 @@ final class CancellationBag {
             timer.setEventHandler {}
             timer.cancel()
         }
-        
-        DiagnosticLogger.shared.log("✅ CancellationBag cancel complete")
     }
     
     /// Synchronously cancel everything before deallocation

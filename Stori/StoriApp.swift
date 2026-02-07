@@ -36,7 +36,7 @@ class StoriAppDelegate: NSObject, NSApplicationDelegate {
     
     /// Called when app finishes launching
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DiagnosticLogger.shared.log("🚀🚀🚀 App DID FINISH LAUNCHING - delegate is working!")
+        // DiagnosticLogger.shared.log("🚀🚀🚀 App DID FINISH LAUNCHING - delegate is working!")
     }
     
     /// Called when user clicks dock icon with no windows open

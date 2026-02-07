@@ -23,7 +23,6 @@ final class DiagnosticLogger {
         
         // Clear old log on init
         try? FileManager.default.removeItem(at: logFileURL)
-        log("🚀 DiagnosticLogger initialized - log file: \(logFileURL.path)")
     }
     
     func log(_ message: String) {

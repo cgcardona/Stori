@@ -108,6 +108,8 @@ extension AudioEngine {
                         if sampler.engine == nil {
                             engine.attach(sampler)
                         }
+                        // Ensure track node exists before rebuilding graph
+                        ensureTrackNodeExists(for: track)
                         // Use centralized rebuild for all connections
                         rebuildTrackGraphInternal(trackId: track.id)
                     }
@@ -359,6 +361,13 @@ extension AudioEngine {
                 engine.attach(samplerNode)
             }
         }
+        
+        // Ensure track node exists before rebuilding graph
+        guard let track = currentProject?.tracks.first(where: { $0.id == trackId }) else {
+            AppLogger.shared.error("Cannot rebuild graph - track \(trackId) not found in current project", category: .audio)
+            return
+        }
+        ensureTrackNodeExists(for: track)
         
         // Use centralized rebuild for all connections
         // This handles sampler → pluginChain → downstream correctly
