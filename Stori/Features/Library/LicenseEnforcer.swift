@@ -316,6 +316,7 @@ class LicensePlayerState {
     }
     
     deinit {
+        // Synchronous cleanup of AVPlayer observers and playback state.
         removeStreamTimeObserver()
         stop()
     }

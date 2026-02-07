@@ -70,6 +70,7 @@ struct SynchronizedScrollView<Content: View>: NSViewRepresentable {
         }
         
         deinit {
+            // Synchronous cleanup of NotificationCenter observer.
             if let observer = boundsObserver {
                 NotificationCenter.default.removeObserver(observer)
             }

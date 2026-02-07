@@ -89,11 +89,8 @@ class MIDIDeviceManager {
         setupMIDI()
     }
     
-    deinit {
-        Task { @MainActor in
-            teardownMIDI()
-        }
-    }
+    // Singleton - deinit never called.
+    // MIDI cleanup handled by explicit teardownMIDI() calls if needed.
     
     // MARK: - Setup
     

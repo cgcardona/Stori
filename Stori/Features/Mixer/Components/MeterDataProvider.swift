@@ -53,6 +53,7 @@ class MeterDataProvider {
     private var isIdle: Bool = false
     
     deinit {
+        // Synchronous cleanup of timer and monitoring state.
         stopMonitoring()
     }
     

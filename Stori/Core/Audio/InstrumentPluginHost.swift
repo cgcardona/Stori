@@ -318,6 +318,6 @@ class InstrumentPluginHostManager {
     
     // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
     // Root cause: @MainActor creates implicit actor isolation task-local storage
-    deinit {
-    }
+    // No async resources owned.
+    // No deinit required.
 }

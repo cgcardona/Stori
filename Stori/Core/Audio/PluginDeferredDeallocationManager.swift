@@ -46,9 +46,9 @@ final class PluginDeferredDeallocationManager {
     @ObservationIgnored
     private var pendingDeallocations: [PendingDeallocation] = []
     
-    /// Task that periodically sweeps for plugins ready to deallocate
+    /// Centralized cancellation for all async resources
     @ObservationIgnored
-    private var sweepTask: Task<Void, Never>?
+    private let cancels = CancellationBag()
     
     /// Safety delay in seconds before plugin can be deallocated
     /// 0.5 seconds = ~24,000 render cycles at 48kHz = extremely safe
@@ -116,9 +116,7 @@ final class PluginDeferredDeallocationManager {
     
     /// Starts the background task that periodically sweeps for plugins ready to deallocate
     private func startSweepTask() {
-        sweepTask?.cancel()
-        
-        sweepTask = Task { @MainActor in
+        let task = Task { @MainActor in
             while !Task.isCancelled {
                 // Sleep first to avoid immediate sweep on startup
                 try? await Task.sleep(nanoseconds: UInt64(sweepIntervalSeconds * 1_000_000_000))
@@ -128,6 +126,7 @@ final class PluginDeferredDeallocationManager {
                 sweepPendingDeallocations()
             }
         }
+        cancels.insert(task: task)
     }
     
     /// Checks pending deallocations and removes plugins that have waited long enough
@@ -169,7 +168,9 @@ final class PluginDeferredDeallocationManager {
     // MARK: - Cleanup
     
     deinit {
-        sweepTask?.cancel()
+        // Deterministic early cancellation of async resources.
+        // CancellationBag is nonisolated and safe to call from deinit.
+        cancels.cancelAll()
         
         // Final cleanup on deinit
         if !pendingDeallocations.isEmpty {

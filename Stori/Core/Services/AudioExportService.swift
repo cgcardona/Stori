@@ -16,10 +16,6 @@ class AudioExportService {
     
     /// Task tracking to prevent memory corruption on deinit (ASan Issue #84201)
     /// Even though this class doesn't explicitly create Tasks, Swift async/await runtime
-    /// may create implicit tasks during async function execution
-    /// See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient, AudioAnalysisService
-    @ObservationIgnored
-    private var exportTask: Task<Void, Never>?
     
     /// Export directory for comparison files
     private var exportDirectory: URL {
@@ -216,17 +212,9 @@ class AudioExportService {
     
     // MARK: - Cleanup
     
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Implicit task creation during async/await operations
-        // holding self reference during @MainActor class cleanup
-        // Same bug pattern as previous services (Issue #84201)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but exportTask is @ObservationIgnored
-        exportTask?.cancel()
-    }
+    // No async resources owned.
+    // Async functions (exportOriginal, exportProcessed) create transient tasks that complete with the call.
+    // No deinit required.
 }
 
 enum AudioExportError: Error, LocalizedError {

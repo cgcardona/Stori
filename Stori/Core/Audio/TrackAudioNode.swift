@@ -167,9 +167,10 @@ final class TrackAudioNode: @unchecked Sendable {
     }
     
     deinit {
+        // Synchronous cleanup of audio tap and manual memory management.
         removeLevelMonitoring()
         
-        // Deallocate atomic storage (Issue #59 fix)
+        // Deallocate atomic storage (manual memory management for RT-safe level tracking).
         _currentLevelLeft.deinitialize(count: 1)
         _currentLevelRight.deinitialize(count: 1)
         _peakLevelLeft.deinitialize(count: 1)
