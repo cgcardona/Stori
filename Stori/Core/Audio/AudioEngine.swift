@@ -426,6 +426,14 @@ class AudioEngine: AudioEngineContext {
         meteringService.resetClipIndicator()
     }
     
+    #if DEBUG
+    /// Process a buffer through clip detection logic for testing (Issue #73)
+    /// This allows unit tests to validate clip detection without requiring full audio playback
+    func processBufferForClipTesting(_ buffer: AVAudioPCMBuffer) {
+        meteringService.processBufferForTesting(buffer)
+    }
+    #endif
+    
     // MARK: - Current Project (Computed - ProjectManager is Single Source of Truth)
     /// Project state is owned by ProjectManager. This computed property provides
     /// convenient access while ensuring single source of truth.

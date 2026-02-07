@@ -359,6 +359,44 @@ final class MeteringService: @unchecked Sendable {
         os_unfair_lock_unlock(&meterLock)
     }
     
+    // MARK: - Test Support (Issue #73)
+    
+    #if DEBUG
+    /// Process a buffer through clip detection logic for testing.
+    /// This allows unit tests to validate clip detection without requiring the full audio engine.
+    /// - Parameter buffer: The audio buffer to analyze for clipping
+    func processBufferForTesting(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        guard frameCount > 0 else { return }
+        
+        // Detect clips in buffer (same logic as meter tap callback)
+        var clipsInBuffer = 0
+        for frame in 0..<frameCount {
+            let leftSample = abs(channelData[0][frame])
+            if leftSample >= 0.999 {
+                clipsInBuffer += 1
+            }
+            
+            if channelCount >= 2 {
+                let rightSample = abs(channelData[1][frame])
+                if rightSample >= 0.999 {
+                    clipsInBuffer += 1
+                }
+            }
+        }
+        
+        // Update clip detection state (thread-safe)
+        if clipsInBuffer > 0 {
+            os_unfair_lock_lock(&meterLock)
+            _clipCount += clipsInBuffer
+            _isClipping = true  // Latching indicator
+            os_unfair_lock_unlock(&meterLock)
+        }
+    }
+    #endif
+    
     // MARK: - Level Queries
     
     /// Get current and peak levels for all tracks

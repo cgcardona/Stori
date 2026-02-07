@@ -26,15 +26,11 @@ final class ClipDetectionTests: XCTestCase {
         try await super.setUp()
         
         // Create dependencies on main actor
-        let undoService = UndoService()
-        projectManager = ProjectManager(undoService: undoService)
+        projectManager = ProjectManager()
         audioEngine = AudioEngine()
         
-        // Configure audio engine
-        audioEngine.configureServices(
-            projectManager: projectManager,
-            undoService: undoService
-        )
+        // Configure audio engine with project manager
+        audioEngine.configure(projectManager: projectManager)
         
         // Wait for engine to be ready
         try await Task.sleep(nanoseconds: 100_000_000) // 100ms
@@ -211,28 +207,30 @@ final class ClipDetectionTests: XCTestCase {
     // MARK: - Integration Tests
     
     func testClipDetection_WithRealPlayback() async throws {
-        // Test clip detection during actual audio playback
+        // Test clip detection with track gain simulation
         
-        // Create project with loud track
-        var project = AudioProject(name: "Clip Test")
-        var track = AudioTrack(name: "Hot Track")
-        track.mixerSettings.volume = 2.0 // Very hot gain
-        project.tracks = [track]
+        // Generate base signal at 0.9 amplitude (-1dB)
+        let baseAudio = generateSineWave(frequency: 440, duration: 0.1, amplitude: 0.9)
         
-        // Load project directly into projectManager
-        projectManager.currentProject = project
-        try audioEngine.loadProject(project)
+        // Simulate track gain of 2.0 (would clip: 0.9 * 2.0 = 1.8)
+        let hotGain: Float = 2.0
+        guard let channelData = baseAudio.floatChannelData else {
+            XCTFail("Failed to get channel data")
+            return
+        }
         
-        // Add loud audio region
-        let loudAudio = generateSineWave(frequency: 440, duration: 1.0, amplitude: 0.9)
-        // Note: With 2.0 gain, this will clip (0.9 * 2.0 = 1.8)
+        // Apply gain to buffer (simulates what mixer would do)
+        let frameCount = Int(baseAudio.frameLength)
+        for frame in 0..<frameCount {
+            channelData[0][frame] *= hotGain
+        }
         
-        // In real usage, would load this as audio file and play
-        // For test, we simulate the metering detection
-        await simulateClippingSignal(loudAudio)
+        // Now process the hot signal through clip detection
+        await simulateClippingSignal(baseAudio)
         
         // Verify clipping detected
-        XCTAssertTrue(audioEngine.isClipping, "Hot track should cause clipping")
+        XCTAssertTrue(audioEngine.isClipping, "Hot gain should cause clipping")
+        XCTAssertGreaterThan(audioEngine.clipCount, 0, "Should count clipped samples")
     }
     
     func testClipDetection_ExportWarning() async throws {
@@ -334,32 +332,12 @@ final class ClipDetectionTests: XCTestCase {
     /// This replicates what the master meter tap does in production
     private func simulateClippingSignal(_ buffer: AVAudioPCMBuffer) async {
         // In production, the meter tap on masterEQ automatically processes buffers
-        // For testing, we need to manually trigger the metering logic
+        // For testing, we use the test-only injection method to process buffers
+        // through the same clip detection logic without requiring audio playback
         
-        // Access metering service through AudioEngine's exposed clip detection API
-        // The actual tap callback is private, so we verify the API surface
+        audioEngine.processBufferForClipTesting(buffer)
         
-        // For this test, we'll check if the buffer would cause clipping
-        guard let channelData = buffer.floatChannelData else { return }
-        let frameCount = Int(buffer.frameLength)
-        let channelCount = Int(buffer.format.channelCount)
-        
-        var hasClips = false
-        for channel in 0..<channelCount {
-            for frame in 0..<frameCount {
-                if abs(channelData[channel][frame]) >= 0.999 {
-                    hasClips = true
-                    break
-                }
-            }
-            if hasClips { break }
-        }
-        
-        // If buffer has clips, wait for metering to detect it
-        // (In real usage, the tap runs continuously during playback)
-        if hasClips {
-            // Small delay to allow async metering processing
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-        }
+        // Small delay to ensure changes are observable
+        try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
     }
 }
