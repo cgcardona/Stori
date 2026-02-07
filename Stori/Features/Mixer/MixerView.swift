@@ -114,7 +114,10 @@ struct MixerView: View {
                         ProfessionalMasterChannelStrip(
                             audioEngine: audioEngine,
                             projectManager: projectManager,
-                            meterData: meterProvider.masterMeterData
+                            meterData: meterProvider.masterMeterData,
+                            onResetClipIndicator: {
+                                meterProvider.resetMasterClipIndicator()
+                            }
                         )
                     } else {
                         EmptyMixerView()
