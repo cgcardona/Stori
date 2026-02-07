@@ -22,6 +22,19 @@ import AVFoundation
 import QuartzCore
 import os.lock
 
+/// Helper class for non-isolated timer cleanup (Swift 6.1 workaround for isolated deinit)
+/// The deinit of this helper implicitly runs on MainActor when parent is deallocated
+/// This pattern is required until Swift 6.2 when isolated deinit becomes available
+private final class PositionTimerHolder {
+    var timer: DispatchSourceTimer?
+    
+    deinit {
+        // This deinit is implicitly nonisolated and can safely cancel the timer
+        // When TransportController (MainActor) is deallocated, this helper is too
+        timer?.cancel()
+    }
+}
+
 /// Transport controller manages playback state, position tracking, and cycle behavior.
 /// It coordinates with AudioEngine via callbacks for actual audio operations.
 /// All positions are tracked in BEATS - seconds are only used at AVAudioEngine boundary.
@@ -131,8 +144,15 @@ class TransportController {
     )
     
     /// High-precision timer for position updates (60 FPS for UI)
+    /// Wrapped in helper class for safe non-isolated cleanup (Swift 6.1 workaround)
     @ObservationIgnored
-    private var positionTimer: DispatchSourceTimer?
+    private let timerHolder = PositionTimerHolder()
+    
+    /// Convenience accessor for position timer
+    private var positionTimer: DispatchSourceTimer? {
+        get { timerHolder.timer }
+        set { timerHolder.timer = newValue }
+    }
     
     // MARK: - Cycle Loop State (Generation Counter Pattern)
     
@@ -278,11 +298,10 @@ class TransportController {
         }
     }
     
-    nonisolated deinit {
-        // Ensure position timer is stopped to prevent memory leaks
-        // Cancel the timer directly since deinit is nonisolated
-        positionTimer?.cancel()
-    }
+    // MARK: - Cleanup
+    // NOTE: Explicit deinit removed - cleanup now handled by PositionTimerHolder
+    // This is a Swift 6.1 workaround until isolated deinit becomes available in Swift 6.2
+    // See: https://forums.swift.org/t/isolated-deinit-not-in-swift-6-1/78055
     
     // MARK: - Transport Controls
     
