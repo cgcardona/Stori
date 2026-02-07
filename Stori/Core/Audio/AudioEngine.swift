@@ -127,20 +127,19 @@ class AudioEngine: AudioEngineContext {
     var isFeedbackMuted: Bool = false
     
     // MARK: - Real-Time Safe Error Tracking (Issue #78)
+    // PROFESSIONAL DAW STANDARD: Uses type-safe atomic wrappers instead of raw nonisolated(unsafe)
     
-    /// Lock for clipping detection atomics
+    /// Clipping event counter (RT-safe atomic wrapper)
+    /// RT thread increments with trylock, background thread reads-and-resets
     @ObservationIgnored
-    private var rtClippingLock = os_unfair_lock()
+    private let rtClippingCounter = RTSafeCounter()
     
-    /// Number of clipping events detected (incremented on RT thread, reset on main thread)
+    /// Max clipping level tracker (RT-safe atomic wrapper)
+    /// RT thread updates max with trylock, background thread reads-and-resets
     @ObservationIgnored
-    private nonisolated(unsafe) var rtClippingEventsDetected: UInt32 = 0
+    private let rtClippingMaxLevel = RTSafeMaxTracker()
     
-    /// Last clipping max level (for deferred reporting)
-    @ObservationIgnored
-    private nonisolated(unsafe) var rtLastClippingMaxLevel: Float = 0.0
-    
-    /// Timer for flushing RT error events to AppLogger
+    /// Timer for flushing RT error events to AppLogger (runs on .utility queue)
     @ObservationIgnored
     private var rtErrorFlushTimer: DispatchSourceTimer?
     
@@ -210,16 +209,19 @@ class AudioEngine: AudioEngineContext {
     private var engineExpectedToRun: Bool = false
     
     /// Thread-safe mirror of engineExpectedToRun for health timer (avoids MainActor hop every tick)
+    /// Uses AtomicBool to eliminate nonisolated(unsafe)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicEngineExpectedToRun: Bool = false
+    private let atomicEngineExpectedToRun = AtomicBool(false)
     
     /// Thread-safe cache of engine.isRunning; updated on MainActor when we run checkEngineHealth or start/stop
+    /// Uses AtomicBool to eliminate nonisolated(unsafe)
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicLastKnownEngineRunning: Bool = false
+    private let atomicLastKnownEngineRunning = AtomicBool(false)
     
     /// Tick counter for health timer (only accessed from healthMonitorQueue). Used for staggered refresh.
+    /// Uses AtomicInt to eliminate nonisolated(unsafe)
     @ObservationIgnored
-    private nonisolated(unsafe) var _healthCheckTickCount: Int = 0
+    private let healthCheckTickCount = AtomicInt(0)
     
     /// Refresh every N ticks when engine expected running; back off when playing to reduce CPU impact (issue #80).
     private static let healthCheckRefreshTicksWhenStopped = 6
@@ -269,13 +271,16 @@ class AudioEngine: AudioEngineContext {
     }
     
     /// Thread-safe beat position (for MIDI scheduler and automation engine)
-    /// Uses nonisolated(unsafe) reference to access TransportController's atomic properties
+    /// Accesses TransportController's atomic properties via stored reference
+    /// SAFETY: transportController is @MainActor-isolated, so we store a nonisolated reference
+    /// that vends thread-safe atomic properties. The reference itself is immutable after setup.
     nonisolated var atomicBeatPosition: Double {
         _transportControllerRef?.atomicBeatPosition ?? 0
     }
     
     /// Thread-safe playing state (for MIDI scheduler and automation engine)
-    /// Uses nonisolated(unsafe) reference to access TransportController's atomic properties
+    /// Accesses TransportController's atomic properties via stored reference
+    /// SAFETY: Same rationale as atomicBeatPosition - vends thread-safe atomics only
     nonisolated var atomicIsPlaying: Bool {
         _transportControllerRef?.atomicIsPlaying ?? false
     }
@@ -400,7 +405,21 @@ class AudioEngine: AudioEngineContext {
     var transportController: TransportController!
     
     /// Nonisolated reference for cross-thread atomic state access
-    /// SAFETY: Only used to access TransportController's thread-safe atomic properties
+    /// Nonisolated reference to TransportController for accessing thread-safe atomic properties
+    /// 
+    /// WHY THIS IS SAFE:
+    /// - TransportController is @MainActor-isolated, so normal access requires actor hop
+    /// - We store this reference to access ONLY its thread-safe atomic properties:
+    ///   - atomicBeatPosition (AtomicDouble)
+    ///   - atomicIsPlaying (AtomicBool)
+    /// - These properties are explicitly designed for cross-thread RT access
+    /// - The reference itself is set once during setup and never mutated
+    /// - This is the same pattern Logic Pro uses for transport state access from audio thread
+    ///
+    /// ACCEPTABLE USE OF nonisolated(unsafe):
+    /// - Just a reference (pointer), not mutable state
+    /// - Vends only thread-safe atomic accessors
+    /// - Reference is immutable after setup (write-once, read-many)
     @ObservationIgnored
     private nonisolated(unsafe) var _transportControllerRef: TransportController?
     
@@ -1078,34 +1097,42 @@ class AudioEngine: AudioEngineContext {
     }
     
     /// Flush accumulated RT error events to AppLogger (called periodically on utility queue)
-    /// THREAD SAFE: Can be called from any thread
+    /// THREAD SAFE: Uses RTSafeAtomic wrappers, never blocks RT thread
     private nonisolated func flushRTErrorEvents() {
-        // Read and reset atomic counters (lock-protected)
-        os_unfair_lock_lock(&rtClippingLock)
-        let eventsDetected = rtClippingEventsDetected
-        let maxLevel = rtLastClippingMaxLevel
-        rtClippingEventsDetected = 0
-        rtLastClippingMaxLevel = 0.0
-        os_unfair_lock_unlock(&rtClippingLock)
+        // Read and reset counters atomically via type-safe wrappers
+        // RT thread can still update concurrently via trylock
+        let eventsDetected = rtClippingCounter.readAndReset()
+        let maxLevel = rtClippingMaxLevel.readAndReset()
         
-        // Log if any events occurred
+        // Log if any events occurred (safe to allocate/block on utility queue)
         if eventsDetected > 0 {
-            AppLogger.shared.warning(
-                "⚠️ CLIPPING DETECTED: \(eventsDetected) event(s) since last check, max level: \(String(format: "%.3f", maxLevel))",
-                category: .audio
-            )
+            Task { @MainActor in
+                AppLogger.shared.warning(
+                    "⚠️ CLIPPING DETECTED: \(eventsDetected) event(s) since last check, max level: \(String(format: "%.3f", maxLevel))",
+                    category: .audio
+                )
+            }
         }
     }
     
     /// Stop RT error flush timer
+    /// MainActor-isolated because rtErrorFlushTimer is MainActor property
+    /// For deinit, timer is @ObservationIgnored so direct access is safe
     private func stopRTErrorFlushTimer() {
         rtErrorFlushTimer?.cancel()
         rtErrorFlushTimer = nil
     }
     
     /// Detect and record clipping in an audio buffer
-    /// REAL-TIME SAFE: No allocations, no logging, only atomic updates
+    /// REAL-TIME SAFE: Uses RTSafeAtomic wrappers with trylock - never blocks
     /// Logging is deferred to non-RT thread via periodic flush
+    ///
+    /// PROFESSIONAL DAW STANDARD:
+    /// - Uses type-safe atomic wrappers (RTSafeCounter, RTSafeMaxTracker)
+    /// - RT thread uses trylock via wrapper - returns immediately if lock is held
+    /// - If trylock fails, we skip logging this ONE buffer (acceptable loss vs blocking)
+    /// - Zero heap allocation, zero blocking, zero I/O on RT thread
+    /// - O(n) loop could be optimized with vDSP_maxmgv() for SIMD (future optimization)
     private func detectClipping(in buffer: AVAudioPCMBuffer, location: String) {
         guard let channelData = buffer.floatChannelData else { return }
         
@@ -1115,27 +1142,26 @@ class AudioEngine: AudioEngineContext {
         var maxSample: Float = 0
         var clippedFrames = 0
         
+        // Find peak sample across all channels
+        // TODO: Use vDSP_maxmgv() for 4-8x speedup via SIMD
         for channel in 0..<channelCount {
             for frame in 0..<frameCount {
                 let sample = abs(channelData[channel][frame])
                 maxSample = max(maxSample, sample)
                 
-                if sample > 0.99 {  // Near clipping threshold
+                if sample > 0.99 {  // Near clipping threshold (0dBFS = 1.0)
                     clippedFrames += 1
                 }
             }
         }
         
-        if clippedFrames > 0 || maxSample > 0.95 {
-            // REAL-TIME SAFE: Lock-free increment and compare-and-swap
-            // No heap allocation, no logging, no blocking
-            os_unfair_lock_lock(&rtClippingLock)
-            rtClippingEventsDetected += 1
-            if maxSample > rtLastClippingMaxLevel {
-                rtLastClippingMaxLevel = maxSample
-            }
-            os_unfair_lock_unlock(&rtClippingLock)
-        }
+        // Only record if clipping detected
+        guard clippedFrames > 0 || maxSample > 0.95 else { return }
+        
+        // REAL-TIME SAFE: Use type-safe atomic wrappers with trylock
+        // If trylock fails, counters skip this event (acceptable loss vs blocking)
+        rtClippingCounter.tryIncrement()
+        rtClippingMaxLevel.tryUpdateMax(maxSample)
     }
     
     // MARK: - Feedback Protection (Issue #57)
@@ -1219,8 +1245,8 @@ class AudioEngine: AudioEngineContext {
             if engine.isRunning {
                 isGraphReadyForPlayback = true
                 engineExpectedToRun = true
-                _atomicEngineExpectedToRun = true
-                _atomicLastKnownEngineRunning = true
+                atomicEngineExpectedToRun.store(true)
+                atomicLastKnownEngineRunning.store(true)
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
                 // Validate engine health after start (only if monitor is initialized)
@@ -1279,7 +1305,7 @@ class AudioEngine: AudioEngineContext {
         
         // Stop and reset before retry
         engine.stop()
-        _atomicLastKnownEngineRunning = false
+        atomicLastKnownEngineRunning.store(false)
         engine.reset()
         engine.prepare()
         
@@ -1297,8 +1323,8 @@ class AudioEngine: AudioEngineContext {
                 if self.engine.isRunning {
                     self.isGraphReadyForPlayback = true
                     self.engineExpectedToRun = true
-                    self._atomicEngineExpectedToRun = true
-                    self._atomicLastKnownEngineRunning = true
+                    self.atomicEngineExpectedToRun.store(true)
+                    self.atomicLastKnownEngineRunning.store(true)
                     self.engineStartRetryAttempt = 0
                     AppLogger.shared.info("Engine recovery successful on attempt \(self.engineStartRetryAttempt)", category: .audio)
                 } else {
@@ -1320,9 +1346,9 @@ class AudioEngine: AudioEngineContext {
     /// playback to avoid periodic CPU spikes (issue #80).
     private func setupEngineHealthMonitoring() {
         // Mirror state for timer (timer runs on healthMonitorQueue, cannot touch MainActor every tick)
-        _atomicEngineExpectedToRun = engineExpectedToRun
-        _atomicLastKnownEngineRunning = engine.isRunning
-        _healthCheckTickCount = 0
+        atomicEngineExpectedToRun.store(engineExpectedToRun)
+        atomicLastKnownEngineRunning.store(engine.isRunning)
+        healthCheckTickCount.store(0)
         
         // Cancel existing timer
         engineHealthTimer?.cancel()
@@ -1338,20 +1364,20 @@ class AudioEngine: AudioEngineContext {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             // Stay on healthMonitorQueue: avoid MainActor hop when cache says engine is healthy
-            if !self._atomicEngineExpectedToRun {
-                self._healthCheckTickCount = 0
+            if !self.atomicEngineExpectedToRun.load() {
+                self.healthCheckTickCount.store(0)
                 return
             }
-            self._healthCheckTickCount += 1
+            let currentTick = self.healthCheckTickCount.increment()
             let isPlaying = self._transportControllerRef?.atomicIsPlaying ?? false
             let ticksUntilRefresh = isPlaying
                 ? Self.healthCheckRefreshTicksWhenPlaying
                 : Self.healthCheckRefreshTicksWhenStopped
-            let dueForRefresh = self._healthCheckTickCount >= ticksUntilRefresh
+            let dueForRefresh = currentTick >= ticksUntilRefresh
             if dueForRefresh {
-                self._healthCheckTickCount = 0
+                self.healthCheckTickCount.store(0)
             }
-            let needCheck = !self._atomicLastKnownEngineRunning || dueForRefresh
+            let needCheck = !self.atomicLastKnownEngineRunning.load() || dueForRefresh
             if needCheck {
                 Task { @MainActor in
                     self.checkEngineHealth()
@@ -1368,12 +1394,12 @@ class AudioEngine: AudioEngineContext {
         // Only check if we expect the engine to be running
         guard engineExpectedToRun else {
             healthCheckFailureCount = 0
-            _atomicLastKnownEngineRunning = false
+            atomicLastKnownEngineRunning.store(false)
             return
         }
         
         let running = engine.isRunning
-        _atomicLastKnownEngineRunning = running
+        atomicLastKnownEngineRunning.store(running)
         
         if !running {
             healthCheckFailureCount += 1
@@ -1399,7 +1425,7 @@ class AudioEngine: AudioEngineContext {
         guard healthCheckFailureCount <= 3 else {
             AppLogger.shared.error("Engine health: Max recovery attempts reached, stopping monitoring", category: .audio)
             engineExpectedToRun = false
-            _atomicEngineExpectedToRun = false
+            atomicEngineExpectedToRun.store(false)
             return
         }
         
