@@ -810,7 +810,50 @@ class AudioEngine: AudioEngineContext {
         // Empty deinit ensures proper Swift Concurrency / TaskLocal cleanup order.
         // See: AudioAnalyzer, MetronomeEngine, AutomationEngine; https://github.com/apple/swift/issues/84742
         // Note: Cannot access @MainActor properties in deinit.
-        // TransportController's timer will be cleaned up automatically.
+        
+        // FIX Issue #72: Cancel health timer to prevent retain cycle
+        // Timer is @ObservationIgnored so it's safe to access here
+        engineHealthTimer?.cancel()
+    }
+    
+    // MARK: - Lifecycle Management (Issue #72)
+    
+    /// Clean up audio engine resources explicitly.
+    /// Call this before releasing references to AudioEngine to ensure proper cleanup.
+    /// This method prevents timer retain cycles and ensures deterministic resource release.
+    ///
+    /// ARCHITECTURE NOTE: While timers use [weak self], explicitly cancelling them
+    /// prevents edge cases where the timer fires during deallocation.
+    func cleanup() {
+        // Stop playback first
+        if transportController.transportState.isPlaying {
+            transportController.stop()
+        }
+        
+        // Stop automation engine (high-priority 120Hz timer)
+        automationEngine.stop()
+        
+        // Stop MIDI playback and scheduler
+        midiPlaybackEngine.stop()
+        
+        // Stop metronome if installed (calls stopPlaying internally)
+        installedMetronome?.onTransportStop()
+        
+        // Stop health monitoring timer (prevents retain cycle - Issue #72)
+        stopEngineHealthMonitoring()
+        
+        // Stop transport position timer
+        transportController.stopPositionTimer()
+        
+        // Stop audio engine
+        if engine.isRunning {
+            engine.stop()
+        }
+        
+        // Clear all track nodes (delegates to TrackNodeManager)
+        trackNodeManager?.clearAllTracks()
+        
+        AppLogger.shared.debug("AudioEngine cleanup completed", category: .audio)
     }
     
     // MARK: - Audio Engine Setup
