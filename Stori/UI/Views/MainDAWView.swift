@@ -51,10 +51,9 @@ final class DAWUIState {
     
     private init() {}
     
-    // CRITICAL: Protective deinit for Swift Concurrency class (ASan Issue #84742+)
-    // Root cause: Task {} blocks create implicit task-local storage that can be double-freed
-    deinit {
-    }
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 }
 
 struct MainDAWView: View {
@@ -1258,6 +1257,17 @@ struct MainDAWView: View {
             .sheet(isPresented: $showingTokenInput) {
                 TokenInputView(allowDismiss: true)
             }
+        // Virtual Keyboard — presented as overlay (not sheet) to avoid
+        // dimming, animation, and playhead stutter during recording.
+        // Matches Logic Pro's Musical Typing behavior (floating panel).
+        .overlay(alignment: .bottom) {
+            if activeSheet == .virtualKeyboard {
+                VirtualKeyboardView(onClose: { activeSheet = nil })
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         // Update banner (non-blocking, slides in at top)
         .overlay(alignment: .top) {
             if updateService.showBanner,

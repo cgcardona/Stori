@@ -220,6 +220,10 @@ final class MeteringService: @unchecked Sendable {
         self.masterVolumeAccessor = masterVolume
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Master Meter Tap Installation
     
     /// Install the master metering tap on the specified EQ node
@@ -456,7 +460,4 @@ final class MeteringService: @unchecked Sendable {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// Even @unchecked Sendable classes can have implicit tasks that cause
     /// memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

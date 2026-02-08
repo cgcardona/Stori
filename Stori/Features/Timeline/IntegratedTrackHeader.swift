@@ -394,6 +394,7 @@ struct IntegratedTrackHeader: View {
                         )
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Record Enable")
@@ -421,6 +422,7 @@ struct IntegratedTrackHeader: View {
                         .stroke(audioTrack.mixerSettings.isMuted ? .orange : .gray, lineWidth: 1)
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Mute")
@@ -448,6 +450,7 @@ struct IntegratedTrackHeader: View {
                         .stroke(audioTrack.mixerSettings.isSolo ? .yellow : .gray, lineWidth: 1)
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Solo")
@@ -602,6 +605,7 @@ struct IntegratedTrackHeader: View {
                         )
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Input Monitor")

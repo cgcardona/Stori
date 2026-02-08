@@ -31,6 +31,10 @@ final class AssetDownloadService {
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 
     // MARK: - Paths
 
@@ -655,11 +659,6 @@ final class AssetDownloadService {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Download Delegate for Progress Tracking
@@ -671,6 +670,10 @@ private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
     init(progressHandler: @escaping (Double) -> Void) {
         self.progressHandler = progressHandler
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let response = downloadTask.response else {

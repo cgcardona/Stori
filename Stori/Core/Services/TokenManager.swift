@@ -17,6 +17,10 @@ class TokenManager: @unchecked Sendable {
     
     private init() {}
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Public API
     
     /// Save token to Keychain
@@ -81,10 +85,7 @@ class TokenManager: @unchecked Sendable {
         return (try? getToken()) != nil
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Token Errors

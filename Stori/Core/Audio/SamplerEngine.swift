@@ -512,6 +512,10 @@ class SamplerEngine {
         }
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Attach the sampler to the engine (call after loading samples if deferAttachment was true)
     func attachToEngine() {
         guard let engine = audioEngine else { return }
@@ -847,9 +851,6 @@ class SamplerEngine {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// Classes that interact with Swift Concurrency runtime can have implicit tasks
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 
 // MARK: - Sampler Errors

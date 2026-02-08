@@ -62,6 +62,10 @@ class SandboxedPluginHost {
         loadPreferences()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Plugin Instantiation
     
     /// Instantiate a plugin with the specified hosting mode
@@ -175,13 +179,6 @@ class SandboxedPluginHost {
         defaults.set(Array(forceSandboxed), forKey: "plugin.forceSandboxed")
         defaults.set(Array(cannotSandbox), forKey: "plugin.cannotSandbox")
         defaults.set(defaultMode.rawValue, forKey: "plugin.defaultMode")
-    }
-    
-    deinit {
-        // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
-        // Root cause: @MainActor classes can experience Swift Concurrency TaskLocal double-free.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, BusManager.deinit
     }
 }
 

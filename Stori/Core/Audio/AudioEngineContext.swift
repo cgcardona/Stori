@@ -233,6 +233,10 @@ final class MockAudioEngineContext: AudioEngineContext {
         )
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Test Helpers
     
     func setTempo(_ tempo: Double) {
@@ -252,10 +256,7 @@ final class MockAudioEngineContext: AudioEngineContext {
         )
     }
     
-    // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
     // Root cause: @MainActor creates implicit actor isolation task-local storage
-    deinit {
-    }
 }
 #endif
 

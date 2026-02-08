@@ -79,6 +79,10 @@ class PluginWatchdog {
         loadDisabledPlugins()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Crash Handling
     
     /// Report a plugin crash
@@ -207,11 +211,6 @@ class PluginWatchdog {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - PluginInstance Extension for Watchdog Integration

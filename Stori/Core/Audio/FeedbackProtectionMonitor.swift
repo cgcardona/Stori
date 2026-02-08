@@ -97,6 +97,10 @@ final class FeedbackProtectionMonitor {
         rmsHistory.reserveCapacity(10)  // Pre-allocate for efficiency
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Monitoring Control
     
     /// Start feedback protection monitoring
@@ -263,13 +267,5 @@ final class FeedbackProtectionMonitor {
         onShowFeedbackWarning?(message)
         
         AppLogger.shared.error("FEEDBACK PROTECTION TRIGGERED: Auto-muted master output", category: .audio)
-    }
-    
-    deinit {
-        // CRITICAL: Protective deinit (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation even without timers.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, AutomationEngine.deinit, MetronomeEngine.deinit
     }
 }

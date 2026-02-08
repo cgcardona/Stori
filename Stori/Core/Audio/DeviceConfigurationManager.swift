@@ -91,6 +91,10 @@ final class DeviceConfigurationManager {
     
     init() {}
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Public API
     
     /// Setup observer for audio hardware configuration changes (e.g., Bluetooth speaker connected)
@@ -239,9 +243,4 @@ final class DeviceConfigurationManager {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

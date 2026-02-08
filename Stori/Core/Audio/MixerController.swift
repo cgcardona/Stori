@@ -105,6 +105,10 @@ class MixerController {
         self.instrumentManager = instrumentManager ?? InstrumentManager.shared
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Track Volume
     
     func updateTrackVolume(trackId: UUID, volume: Float) {
@@ -510,13 +514,5 @@ class MixerController {
         
         // Notify that project has been updated so SwiftUI views refresh
         NotificationCenter.default.post(name: .projectUpdated, object: project)
-    }
-    
-    deinit {
-        // CRITICAL: Protective deinit for @MainActor class owned by @Observable parent (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, BusManager.deinit
     }
 }

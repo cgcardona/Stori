@@ -46,6 +46,10 @@ class ScorePDFExporter {
     private let renderer = StaffRenderer()
     private let quantizer = NotationQuantizer()
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Export to PDF
     
     /// Export a MIDI region to PDF
@@ -321,6 +325,10 @@ class MusicXMLExporter {
     
     private let quantizer = NotationQuantizer()
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Export a MIDI region to MusicXML format
     func exportToMusicXML(
         region: MIDIRegion,
@@ -551,6 +559,10 @@ class ScorePrintController {
     
     private let renderer = StaffRenderer()
     private let quantizer = NotationQuantizer()
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     /// Print the score
     func printScore(

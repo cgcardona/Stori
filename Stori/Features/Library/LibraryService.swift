@@ -113,10 +113,7 @@ actor LibraryService {
         return try decoder.decode(IndexerGraphQLResponse<T>.self, from: data)
     }
     
-    // CRITICAL: Protective deinit for actor (ASan Issue #84742+)
     // Root cause: actor types have implicit actor isolation mechanisms
-    deinit {
-    }
 }
 
 // MARK: - Error Types

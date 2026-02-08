@@ -168,7 +168,7 @@ final class PluginDeferredDeallocationManager {
     
     // MARK: - Cleanup
     
-    deinit {
+    nonisolated deinit {
         sweepTask?.cancel()
         
         // Final cleanup on deinit

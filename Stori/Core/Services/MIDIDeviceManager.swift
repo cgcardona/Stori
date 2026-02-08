@@ -77,11 +77,11 @@ class MIDIDeviceManager {
     
     // MARK: - Private Properties
     
-    private var midiClient: MIDIClientRef = 0
-    private var inputPort: MIDIPortRef = 0
-    private var outputPort: MIDIPortRef = 0
-    private var virtualSource: MIDIEndpointRef = 0
-    private var virtualDestination: MIDIEndpointRef = 0
+    @ObservationIgnored private var midiClient: MIDIClientRef = 0
+    @ObservationIgnored private var inputPort: MIDIPortRef = 0
+    @ObservationIgnored private var outputPort: MIDIPortRef = 0
+    @ObservationIgnored private var virtualSource: MIDIEndpointRef = 0
+    @ObservationIgnored private var virtualDestination: MIDIEndpointRef = 0
     
     // MARK: - Initialization
     
@@ -89,9 +89,15 @@ class MIDIDeviceManager {
         setupMIDI()
     }
     
-    deinit {
-        // CRITICAL: Cannot capture self in deinit closure
-        // Call teardownMIDI directly - it's a synchronous function
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
+    // MARK: - Cleanup
+    
+    /// Explicitly release CoreMIDI resources. Call from SwiftUI .onDisappear
+    /// or from the owning object's cleanup path before releasing this object.
+    func cleanup() {
         teardownMIDI()
     }
     
@@ -495,6 +501,10 @@ class MIDIRecordingEngine {
         setupCallbacks()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Setup
     
     /// Set the current position provider in beats (e.g., from AudioEngine currentPosition.beats)
@@ -674,9 +684,6 @@ class MIDIRecordingEngine {
         recordedPitchBendEvents.append(event)
     }
     
-    // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 

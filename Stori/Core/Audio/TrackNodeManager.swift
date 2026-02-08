@@ -86,6 +86,10 @@ final class TrackNodeManager {
     
     init() {}
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Public API
     
     /// Get all track nodes (read-only access)
@@ -106,19 +110,14 @@ final class TrackNodeManager {
     /// Set up all track nodes for a project
     /// This clears existing nodes and creates new ones for each track
     func setupTracksForProject(_ project: AudioProject) {
-        logDebug("setupTracksForProject: \(project.tracks.count) tracks", category: "PROJECT")
-        
         // Clear existing track nodes
         clearAllTracks()
         
         // Create track nodes for each track
         for track in project.tracks {
-            logDebug("Creating node for track '\(track.name)' (type: \(track.trackType), regions: \(track.regions.count), midiRegions: \(track.midiRegions.count))", category: "PROJECT")
             let trackNode = createTrackNode(for: track)
             trackNodes[track.id] = trackNode
         }
-        
-        logDebug("Created \(trackNodes.count) track nodes", category: "PROJECT")
         
         // REAL-TIME SAFETY: Update automation engine's cached track IDs
         onUpdateAutomationTrackCache?()
@@ -199,8 +198,6 @@ final class TrackNodeManager {
     /// Creates a track node and attaches all nodes to the engine.
     /// NOTE: This only attaches nodes - caller must call rebuildTrackGraph() after storing in trackNodes
     func createTrackNode(for track: AudioTrack) -> TrackAudioNode {
-        logDebug("Creating track node for '\(track.name)' (id: \(track.id), type: \(track.trackType))", category: "TRACK")
-        
         let playerNode = AVAudioPlayerNode()
         let timePitch = AVAudioUnitTimePitch()  // [V2-PITCH/TEMPO]
         let eqNode = AVAudioUnitEQ(numberOfBands: 3)
@@ -233,7 +230,6 @@ final class TrackNodeManager {
         
         // Also connect playerNode → timePitch (this is track-internal, always needed for audio tracks)
         engine.connect(playerNode, to: timePitch, format: graphFormat)
-        logDebug("Attached all track nodes to engine (connections pending)", category: "TRACK")
         
         let trackNode = TrackAudioNode(
             id: track.id,
@@ -273,7 +269,4 @@ final class TrackNodeManager {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @MainActor classes can have implicit tasks from Swift Concurrency runtime
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

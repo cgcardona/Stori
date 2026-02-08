@@ -26,13 +26,9 @@ class NotationQuantizer {
     /// Engraver for intelligent layout
     private let engraver = NotationEngraver()
     
-    // MARK: - Deinit Protection (ASan Issue #84742+)
-    
-    deinit {
-        // CRITICAL: Protective deinit to prevent ASan crash during test teardown
-        // Even though this class is not @Observable or @MainActor, it can be
-        // deallocated on MainActor during test cleanup, causing task-local issues
-    }
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Main Quantization
     

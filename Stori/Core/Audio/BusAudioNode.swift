@@ -97,6 +97,8 @@ class BusAudioNode {
         self.pluginChain = PluginChain(id: UUID(), maxSlots: 8)
         setupAudioChain()
     }
+
+    nonisolated deinit {}
     
     // MARK: - Audio Chain Setup
     private func setupAudioChain() {
@@ -211,8 +213,4 @@ class BusAudioNode {
     }
     
     // MARK: - Cleanup
-    deinit {
-        // Note: Cannot call @MainActor methods in deinit
-        // Level monitoring will be cleaned up automatically when nodes are deallocated
-    }
 }

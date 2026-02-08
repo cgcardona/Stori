@@ -60,6 +60,10 @@ class TrackFreezeService {
     
     private init() {}
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Freeze Track
     
     /// Freeze a track by rendering it with all plugins to an audio file.
@@ -343,10 +347,7 @@ class TrackFreezeService {
         return documentsDir.appendingPathComponent("Stori/Projects/\(sanitizedName).stori_assets")
     }
     
-    // CRITICAL: Protective deinit for @MainActor class (ASan Issue #84742+)
     // Root cause: @MainActor creates implicit actor isolation task-local storage
-    deinit {
-    }
 }
 
 // NOTE: frozenAudioPath property is defined in AudioTrack model (AudioModels.swift)

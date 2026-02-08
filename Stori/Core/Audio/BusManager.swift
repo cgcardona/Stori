@@ -96,6 +96,10 @@ class BusManager {
         self.setIsInstallingPlugin = setIsInstallingPlugin
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Bus Setup
     
     /// Setup buses for a project
@@ -779,13 +783,5 @@ class BusManager {
         }
         
         return sends
-    }
-    
-    deinit {
-        // CRITICAL: Protective deinit for @MainActor class owned by @Observable parent (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, AutomationEngine.deinit, FeedbackProtectionMonitor.deinit
     }
 }

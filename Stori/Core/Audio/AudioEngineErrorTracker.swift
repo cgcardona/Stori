@@ -145,6 +145,10 @@ final class AudioEngineErrorTracker {
         }
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Error Recording
     
     /// Record an error with full context.
@@ -172,10 +176,11 @@ final class AudioEngineErrorTracker {
             recentErrors.removeLast()
         }
         
-        // Log to system logger
+        // Log to system logger (errors and warnings only)
         switch severity.logLevel {
         case .info:
-            AppLogger.shared.info(entry.detailedDescription, category: .audio)
+            // Don't log info-level errors to reduce production noise
+            break
         case .warning:
             AppLogger.shared.warning(entry.detailedDescription, category: .audio)
         case .error:
@@ -333,11 +338,6 @@ final class AudioEngineErrorTracker {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Notification Names

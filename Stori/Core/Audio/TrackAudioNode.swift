@@ -166,15 +166,14 @@ final class TrackAudioNode: @unchecked Sendable {
         setupLevelMonitoring()
     }
     
-    deinit {
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {
         removeLevelMonitoring()
-        
-        // Deallocate atomic storage (Issue #59 fix)
         _currentLevelLeft.deinitialize(count: 1)
         _currentLevelRight.deinitialize(count: 1)
         _peakLevelLeft.deinitialize(count: 1)
         _peakLevelRight.deinitialize(count: 1)
-        
         _currentLevelLeft.deallocate()
         _currentLevelRight.deallocate()
         _peakLevelLeft.deallocate()
@@ -612,7 +611,10 @@ final class TrackAudioNode: @unchecked Sendable {
         levelTapInstalled = true
     }
     
-    private func removeLevelMonitoring() {
+    /// Remove the level-monitoring tap from the volume node.
+    /// Must be called while volumeNode is still attached to an engine (engine != nil);
+    /// otherwise the tap removal is skipped and the callback can fire on a detached node.
+    func removeLevelMonitoring() {
         guard levelTapInstalled else { return }
         
         // Safety check: only remove tap if the node is still attached to an engine

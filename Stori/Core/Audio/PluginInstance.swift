@@ -67,15 +67,8 @@ class PluginInstance: Identifiable {
         self.id = UUID()
         self.descriptor = descriptor
     }
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks for property
-        // change notifications that can cause "freed pointer was not the last allocation"
-        // during teardown. See: AudioAnalyzer, PluginChain, MetronomeEngine.
-        // Cleanup of AU resources must happen in unload() before dealloc; do not touch
-        // auAudioUnit/avAudioUnit here (would run in wrong order vs Observation teardown).
-    }
+
+    nonisolated deinit {}
     
     // MARK: - Loading
     
@@ -444,8 +437,10 @@ class PluginInstance: Identifiable {
         let semaphore = DispatchSemaphore(value: 0)
         var result = false
         
-        Task { @MainActor in
-            result = await self.restoreState(from: data)
+        Task { @MainActor [weak self] in
+            if let self {
+                result = await self.restoreState(from: data)
+            }
             semaphore.signal()
         }
         
@@ -675,6 +670,10 @@ final class PluginParameterRateLimiter: @unchecked Sendable {
         timebaseInfo = info
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Returns true if the update is allowed; false if global limit exceeded.
     /// Uses token bucket algorithm: O(1) time complexity, no allocations.
     /// Logs a throttled warning when updates are dropped.
@@ -793,8 +792,7 @@ class PluginInstanceManager: PluginInstanceManagerProtocol {
         instances.removeAll()
     }
     
-    // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-    // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 }

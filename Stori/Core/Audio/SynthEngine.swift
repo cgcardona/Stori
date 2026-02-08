@@ -65,11 +65,9 @@ private class ParameterSmoother {
         currentValue
     }
     
-    /// Explicit deinit to prevent Swift Concurrency task leak
-    /// Private classes can have implicit tasks that cause memory corruption
-    deinit {
-        // Empty deinit is sufficient - ensures proper Swift Concurrency cleanup
-    }
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
 }
 
 // MARK: - SynthPreset
@@ -410,6 +408,10 @@ class SynthVoice {
         self.baseFrequency = Float(MIDIHelper.frequencyHz(for: pitch))
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Trigger the release phase
     func release(at time: Float) {
         isReleased = true
@@ -546,9 +548,6 @@ class SynthVoice {
     
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// Even simple classes can have implicit tasks that cause memory corruption
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 
 // MARK: - SynthEngine
@@ -639,6 +638,10 @@ class SynthEngine {
         
         // Source node is created lazily when attached to engine
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Engine Integration
     
@@ -925,8 +928,5 @@ class SynthEngine {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// Classes that interact with Swift Concurrency runtime can have implicit tasks
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 

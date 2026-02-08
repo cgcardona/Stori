@@ -64,6 +64,10 @@ class DrumKitEngine {
         self.mixerNode = AVAudioMixerNode()
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     /// Attach the drum kit to an audio engine
     /// - Parameters:
     ///   - engine: The AVAudioEngine to attach to
@@ -484,13 +488,5 @@ class DrumKitEngine {
         
         // Decay phase
         return exp(-(t - attack) * decay)
-    }
-    
-    deinit {
-        // CRITICAL: Protective deinit (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, BusManager.deinit
     }
 }

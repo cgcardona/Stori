@@ -68,11 +68,15 @@ class WalletManager {
         
         // If connected, fetch balance
         if isConnected {
-            Task {
-                await refreshBalance()
+            Task { [weak self] in
+                await self?.refreshBalance()
             }
         }
     }
+    
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
     
     // MARK: - Wallet Operations
     
@@ -98,8 +102,8 @@ class WalletManager {
         blockchainClient?.connectWallet(address: trimmed)
         
         // Fetch balance
-        Task {
-            await refreshBalance()
+        Task { [weak self] in
+            await self?.refreshBalance()
         }
         
         // Post notification for UI updates (includes address for BlockchainClient sync)
@@ -211,10 +215,7 @@ class WalletManager {
         return String(format: "%.4f", tusValue)
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Wallet Errors

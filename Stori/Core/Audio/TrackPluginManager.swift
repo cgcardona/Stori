@@ -122,6 +122,10 @@ class TrackPluginManager {
         self.onModifyGraphSafely = onModifyGraphSafely
     }
     
+    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
+    /// the runtime deinits this object on MainActor/task-local context.
+    nonisolated deinit {}
+    
     // MARK: - Plugin Chain Access
     
     /// Get the plugin chain for a track
@@ -301,9 +305,10 @@ class TrackPluginManager {
         updateDelayCompensation()
         
         // Update project persistence
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             await self.savePluginConfigsToProject(trackId: trackId)
-            logDebug("   ✅ Plugin configuration saved to project after removal")
+            self.logDebug("   ✅ Plugin configuration saved to project after removal")
         }
     }
     
@@ -755,13 +760,5 @@ class TrackPluginManager {
         
         sidechainConnections.removeValue(forKey: trackId)
         sidechainSources.removeValue(forKey: trackId)
-    }
-    
-    deinit {
-        // CRITICAL: Protective deinit for class owned by @Observable parent (ASan Issue #84742+)
-        // Root cause: Classes owned by @Observable @MainActor parents can experience
-        // Swift Concurrency TaskLocal double-free on deallocation.
-        // Empty deinit ensures proper Swift Concurrency cleanup order.
-        // See: AudioEngine.deinit, BusManager.deinit
     }
 }
