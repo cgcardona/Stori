@@ -6,8 +6,9 @@
 //  CRITICAL: Prevents silent failures where UI shows "playing" but audio is broken.
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Observation
 
 // MARK: - Engine Health Status

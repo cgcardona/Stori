@@ -14,8 +14,9 @@
 //  - Uses AUScheduleMIDIEventBlock with future sample times for sub-sample accuracy
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Observation
 import os.lock
 

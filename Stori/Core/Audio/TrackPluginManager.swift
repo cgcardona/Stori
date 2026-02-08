@@ -5,9 +5,9 @@
 //  Manages track insert plugins, Plugin Delay Compensation (PDC), and sidechain routing.
 //  Extracted from AudioEngine for better separation of concerns.
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 
 // MARK: - Plugin Load Result
 

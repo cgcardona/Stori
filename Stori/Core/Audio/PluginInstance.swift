@@ -4,10 +4,11 @@
 //
 //  Manages the lifecycle of a loaded Audio Unit plugin instance.
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file,
+//  or the annotation is ignored (Swift compiler limitation; applies to all modules).
 @preconcurrency import AVFoundation
 @preconcurrency import AudioToolbox
+import Foundation
 import CoreAudioKit
 import Combine
 import Observation

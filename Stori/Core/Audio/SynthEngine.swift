@@ -7,9 +7,9 @@
 //  Professional subtractive synthesizer engine with multiple oscillators,
 //  filter, envelope, and LFO. Supports polyphonic playback with voice stealing.
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Accelerate
 
 // MARK: - Parameter Smoother

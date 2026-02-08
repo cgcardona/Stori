@@ -11,9 +11,9 @@
 //  - Clicks scheduled using AVAudioTime (sample-accurate)
 //  - Timer only fills the scheduling queue, not the clock
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Combine
 import Observation
 

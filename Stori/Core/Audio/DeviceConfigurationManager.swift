@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine.swift for better maintainability.
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Observation
 
 /// Manages audio hardware configuration changes (e.g., switching audio interfaces)

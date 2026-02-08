@@ -5,8 +5,9 @@
 //  Professional bus audio node for auxiliary effects processing
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import AudioToolbox
 import Combine
 import Accelerate

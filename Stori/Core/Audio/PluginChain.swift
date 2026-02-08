@@ -4,9 +4,9 @@
 //
 //  Manages chains of Audio Unit plugins for tracks and buses.
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Combine
 import Observation
 

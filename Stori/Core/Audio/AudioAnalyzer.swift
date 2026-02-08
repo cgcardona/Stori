@@ -5,8 +5,9 @@
 //  Audio analysis and waveform generation utilities
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Accelerate
 import Observation
 

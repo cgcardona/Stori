@@ -11,9 +11,9 @@
 //  2. Playback: Use frozen audio file instead of original regions + plugins
 //  3. Unfreeze: Restore original regions, re-enable plugins, delete frozen file
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 
 // MARK: - Track Freeze Error
 

@@ -6,8 +6,9 @@
 //  Provides MIDI input and audio output integration with the DAW.
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import AudioToolbox
 import Combine
 import AppKit

@@ -4,9 +4,11 @@
 //
 //  Core audio engine for real-time audio processing
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file,
+//  or the annotation is ignored (Swift compiler limitation; applies to all modules).
+//  It suppresses Sendable warnings only; prefer @MainActor / @unchecked Sendable where appropriate.
 @preconcurrency import AVFoundation
+import Foundation
 import AVKit
 import Combine
 import Accelerate

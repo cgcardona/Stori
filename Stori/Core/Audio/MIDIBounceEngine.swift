@@ -8,8 +8,9 @@
 //  Plays MIDI through the track's synth and captures the output.
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Observation
 
 // MARK: - Bounce State

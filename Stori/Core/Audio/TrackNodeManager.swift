@@ -12,8 +12,9 @@
 //  - Coordinates with MixerController for state reset after setup
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 
 /// Manages track audio node lifecycle: creation, destruction, and access
 @MainActor

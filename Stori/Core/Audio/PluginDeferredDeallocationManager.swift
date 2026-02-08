@@ -20,9 +20,9 @@
 //  Typical plugin: 1-5 MB. With 0.5s delay, max overhead is ~5 MB per swap.
 //  For 10 rapid swaps: ~50 MB temporary overhead, released after delay.
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Observation
 
 /// Manages deferred deallocation of plugins to prevent use-after-free during hot-swap

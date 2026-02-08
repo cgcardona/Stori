@@ -14,9 +14,9 @@
 //  - AutomationEngine: Dedicated high-priority queue for applying values
 //  - TrackAudioNode: Receives values via thread-safe property setters
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import os.lock
 
 // MARK: - Automation Curve Constants

@@ -11,9 +11,9 @@
 //  - Breaks circular dependencies between audio subsystems
 //  - Clear separation between observable UI state and thread-safe audio state
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 
 // MARK: - Audio Engine Context Protocol
 

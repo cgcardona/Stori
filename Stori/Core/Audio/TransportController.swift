@@ -16,9 +16,9 @@
 //  - Position timer uses DispatchSourceTimer on high-priority queue (immune to main thread blocking)
 //  - Cycle jumps use generation counter to avoid races
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import QuartzCore
 import os.lock
 

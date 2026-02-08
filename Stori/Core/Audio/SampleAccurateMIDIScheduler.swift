@@ -36,9 +36,9 @@
 //  - No blocking I/O or syscalls in critical path
 //  - Stack-allocated temporary storage for event dispatch
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import os.lock
 
 // MARK: - Audio Debug Configuration

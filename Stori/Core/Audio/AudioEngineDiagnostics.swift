@@ -6,8 +6,9 @@
 //  Dumps complete engine state for troubleshooting.
 //
 
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 
 // MARK: - Audio Engine Diagnostics
 

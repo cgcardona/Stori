@@ -38,9 +38,9 @@
 //  However, this is unlikely to be necessary as Core Audio's implementation is
 //  battle-tested in Logic Pro, GarageBand, and professional audio apps worldwide.
 //
-
-import Foundation
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
 @preconcurrency import AVFoundation
+import Foundation
 import Combine
 
 // MARK: - General MIDI Instrument
