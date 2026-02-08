@@ -115,10 +115,7 @@ final class UpdateService {
         self.currentBuild = currentBuild ?? (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
     }
     
-    nonisolated deinit {
-        periodicCheckTask?.cancel()
-        downloadTask?.cancel()
-    }
+    // No deinit needed — all tasks use [weak self] and terminate naturally when this object is released.
     
     // MARK: - Display Properties
     
@@ -669,9 +666,6 @@ private final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate
         self.onProgress = onProgress
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     func urlSession(
         _ session: URLSession,

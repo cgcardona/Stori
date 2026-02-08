@@ -39,6 +39,7 @@ enum DAWSheet: String, Identifiable {
 
 /// Global state tracker for UI elements that need to be accessed from NSEvent handlers
 /// NSEvent closures capture @State values at creation time, so we need a class-based workaround
+@MainActor
 final class DAWUIState {
     static let shared = DAWUIState()
     var isSynthesizerVisible: Bool = false      // Synthesizer panel at bottom
@@ -51,9 +52,6 @@ final class DAWUIState {
     
     private init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 }
 
 struct MainDAWView: View {

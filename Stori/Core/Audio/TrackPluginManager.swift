@@ -122,9 +122,6 @@ class TrackPluginManager {
         self.onModifyGraphSafely = onModifyGraphSafely
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Plugin Chain Access
     
@@ -466,78 +463,66 @@ class TrackPluginManager {
         var loadedPlugins: [LoadedPlugin] = []
         var failedLoads: [(trackId: UUID, trackName: String, config: PluginConfiguration, error: String)] = []
         
-        await withTaskGroup(of: PluginLoadOutcome.self) { group in
-            for track in tracksWithPlugins {
-                for config in track.pluginConfigs {
-                    let trackId = track.id
-                    let trackName = track.name
-                    group.addTask { @MainActor in
-                        // Create descriptor
-                        let descriptor = PluginDescriptor(
-                            id: UUID(),
-                            name: config.pluginName,
-                            manufacturer: config.manufacturerName,
-                            version: "1.0",
-                            category: .effect,
-                            componentDescription: config.componentDescription,
-                            auType: .aufx,
-                            supportsPresets: true,
-                            hasCustomUI: true,
-                            inputChannels: 2,
-                            outputChannels: 2,
-                            latencySamples: 0
-                        )
-                        
-                        // SMART SANDBOXING: Check if plugin should be loaded out-of-process
-                        let shouldSandbox = PluginGreylist.shared.shouldSandbox(descriptor)
-                        
-                        let instance = PluginInstanceManager.shared.createInstance(from: descriptor)
-                        
-                        do {
-                            if shouldSandbox {
-                                try await instance.loadSandboxed(sampleRate: sampleRate)
-                            } else {
-                                try await instance.load(sampleRate: sampleRate)
-                            }
-                            
-                            // CRITICAL (Issue #77): Restore preset BEFORE allocating render resources
-                            // This ensures the plugin is in the correct state before audio can flow
-                            if let stateData = config.fullState {
-                                _ = await instance.restoreState(from: stateData)
-                            }
-                            
-                            // Restore bypass state
-                            instance.setBypass(config.isBypassed)
-                            
-                            // CRITICAL (Issue #77): Allocate render resources AFTER preset restoration
-                            // This prevents the first audio callback from rendering with default preset
-                            // Professional DAWs guarantee WYSIWYG: what you saved is what you hear
-                            if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
-                                try au.allocateRenderResources()
-                            }
-                            
-                            return .success(LoadedPlugin(
-                                trackId: trackId,
-                                trackName: trackName,
-                                config: config,
-                                descriptor: descriptor,
-                                instance: instance
-                            ))
-                        } catch {
-                            PluginGreylist.shared.recordCrash(for: descriptor, reason: "Failed to restore: \(error.localizedDescription)")
-                            return .failure(trackId: trackId, trackName: trackName, config: config, error: error.localizedDescription)
-                        }
+        // Load plugins sequentially — all operations are @MainActor so task group provides no parallelism
+        for track in tracksWithPlugins {
+            for config in track.pluginConfigs {
+                let trackId = track.id
+                let trackName = track.name
+                
+                // Create descriptor
+                let descriptor = PluginDescriptor(
+                    id: UUID(),
+                    name: config.pluginName,
+                    manufacturer: config.manufacturerName,
+                    version: "1.0",
+                    category: .effect,
+                    componentDescription: config.componentDescription,
+                    auType: .aufx,
+                    supportsPresets: true,
+                    hasCustomUI: true,
+                    inputChannels: 2,
+                    outputChannels: 2,
+                    latencySamples: 0
+                )
+                
+                // SMART SANDBOXING: Check if plugin should be loaded out-of-process
+                let shouldSandbox = PluginGreylist.shared.shouldSandbox(descriptor)
+                
+                let instance = PluginInstanceManager.shared.createInstance(from: descriptor)
+                
+                do {
+                    if shouldSandbox {
+                        try await instance.loadSandboxed(sampleRate: sampleRate)
+                    } else {
+                        try await instance.load(sampleRate: sampleRate)
                     }
-                }
-            }
-            
-            // Collect results
-            for await loadResult in group {
-                switch loadResult {
-                case .success(let loaded):
-                    loadedPlugins.append(loaded)
-                case .failure(let trackId, let trackName, let config, let error):
-                    failedLoads.append((trackId, trackName, config, error))
+                    
+                    // CRITICAL (Issue #77): Restore preset BEFORE allocating render resources
+                    // This ensures the plugin is in the correct state before audio can flow
+                    if let stateData = config.fullState {
+                        _ = await instance.restoreState(from: stateData)
+                    }
+                    
+                    // Restore bypass state
+                    instance.setBypass(config.isBypassed)
+                    
+                    // CRITICAL (Issue #77): Allocate render resources AFTER preset restoration
+                    // This prevents the first audio callback from rendering with default preset
+                    // Professional DAWs guarantee WYSIWYG: what you saved is what you hear
+                    if let au = instance.auAudioUnit, !au.renderResourcesAllocated {
+                        try au.allocateRenderResources()
+                    }
+                    
+                    loadedPlugins.append(LoadedPlugin(
+                        trackId: trackId,
+                        trackName: trackName,
+                        config: config,
+                        descriptor: descriptor,
+                        instance: instance
+                    ))
+                } catch {
+                    PluginGreylist.shared.recordCrash(for: descriptor, reason: "Failed to restore: \(error.localizedDescription)")
+                    failedLoads.append((trackId: trackId, trackName: trackName, config: config, error: error.localizedDescription))
                 }
             }
         }

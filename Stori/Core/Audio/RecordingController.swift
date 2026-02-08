@@ -146,7 +146,6 @@ final class RecordingController: @unchecked Sendable {
         self.loadProject = loadProject
     }
     
-    nonisolated deinit {}
     
     // MARK: - Helpers
     

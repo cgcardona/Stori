@@ -116,7 +116,6 @@ class MIDIPlaybackEngine {
     
     init() {}
 
-    nonisolated deinit {}
 
     // MARK: - Configuration
     

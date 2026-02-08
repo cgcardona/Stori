@@ -139,7 +139,6 @@ class TrackInstrument: Identifiable {
         setupInstrument(audioEngine: audioEngine)
     }
 
-    nonisolated deinit {}
     
     // MARK: - Setup
     

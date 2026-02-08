@@ -12,6 +12,60 @@ import Combine
 import Accelerate
 import Observation
 
+/// Nonisolated owner of a DispatchSourceTimer for safe deinit cleanup.
+/// When the parent @MainActor class is released, this holder's deinit
+/// cancels the timer without requiring actor isolation.
+private final class TimerHolder {
+    var timer: DispatchSourceTimer?
+    deinit { timer?.cancel() }
+}
+
+/// Nonisolated state shared between MainActor and the health-monitor
+/// background queue.  The timer event-handler captures this object
+/// (nonisolated) instead of the @MainActor AudioEngine, eliminating
+/// the Swift 6 runtime isolation assertion on `_dispatch_assert_queue_fail`.
+///
+/// The `installHandler(on:)` method forms the event handler closure in a
+/// nonisolated context, preventing it from inheriting @MainActor isolation.
+private final class HealthCheckState: @unchecked Sendable {
+    var engineExpectedToRun: Bool = false
+    var lastKnownEngineRunning: Bool = false
+    var tickCount: Int = 0
+    var refreshTicksWhenPlaying: Int = 15
+    var refreshTicksWhenStopped: Int = 6
+    weak var transportControllerRef: TransportController?
+    /// MainActor callback invoked when a health check is needed.
+    var onNeedCheck: (@MainActor () -> Void)?
+    
+    /// Install the event handler on the timer in a nonisolated context.
+    /// This prevents the closure from inheriting @MainActor isolation.
+    func installHandler(on timer: DispatchSourceTimer) {
+        timer.setEventHandler {
+            // Stay on healthMonitorQueue: avoid MainActor hop when cache says engine is healthy
+            if !self.engineExpectedToRun {
+                self.tickCount = 0
+                return
+            }
+            self.tickCount += 1
+            let isPlaying = self.transportControllerRef?.atomicIsPlaying ?? false
+            let ticksUntilRefresh = isPlaying
+                ? self.refreshTicksWhenPlaying
+                : self.refreshTicksWhenStopped
+            let dueForRefresh = self.tickCount >= ticksUntilRefresh
+            if dueForRefresh {
+                self.tickCount = 0
+            }
+            let needCheck = !self.lastKnownEngineRunning || dueForRefresh
+            if needCheck {
+                let handler = self.onNeedCheck
+                Task { @MainActor in
+                    handler?()
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Audio Engine Manager
 // PERFORMANCE: Using @Observable for fine-grained SwiftUI updates
 // Only views that READ a specific property will re-render when that property changes
@@ -174,7 +228,7 @@ class AudioEngine: AudioEngineContext {
     // MARK: - Engine Health Watchdog
     /// Low-priority timer for health checks (runs on .utility queue to avoid audio thread contention; issue #80)
     @ObservationIgnored
-    private var engineHealthTimer: DispatchSourceTimer?
+    private let healthTimerHolder = TimerHolder()
     
     /// Queue label and QoS used for health monitoring (exposed for tests; issue #80).
     static let healthMonitorQueueLabelForTesting = "com.stori.engine.health"
@@ -191,17 +245,11 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     private var engineExpectedToRun: Bool = false
     
-    /// Thread-safe mirror of engineExpectedToRun for health timer (avoids MainActor hop every tick)
+    /// Nonisolated state shared with the health-monitor timer on a background queue.
+    /// The timer closure captures this holder directly — never the @MainActor AudioEngine —
+    /// so Swift 6's runtime isolation check is satisfied.
     @ObservationIgnored
-    private nonisolated(unsafe) var _atomicEngineExpectedToRun: Bool = false
-    
-    /// Thread-safe cache of engine.isRunning; updated on MainActor when we run checkEngineHealth or start/stop
-    @ObservationIgnored
-    private nonisolated(unsafe) var _atomicLastKnownEngineRunning: Bool = false
-    
-    /// Tick counter for health timer (only accessed from healthMonitorQueue). Used for staggered refresh.
-    @ObservationIgnored
-    private nonisolated(unsafe) var _healthCheckTickCount: Int = 0
+    private let healthState = HealthCheckState()
     
     /// Refresh every N ticks when engine expected running; back off when playing to reduce CPU impact (issue #80).
     private static let healthCheckRefreshTicksWhenStopped = 6
@@ -508,6 +556,7 @@ class AudioEngine: AudioEngineContext {
         
         // Store nonisolated reference for cross-thread atomic state access
         _transportControllerRef = transportController
+        healthState.transportControllerRef = transportController
         
         // Initialize track node manager
         trackNodeManager = TrackNodeManager()
@@ -830,11 +879,7 @@ class AudioEngine: AudioEngineContext {
         NotificationCenter.default.post(name: .pluginConfigsSaved, object: currentProject)
     }
     
-    nonisolated deinit {
-        // Cancel health timer to prevent retain cycle (Issue #72).
-        // Timer is @ObservationIgnored so it's safe to access in nonisolated deinit.
-        engineHealthTimer?.cancel()
-    }
+    // No deinit needed — TimerHolder.deinit cancels the health timer via RAII.
     
     // MARK: - Lifecycle Management (Issue #72)
     
@@ -1136,8 +1181,8 @@ class AudioEngine: AudioEngineContext {
             if engine.isRunning {
                 isGraphReadyForPlayback = true
                 engineExpectedToRun = true
-                _atomicEngineExpectedToRun = true
-                _atomicLastKnownEngineRunning = true
+                healthState.engineExpectedToRun = true
+                healthState.lastKnownEngineRunning = true
                 engineStartRetryAttempt = 0  // Reset retry counter on success
                 
                 // Validate engine health after start (only if monitor is initialized)
@@ -1194,7 +1239,7 @@ class AudioEngine: AudioEngineContext {
         
         // Stop and reset before retry
         engine.stop()
-        _atomicLastKnownEngineRunning = false
+        healthState.lastKnownEngineRunning = false
         engine.reset()
         engine.prepare()
         
@@ -1212,8 +1257,8 @@ class AudioEngine: AudioEngineContext {
                 if self.engine.isRunning {
                     self.isGraphReadyForPlayback = true
                     self.engineExpectedToRun = true
-                    self._atomicEngineExpectedToRun = true
-                    self._atomicLastKnownEngineRunning = true
+                    self.healthState.engineExpectedToRun = true
+                    self.healthState.lastKnownEngineRunning = true
                     self.engineStartRetryAttempt = 0
                     AppLogger.shared.info("Engine recovery successful on attempt \(self.engineStartRetryAttempt)", category: .audio)
                 } else {
@@ -1235,13 +1280,13 @@ class AudioEngine: AudioEngineContext {
     /// playback to avoid periodic CPU spikes (issue #80).
     private func setupEngineHealthMonitoring() {
         // Mirror state for timer (timer runs on healthMonitorQueue, cannot touch MainActor every tick)
-        _atomicEngineExpectedToRun = engineExpectedToRun
-        _atomicLastKnownEngineRunning = engine.isRunning
-        _healthCheckTickCount = 0
+        healthState.engineExpectedToRun = engineExpectedToRun
+        healthState.lastKnownEngineRunning = engine.isRunning
+        healthState.tickCount = 0
         
         // Cancel existing timer
-        engineHealthTimer?.cancel()
-        engineHealthTimer = nil
+        healthTimerHolder.timer?.cancel()
+        healthTimerHolder.timer = nil
         
         // Timer on utility queue; relaxed leeway to avoid aligning with buffer boundaries
         let timer = DispatchSource.makeTimerSource(queue: healthMonitorQueue)
@@ -1250,31 +1295,16 @@ class AudioEngine: AudioEngineContext {
             repeating: 2.0,
             leeway: .milliseconds(400)
         )
-        timer.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            // Stay on healthMonitorQueue: avoid MainActor hop when cache says engine is healthy
-            if !self._atomicEngineExpectedToRun {
-                self._healthCheckTickCount = 0
-                return
-            }
-            self._healthCheckTickCount += 1
-            let isPlaying = self._transportControllerRef?.atomicIsPlaying ?? false
-            let ticksUntilRefresh = isPlaying
-                ? Self.healthCheckRefreshTicksWhenPlaying
-                : Self.healthCheckRefreshTicksWhenStopped
-            let dueForRefresh = self._healthCheckTickCount >= ticksUntilRefresh
-            if dueForRefresh {
-                self._healthCheckTickCount = 0
-            }
-            let needCheck = !self._atomicLastKnownEngineRunning || dueForRefresh
-            if needCheck {
-                Task { @MainActor [weak self] in
-                    self?.checkEngineHealth()
-                }
-            }
+        // Install event handler via the nonisolated HealthCheckState so the
+        // closure is formed outside @MainActor context (see its doc comment).
+        healthState.refreshTicksWhenPlaying = Self.healthCheckRefreshTicksWhenPlaying
+        healthState.refreshTicksWhenStopped = Self.healthCheckRefreshTicksWhenStopped
+        healthState.onNeedCheck = { [weak self] in
+            self?.checkEngineHealth()
         }
+        healthState.installHandler(on: timer)
         timer.resume()
-        engineHealthTimer = timer
+        healthTimerHolder.timer = timer
     }
     
     /// Check engine health and attempt recovery if needed.
@@ -1283,12 +1313,12 @@ class AudioEngine: AudioEngineContext {
         // Only check if we expect the engine to be running
         guard engineExpectedToRun else {
             healthCheckFailureCount = 0
-            _atomicLastKnownEngineRunning = false
+            healthState.lastKnownEngineRunning = false
             return
         }
         
         let running = engine.isRunning
-        _atomicLastKnownEngineRunning = running
+        healthState.lastKnownEngineRunning = running
         
         if !running {
             healthCheckFailureCount += 1
@@ -1314,7 +1344,7 @@ class AudioEngine: AudioEngineContext {
         guard healthCheckFailureCount <= 3 else {
             AppLogger.shared.error("Engine health: Max recovery attempts reached, stopping monitoring", category: .audio)
             engineExpectedToRun = false
-            _atomicEngineExpectedToRun = false
+            healthState.engineExpectedToRun = false
             return
         }
         
@@ -1335,8 +1365,8 @@ class AudioEngine: AudioEngineContext {
     
     /// Stop engine health monitoring
     private func stopEngineHealthMonitoring() {
-        engineHealthTimer?.cancel()
-        engineHealthTimer = nil
+        healthTimerHolder.timer?.cancel()
+        healthTimerHolder.timer = nil
     }
     
     // MARK: - Position Update State

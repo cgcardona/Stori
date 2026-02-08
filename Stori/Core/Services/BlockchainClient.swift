@@ -14,6 +14,12 @@ import SwiftUI
 import Network
 import Observation
 
+/// Nonisolated owner of an NWPathMonitor for safe deinit cleanup.
+private final class MonitorHolder {
+    let monitor = NWPathMonitor()
+    deinit { monitor.cancel() }
+}
+
 // MARK: - Blockchain Client
 @MainActor
 @Observable
@@ -44,7 +50,7 @@ class BlockchainClient {
     
     // MARK: - Network Monitoring
     @ObservationIgnored
-    private let networkMonitor = NWPathMonitor()
+    private let monitorHolder = MonitorHolder()
     @ObservationIgnored
     private let networkQueue = DispatchQueue(label: "NetworkMonitor")
     
@@ -103,7 +109,7 @@ class BlockchainClient {
     
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
-        networkMonitor.pathUpdateHandler = { [weak self] path in
+        monitorHolder.monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 if path.status == .satisfied {
                     await self?.checkConnections()
@@ -113,7 +119,7 @@ class BlockchainClient {
                 }
             }
         }
-        networkMonitor.start(queue: networkQueue)
+        monitorHolder.monitor.start(queue: networkQueue)
     }
     
     // MARK: - Connection Management
@@ -757,9 +763,7 @@ class BlockchainClient {
         await loadInitialData()
     }
     
-    nonisolated deinit {
-        networkMonitor.cancel()
-    }
+    // No deinit needed — MonitorHolder.deinit cancels the NWPathMonitor via RAII.
 }
 
 // MARK: - Supporting Types

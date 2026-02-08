@@ -46,7 +46,7 @@ protocol AudioEngineContext: AudioTimingProvider, AudioTransportProvider, AudioG
 
 /// Provides timing and scheduling information.
 /// Thread-safe: These properties can be read from any thread.
-protocol AudioTimingProvider: AnyObject, Sendable {
+protocol AudioTimingProvider: AnyObject {
     
     /// Current scheduling context (sample rate, tempo, time signature)
     /// Use this for all beat ↔ sample ↔ seconds conversions
@@ -182,17 +182,10 @@ final class MockAudioEngineContext: AudioEngineContext {
     
     // MARK: - AudioTimingProvider
     
-    // These properties must be nonisolated to conform to AudioTimingProvider (Sendable)
-    // Safe because AudioSchedulingContext is a Sendable struct
-    nonisolated var schedulingContext: AudioSchedulingContext {
-        MainActor.assumeIsolated { _schedulingContext }
-    }
-    nonisolated var currentSampleRate: Double { schedulingContext.sampleRate }
-    nonisolated var currentTempo: Double { schedulingContext.tempo }
-    nonisolated var currentTimeSignature: TimeSignature { schedulingContext.timeSignature }
-    
-    // Internal storage (MainActor-isolated)
-    private var _schedulingContext: AudioSchedulingContext
+    var schedulingContext: AudioSchedulingContext
+    var currentSampleRate: Double { schedulingContext.sampleRate }
+    var currentTempo: Double { schedulingContext.tempo }
+    var currentTimeSignature: TimeSignature { schedulingContext.timeSignature }
     
     // MARK: - AudioTransportProvider
     
@@ -226,25 +219,22 @@ final class MockAudioEngineContext: AudioEngineContext {
         tempo: Double = 120,
         timeSignature: TimeSignature = .fourFour
     ) {
-        self._schedulingContext = AudioSchedulingContext(
+        self.schedulingContext = AudioSchedulingContext(
             sampleRate: sampleRate,
             tempo: tempo,
             timeSignature: timeSignature
         )
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Test Helpers
     
     func setTempo(_ tempo: Double) {
-        _schedulingContext = _schedulingContext.with(tempo: tempo)
+        schedulingContext = schedulingContext.with(tempo: tempo)
     }
     
     func setSampleRate(_ sampleRate: Double) {
-        _schedulingContext = _schedulingContext.with(sampleRate: sampleRate)
+        schedulingContext = schedulingContext.with(sampleRate: sampleRate)
     }
     
     func setPlaying(_ playing: Bool, at beat: Double = 0) {

@@ -329,16 +329,21 @@ final class AppLogger: @unchecked Sendable {
 // MARK: - Convenience Global Functions
 
 func logDebug(_ message: String, category: AppLogger.Category = .app, file: String = #file, function: String = #function, line: Int = #line) {
+    AppLogger.shared.debug(message, category: category, file: file, function: function, line: line)
 }
 
 func logInfo(_ message: String, category: AppLogger.Category = .app, file: String = #file, function: String = #function, line: Int = #line) {
+    AppLogger.shared.info(message, category: category, file: file, function: function, line: line)
 }
 
 func logWarning(_ message: String, category: AppLogger.Category = .app, file: String = #file, function: String = #function, line: Int = #line) {
+    AppLogger.shared.warning(message, category: category, file: file, function: function, line: line)
 }
 
 func logError(_ message: String, category: AppLogger.Category = .app, file: String = #file, function: String = #function, line: Int = #line) {
+    AppLogger.shared.error(message, category: category, file: file, function: function, line: line)
 }
 
 func logCritical(_ message: String, category: AppLogger.Category = .app, file: String = #file, function: String = #function, line: Int = #line) {
+    AppLogger.shared.critical(message, category: category, file: file, function: function, line: line)
 }

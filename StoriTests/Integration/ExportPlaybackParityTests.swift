@@ -22,8 +22,8 @@ final class ExportPlaybackParityTests: XCTestCase {
     var testProject: AudioProject!
     
     @MainActor
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         audioEngine = AudioEngine()
         exportService = ProjectExportService()
         
@@ -32,11 +32,11 @@ final class ExportPlaybackParityTests: XCTestCase {
     }
     
     @MainActor
-    override func tearDown() {
+    override func tearDown() async throws {
         audioEngine = nil
         exportService = nil
         testProject = nil
-        super.tearDown()
+        try await super.tearDown()
     }
     
     // MARK: - Signal Path Verification

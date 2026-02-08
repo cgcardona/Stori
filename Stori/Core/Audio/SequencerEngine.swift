@@ -73,7 +73,6 @@ class SequencerEngine {
         loadRecentsFromUserDefaults()
     }
 
-    nonisolated deinit {}
 
     // Note: stepTimer cleanup happens via stop() or when the engine is deallocated
     // Cannot access @MainActor properties in deinit
@@ -1328,9 +1327,6 @@ private class DrumPlayer {
         self.soundType = soundType
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     func attach(to engine: AVAudioEngine, mixer: AVAudioMixerNode, format: AVAudioFormat) {
         let player = AVAudioPlayerNode()

@@ -13,6 +13,7 @@ import Observation
 // MARK: - Score Entry Controller
 
 /// Manages step-time note entry and editing operations
+@MainActor
 @Observable
 class ScoreEntryController {
     
@@ -46,9 +47,6 @@ class ScoreEntryController {
     
     init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Configure with a MIDI region and update callback
     func configure(

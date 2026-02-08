@@ -62,7 +62,6 @@ class MIDIBounceEngine {
     @ObservationIgnored
     private let channels: AVAudioChannelCount = 2
 
-    nonisolated deinit {}
 
     // MARK: - Bounce Method
     

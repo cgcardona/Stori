@@ -10,6 +10,15 @@ import Foundation
 @preconcurrency import AVFoundation
 import Observation
 
+/// Nonisolated owner of a Foundation Timer for safe deinit cleanup.
+private final class FlushTimerHolder {
+    var timer: Timer?
+    deinit {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
 /// Manages audio graph mutations with tiered performance characteristics
 @Observable
 @MainActor
@@ -83,7 +92,7 @@ final class AudioGraphManager {
     
     /// Timer for flushing coalesced mutations
     @ObservationIgnored
-    private var flushTimer: Timer?
+    private let flushTimerHolder = FlushTimerHolder()
     
     /// Flush delay for mutation coalescing (milliseconds)
     private static let coalescingDelayMs: TimeInterval = 0.050 // 50ms - one buffer period at 512 samples / 48kHz
@@ -278,10 +287,10 @@ final class AudioGraphManager {
     /// Schedule a flush of pending coalesced mutations
     private func scheduleFlush() {
         // Invalidate existing timer
-        flushTimer?.invalidate()
+        flushTimerHolder.timer?.invalidate()
         
         // Schedule new timer on main thread
-        flushTimer = Timer.scheduledTimer(withTimeInterval: Self.coalescingDelayMs, repeats: false) { [weak self] _ in
+        flushTimerHolder.timer = Timer.scheduledTimer(withTimeInterval: Self.coalescingDelayMs, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.flushPendingMutations()
             }
@@ -851,9 +860,5 @@ final class AudioGraphManager {
     
     // MARK: - Cleanup
     
-    nonisolated deinit {
-        // Cancel pending flush timer to prevent retain cycle.
-        flushTimer?.invalidate()
-        flushTimer = nil
-    }
+    // No deinit needed — FlushTimerHolder.deinit invalidates the timer via RAII.
 }

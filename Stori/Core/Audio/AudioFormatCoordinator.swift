@@ -25,9 +25,6 @@ private class WeakFormatSubscriber {
     init(value: any AudioFormatSubscriber) {
         self.value = value
     }
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 }
 
 // MARK: - Audio Format Coordinator
@@ -69,9 +66,6 @@ final class AudioFormatCoordinator {
         self.init(initialFormat: format)
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Format Updates
     

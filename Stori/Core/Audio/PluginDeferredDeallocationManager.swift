@@ -166,17 +166,5 @@ final class PluginDeferredDeallocationManager {
         }
     }
     
-    // MARK: - Cleanup
-    
-    nonisolated deinit {
-        sweepTask?.cancel()
-        
-        // Final cleanup on deinit
-        if !pendingDeallocations.isEmpty {
-            AppLogger.shared.warning(
-                "PluginDeferredDeallocationManager deinit with \(pendingDeallocations.count) pending plugins",
-                category: .audio
-            )
-        }
-    }
+    // No deinit needed — sweepTask uses [weak self] and terminates naturally when this object is released.
 }

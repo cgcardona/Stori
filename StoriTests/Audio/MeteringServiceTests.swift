@@ -197,41 +197,43 @@ final class MeteringServiceTests: XCTestCase {
     
     // MARK: - Concurrent Access Stress Tests
     
-    func testHighConcurrencyLevelReads() {
+    func testHighConcurrencyLevelReads() async {
         let expectation = self.expectation(description: "Concurrent reads complete")
         expectation.expectedFulfillmentCount = 10
+        let svc = metering!
         
         for _ in 0..<10 {
             DispatchQueue.global(qos: .userInteractive).async {
                 for _ in 0..<1000 {
-                    _ = self.metering.masterLevelLeft
-                    _ = self.metering.masterLevelRight
+                    _ = svc.masterLevelLeft
+                    _ = svc.masterLevelRight
                 }
                 expectation.fulfill()
             }
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
     
-    func testConcurrentReadWriteSimulation() {
+    func testConcurrentReadWriteSimulation() async {
         // Simulate concurrent reads while service might be updating internally
         let expectation = self.expectation(description: "Read/write simulation")
         expectation.expectedFulfillmentCount = 5
+        let svc = metering!
         
         for queueIndex in 0..<5 {
             let queue = DispatchQueue(label: "test.metering.\(queueIndex)")
             queue.async {
                 for _ in 0..<500 {
-                    _ = self.metering.masterLevelLeft
-                    _ = self.metering.masterPeakLeft
-                    _ = self.metering.loudnessMomentary
+                    _ = svc.masterLevelLeft
+                    _ = svc.masterPeakLeft
+                    _ = svc.loudnessMomentary
                 }
                 expectation.fulfill()
             }
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
     
     // MARK: - Memory Management Tests
@@ -347,25 +349,26 @@ final class MeteringServiceTests: XCTestCase {
         XCTAssertTrue(true, "Full lifecycle completed")
     }
     
-    func testMeteringServiceInHighLoadScenario() {
+    func testMeteringServiceInHighLoadScenario() async {
         // Simulate high load: many concurrent readers
         let expectation = self.expectation(description: "High load scenario")
         expectation.expectedFulfillmentCount = 20
+        let svc = metering!
         
         for i in 0..<20 {
             DispatchQueue.global(qos: .userInteractive).async {
                 for _ in 0..<100 {
-                    _ = self.metering.masterLevelLeft
-                    _ = self.metering.masterLevelRight
-                    _ = self.metering.masterPeakLeft
-                    _ = self.metering.masterPeakRight
-                    _ = self.metering.loudnessMomentary
+                    _ = svc.masterLevelLeft
+                    _ = svc.masterLevelRight
+                    _ = svc.masterPeakLeft
+                    _ = svc.masterPeakRight
+                    _ = svc.loudnessMomentary
                 }
                 expectation.fulfill()
             }
         }
         
-        waitForExpectations(timeout: 10.0)
+        await fulfillment(of: [expectation], timeout: 10.0)
     }
     
     // MARK: - Stress Tests

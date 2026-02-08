@@ -35,6 +35,32 @@ private final class PositionTimerHolder {
     }
 }
 
+/// Nonisolated relay for the position timer's event handler.
+///
+/// DispatchSourceTimer event handlers run on a background serial queue.
+/// In Swift 6, closures formed inside a `@MainActor` method inherit that
+/// isolation, causing a runtime `_dispatch_assert_queue_fail` when they
+/// fire on a non-main queue.
+///
+/// By moving the event handler installation into this nonisolated class's
+/// method, the closure is formed in a nonisolated context and won't
+/// inherit `@MainActor`.
+private final class PositionTimerRelay: @unchecked Sendable {
+    var onTick: (@MainActor (TimeInterval) -> Void)?
+    
+    /// Install the event handler on the timer. Must be called from this
+    /// nonisolated context so the closure does not inherit @MainActor.
+    func installHandler(on timer: DispatchSourceTimer) {
+        timer.setEventHandler {
+            let capturedWallTime = CACurrentMediaTime()
+            let handler = self.onTick
+            Task { @MainActor in
+                handler?(capturedWallTime)
+            }
+        }
+    }
+}
+
 /// Transport controller manages playback state, position tracking, and cycle behavior.
 /// It coordinates with AudioEngine via callbacks for actual audio operations.
 /// All positions are tracked in BEATS - seconds are only used at AVAudioEngine boundary.
@@ -539,18 +565,13 @@ class TransportController {
             repeating: .milliseconds(16),  // ~60 FPS
             leeway: .microseconds(500)
         )
-        timer.setEventHandler { [weak self] in
-            // CRITICAL FIX: Capture wall time NOW (on background queue) before dispatching to MainActor.
-            // If we calculate elapsed time on MainActor, and MainActor is blocked by resume work
-            // (starting audio engine, MIDI, etc.), the Task might not run for 100+ ms, causing
-            // elapsedSeconds to be stale and the playhead to jump forward.
-            let capturedWallTime = CACurrentMediaTime()
-            
-            // Dispatch to MainActor for UI updates with captured time
-            Task { @MainActor in
-                self?.updatePosition(capturedWallTime: capturedWallTime)
-            }
+        // Use a nonisolated relay to form the event handler closure outside
+        // of @MainActor context. See PositionTimerRelay doc comment for details.
+        let relay = PositionTimerRelay()
+        relay.onTick = { [weak self] capturedWallTime in
+            self?.updatePosition(capturedWallTime: capturedWallTime)
         }
+        relay.installHandler(on: timer)
         timer.resume()
         positionTimer = timer
     }

@@ -134,7 +134,6 @@ final class ProjectLifecycleManager {
     
     init() {}
     
-    nonisolated deinit {}
     
     // MARK: - Public API
     

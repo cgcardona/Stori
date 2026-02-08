@@ -70,7 +70,6 @@ class StepInputEngine {
     
     init() {}
 
-    nonisolated deinit {}
 
     /// Configure with MIDI device manager for input
     func configure(

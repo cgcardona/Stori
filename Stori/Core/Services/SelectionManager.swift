@@ -25,7 +25,6 @@ final class SelectionManager {
     // Separate from audio to allow independent selection without cascade re-renders
     var selectedMIDIRegionId: UUID? = nil
 
-    nonisolated deinit {}
 
     // MARK: - Audio Region Methods
     

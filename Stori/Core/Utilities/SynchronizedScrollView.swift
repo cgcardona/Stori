@@ -50,9 +50,11 @@ struct SynchronizedScrollView<Content: View>: NSViewRepresentable {
     }
     
     // MARK: - Coordinator
+    @MainActor
     final class Coordinator: NSObject {
         var parent: SynchronizedScrollView
         var boundsObserver: NSObjectProtocol?
+        weak var trackedClipView: NSClipView?
         
         // Prevent feedback during programmatic updates
         var ignoringUserScrollX = false
@@ -69,14 +71,10 @@ struct SynchronizedScrollView<Content: View>: NSViewRepresentable {
             self.parent = parent
         }
         
-        deinit {
-            if let observer = boundsObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-        }
+        // No deinit needed — macOS 14+ automatically removes notification observers on deallocation.
         
-        @objc func clipViewBoundsChanged(_ notification: Notification) {
-            guard let clipView = notification.object as? NSClipView else { return }
+        func clipViewBoundsChanged() {
+            guard let clipView = trackedClipView else { return }
             
             let currentX = clipView.bounds.origin.x
             let currentY = clipView.bounds.origin.y
@@ -176,13 +174,19 @@ struct SynchronizedScrollView<Content: View>: NSViewRepresentable {
         scrollView.documentView = hostingView
         scrollView.contentView.postsBoundsChangedNotifications = true
         
+        // Store clip view reference for bounds change handler
+        context.coordinator.trackedClipView = scrollView.contentView
+        
         // Observe bounds changes for scroll synchronization
         context.coordinator.boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: scrollView.contentView,
             queue: .main
-        ) { [weak coordinator = context.coordinator] notification in
-            coordinator?.clipViewBoundsChanged(notification)
+        ) { _ in
+            // Notification arrives on main queue (.main specified above)
+            MainActor.assumeIsolated {
+                context.coordinator.clipViewBoundsChanged()
+            }
         }
         
         // Apply initial scroll position

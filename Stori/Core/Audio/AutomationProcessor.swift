@@ -255,9 +255,7 @@ final class AutomationEngine: @unchecked Sendable {
         }
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {
+    deinit {
         // Cancel the automation processing timer to prevent retain cycle.
         timer?.cancel()
     }
@@ -386,9 +384,6 @@ final class AutomationProcessor: @unchecked Sendable {
     
     init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Data Management (Main Thread)
     

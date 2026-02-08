@@ -512,9 +512,6 @@ class SamplerEngine {
         }
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Attach the sampler to the engine (call after loading samples if deferAttachment was true)
     func attachToEngine() {
@@ -878,6 +875,7 @@ enum SamplerError: Error, LocalizedError {
 // MARK: - SoundFont Manager
 
 /// Manages SoundFont files and provides access to available instruments
+@MainActor
 class SoundFontManager {
     
     // MARK: - Singleton

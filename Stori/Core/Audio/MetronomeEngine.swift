@@ -17,6 +17,12 @@ import Foundation
 import Combine
 import Observation
 
+/// Nonisolated owner of a DispatchSourceTimer for safe deinit cleanup.
+private final class MetronomeTimerHolder {
+    var timer: DispatchSourceTimer?
+    deinit { timer?.cancel() }
+}
+
 // MARK: - Metronome Engine
 
 /// Professional metronome engine with sample-accurate scheduling
@@ -114,7 +120,7 @@ class MetronomeEngine {
     private var transportStartSampleTime: AVAudioFramePosition = 0
     
     @ObservationIgnored
-    private var fillTimer: DispatchSourceTimer?
+    private let fillTimerHolder = MetronomeTimerHolder()
     
     @ObservationIgnored
     private var beatFlashTask: Task<Void, Never>?
@@ -397,8 +403,8 @@ class MetronomeEngine {
         beatFlashTask = nil
         
         // Stop the fill timer
-        fillTimer?.cancel()
-        fillTimer = nil
+        fillTimerHolder.timer?.cancel()
+        fillTimerHolder.timer = nil
         
         // Do NOT call player.stop() here. After AVAudioEngine.stop(), any graph operation
         // (including player.stop()) can trigger AVFAudio precondition [_nodes containsObject: ...].
@@ -497,7 +503,7 @@ class MetronomeEngine {
     }
     
     private func startFillTimer() {
-        fillTimer?.cancel()
+        fillTimerHolder.timer?.cancel()
         
         // Timer fires every 50ms to keep the queue filled
         // This is NOT the clock - it just maintains the lookahead buffer
@@ -514,7 +520,7 @@ class MetronomeEngine {
         }
         
         timer.resume()
-        fillTimer = timer
+        fillTimerHolder.timer = timer
     }
     
     // MARK: - Visual Feedback
@@ -614,10 +620,6 @@ class MetronomeEngine {
     
     // MARK: - Cleanup
     
-    nonisolated deinit {
-        // Cancel pending tasks to prevent use-after-free.
-        // These are @ObservationIgnored so safe to access in nonisolated deinit.
-        beatFlashTask?.cancel()
-        fillTimer?.cancel()
-    }
+    // No deinit needed — MetronomeTimerHolder.deinit cancels fillTimer via RAII,
+    // and beatFlashTask uses [weak self] so it terminates naturally.
 }

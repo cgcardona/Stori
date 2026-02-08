@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import AppKit
 import Combine
 import os.lock
@@ -64,9 +64,6 @@ class OfflineMIDIRenderer {
             self.startSample = startSample
         }
         
-        /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-        /// the runtime deinits this object on MainActor/task-local context.
-        nonisolated deinit {}
         
         func release(at sample: AVAudioFramePosition) {
             if envelopeState != .release && envelopeState != .finished {
@@ -166,9 +163,6 @@ class OfflineMIDIRenderer {
         self.volume = volume
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Schedule MIDI events from a region
     func scheduleRegion(_ region: MIDIRegion, tempo: Double, sampleRate: Double) {
@@ -318,7 +312,6 @@ class ProjectExportService {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task references for cancellation in deinit.
     @ObservationIgnored
     private var cleanupTask: Task<Void, Never>?
     @ObservationIgnored
@@ -1867,9 +1860,6 @@ class ProjectExportService {
                 return true
             }
             
-            /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-            /// the runtime deinits this object on MainActor/task-local context.
-            nonisolated deinit {}
         }
         
         let state = ContinuationState()
@@ -2354,15 +2344,7 @@ class ProjectExportService {
         return result
     }
     
-    // MARK: - Cleanup
-    
-    nonisolated deinit {
-        // Cancel pending export tasks to prevent use-after-free.
-        // These are @ObservationIgnored so safe to access in nonisolated deinit.
-        cleanupTask?.cancel()
-        progressUpdateTask?.cancel()
-        timeoutTask?.cancel()
-    }
+    // No deinit needed — all tasks use [weak self] and terminate naturally when this object is released.
 }
 
 // MARK: - UInt Extensions for MIDI

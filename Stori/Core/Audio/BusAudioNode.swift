@@ -98,7 +98,6 @@ class BusAudioNode {
         setupAudioChain()
     }
 
-    nonisolated deinit {}
     
     // MARK: - Audio Chain Setup
     private func setupAudioChain() {

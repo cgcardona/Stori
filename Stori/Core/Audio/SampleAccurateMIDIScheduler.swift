@@ -278,7 +278,7 @@ struct MIDITimingReference {
     private static let maxReasonableElapsedSamples: Double = 2.0 * 48000.0 // 2 seconds at 48kHz
     
     /// Convert mach_absolute_time to nanoseconds
-    private static var timebaseInfo: mach_timebase_info_data_t = {
+    private static let timebaseInfo: mach_timebase_info_data_t = {
         var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
         return info
@@ -516,9 +516,6 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         eventBuffer.reserveCapacity(32)
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Configuration (Call from MainActor)
     

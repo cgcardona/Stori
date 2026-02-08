@@ -50,9 +50,6 @@ class StoriAPIClient: @unchecked Sendable {
         AppConfig.validateSecureConnection()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Private Helpers
     
@@ -72,6 +69,16 @@ class StoriAPIClient: @unchecked Sendable {
         mode: String = "create",
         project: [String: Any]? = nil
     ) -> AsyncThrowingStream<SSEEvent, Error> {
+        // Serialize request body before entering the Task to avoid sending non-Sendable [String: Any]
+        var requestBody: [String: Any] = [
+            "prompt": prompt,
+            "mode": mode
+        ]
+        if let project = project {
+            requestBody["project"] = project
+        }
+        let bodyData = try? JSONSerialization.data(withJSONObject: requestBody)
+        
         return AsyncThrowingStream { continuation in
             Task { [weak self] in
                 do {
@@ -87,20 +94,16 @@ class StoriAPIClient: @unchecked Sendable {
                         return
                     }
                     
-                    // Build request body
-                    var requestBody: [String: Any] = [
-                        "prompt": prompt,
-                        "mode": mode
-                    ]
-                    if let project = project {
-                        requestBody["project"] = project
+                    guard let httpBody = bodyData else {
+                        continuation.finish(throwing: AuthError.invalidURL)
+                        return
                     }
                     
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-                    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+                    request.httpBody = httpBody
                     request.timeoutInterval = AppConfig.extendedTimeout
                     
                     // Stream SSE events
@@ -122,7 +125,7 @@ class StoriAPIClient: @unchecked Sendable {
                     #if DEBUG
                     // SECURITY: Only log non-sensitive headers
                     let safeHeaderKeys = ["Content-Type", "Content-Length", "Date", "Server"]
-                    let safeHeaders = httpResponse.allHeaderFields.filter { key, _ in
+                    _ = httpResponse.allHeaderFields.filter { key, _ in
                         safeHeaderKeys.contains(key as? String ?? "")
                     }
                     #endif
