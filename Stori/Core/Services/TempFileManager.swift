@@ -8,9 +8,9 @@
 import Foundation
 
 /// Tracks temporary file URLs and deletes them on app termination.
-enum TempFileManager {
+enum TempFileManager: Sendable {
     private static let lock = NSLock()
-    private static var _tracked: Set<URL> = []
+    private nonisolated(unsafe) static var _tracked: Set<URL> = []
     private static var tracked: Set<URL> {
         get { lock.lock(); defer { lock.unlock() }; return _tracked }
         set { lock.lock(); defer { lock.unlock() }; _tracked = newValue }

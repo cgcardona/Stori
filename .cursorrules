@@ -38,6 +38,7 @@ You are working on TellUrStoriDAW, an innovative digital audio workstation that 
 - **Modular Design**: Separate concerns into focused Swift packages
 - **Reactive Programming**: Use Combine sparingly; prefer @Observable for UI state
 - **Error Handling**: Use Result types and structured error handling
+- **@preconcurrency import**: Place `@preconcurrency import ModuleName` as the **first import of that module** in the file (Swift compiler limitation). If the same module is imported earlier (e.g. `import struct Foundation.Data` before `@preconcurrency import Foundation`), the annotation is ignored and concurrency warnings appear. Applies to all modules (Foundation, Darwin, AVFoundation, third-party). Prefer migrating to @MainActor or @unchecked Sendable where appropriate; @preconcurrency only suppresses warnings and does not guarantee thread safety.
 
 ### Audio Development
 - Always use real-time safe code in audio callbacks

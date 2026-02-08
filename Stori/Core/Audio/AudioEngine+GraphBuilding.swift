@@ -17,8 +17,9 @@
 //  - Typical savings: 10x faster UI responsiveness during rapid state changes
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Graph State Snapshot
 

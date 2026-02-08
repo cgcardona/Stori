@@ -31,12 +31,10 @@ final class AudioAnalysisService {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task references — nonisolated(unsafe) so deinit can cancel them.
-    /// These are detached tasks for background audio analysis.
     @ObservationIgnored
-    nonisolated(unsafe) private var tempoAnalysisTask: Task<Void, Never>?
+    private var tempoAnalysisTask: Task<Void, Never>?
     @ObservationIgnored
-    nonisolated(unsafe) private var keyAnalysisTask: Task<Void, Never>?
+    private var keyAnalysisTask: Task<Void, Never>?
     
     // MARK: - Audio Analysis Constants
     @ObservationIgnored
@@ -166,11 +164,9 @@ final class AudioAnalysisService {
                     // Perform tempo analysis using onset detection + autocorrelation
                     let tempo = await self?.analyzeTempoFromBuffer(buffer)
                     continuation.resume(returning: tempo)
-                    await MainActor.run { self?.tempoAnalysisTask = nil }
                     
                 } catch {
                     continuation.resume(throwing: error)
-                    await MainActor.run { self?.tempoAnalysisTask = nil }
                 }
             }
         }
@@ -205,11 +201,9 @@ final class AudioAnalysisService {
                     // Perform key analysis using chroma features + template matching
                     let key = await self?.analyzeKeyFromBuffer(buffer)
                     continuation.resume(returning: key)
-                    await MainActor.run { self?.keyAnalysisTask = nil }
                     
                 } catch {
                     continuation.resume(throwing: error)
-                    await MainActor.run { self?.keyAnalysisTask = nil }
                 }
             }
         }
@@ -646,12 +640,5 @@ final class AudioAnalysisService {
         return ("\(key) \(mode)", confidence)
     }
     
-    // MARK: - Cleanup
-    
-    nonisolated deinit {
-        // Cancel pending analysis tasks to prevent use-after-free.
-        // These are nonisolated(unsafe) so safe to access in nonisolated deinit.
-        tempoAnalysisTask?.cancel()
-        keyAnalysisTask?.cancel()
-    }
+    // No deinit needed — analysis tasks use detached execution and terminate naturally.
 }

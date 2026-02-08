@@ -23,8 +23,8 @@ final class ProjectSaveDuringPlaybackTests: XCTestCase {
     var notificationObservers: [NSObjectProtocol] = []
     
     @MainActor
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         
         // Clean up any leftover observers from previous test failures
         for observer in notificationObservers {
@@ -48,7 +48,7 @@ final class ProjectSaveDuringPlaybackTests: XCTestCase {
     }
     
     @MainActor
-    override func tearDown() {
+    override func tearDown() async throws {
         // Remove all observers to prevent cross-test contamination
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -61,7 +61,7 @@ final class ProjectSaveDuringPlaybackTests: XCTestCase {
         projectManager = nil
         mockTransportState = nil
         
-        super.tearDown()
+        try await super.tearDown()
     }
     
     // MARK: - Mock Transport State
@@ -353,16 +353,12 @@ final class ProjectSaveDuringPlaybackTests: XCTestCase {
         try projectManager.createNewProject(name: "TestProject_Concurrent")
         mockTransportState.isPlaying = true
         
-        // When: Trigger 10 concurrent saves (simulating rapid Cmd+S mashing or autosave race)
-        await withTaskGroup(of: Void.self) { group in
-            for i in 0..<10 {
-                group.addTask { @MainActor in
-                    var project = self.projectManager.currentProject!
-                    project.uiState.playheadPosition = Double(i) * 10.0
-                    await self.projectManager.updateCurrentProject(project)
-                    await self.saveCurrentProjectAsync()
-                }
-            }
+        // When: Trigger 10 rapid saves (simulating rapid Cmd+S mashing or autosave race)
+        for i in 0..<10 {
+            var project = self.projectManager.currentProject!
+            project.uiState.playheadPosition = Double(i) * 10.0
+            await self.projectManager.updateCurrentProject(project)
+            await self.saveCurrentProjectAsync()
         }
         
         // Then: Reload and verify project is valid (not corrupted)

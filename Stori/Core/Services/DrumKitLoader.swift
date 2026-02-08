@@ -42,7 +42,6 @@ class DrumKitLoader {
         }
     }
 
-    nonisolated deinit {}
 
     /// Load samples for a kit synchronously
     private func loadSamplesForKit(_ kit: DrumKit) {

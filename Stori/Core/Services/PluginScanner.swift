@@ -71,7 +71,6 @@ class PluginScanner {
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
     }
 
-    nonisolated deinit {}
 
     // MARK: - Public Methods
     

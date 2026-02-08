@@ -5,8 +5,9 @@
 //  Extracted from AudioEngine - handles bus nodes, bus effects, and track sends
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Bus Manager
 
@@ -96,9 +97,6 @@ class BusManager {
         self.setIsInstallingPlugin = setIsInstallingPlugin
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Bus Setup
     

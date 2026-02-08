@@ -75,7 +75,6 @@ class AutomationRecorder {
     
     init() {}
 
-    nonisolated deinit {}
     
     /// Configure the recorder with the audio engine
     func configure(audioEngine: AudioEngine) {

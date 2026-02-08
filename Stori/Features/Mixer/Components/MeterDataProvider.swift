@@ -13,6 +13,7 @@ import Observation
 // PERFORMANCE: Using @Observable for fine-grained updates
 // Only views reading specific meter data re-render when that data changes
 @Observable
+@MainActor
 class MeterDataProvider {
     private(set) var trackMeters: [UUID: ChannelMeterData] = [:]
     private(set) var masterMeterData = ChannelMeterData()
@@ -52,9 +53,6 @@ class MeterDataProvider {
     @ObservationIgnored
     private var isIdle: Bool = false
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Public Interface
     

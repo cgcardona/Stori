@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine for better separation of concerns.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - MixerInstrumentManaging Protocol
 
@@ -105,9 +106,6 @@ class MixerController {
         self.instrumentManager = instrumentManager ?? InstrumentManager.shared
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Track Volume
     

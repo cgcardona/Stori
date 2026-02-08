@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine.swift for better maintainability.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 /// Manages project loading and unloading with explicit state machine
@@ -134,7 +135,6 @@ final class ProjectLifecycleManager {
     
     init() {}
     
-    nonisolated deinit {}
     
     // MARK: - Public API
     

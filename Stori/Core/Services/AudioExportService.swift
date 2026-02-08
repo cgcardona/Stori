@@ -12,7 +12,6 @@ class AudioExportService {
     @ObservationIgnored
     private let fileManager = FileManager.default
 
-    nonisolated deinit {}
 
     /// Export directory for comparison files
     private var exportDirectory: URL {

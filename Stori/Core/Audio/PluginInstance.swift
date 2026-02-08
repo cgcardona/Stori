@@ -4,17 +4,84 @@
 //
 //  Manages the lifecycle of a loaded Audio Unit plugin instance.
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file,
+//  or the annotation is ignored (Swift compiler limitation; applies to all modules).
+@preconcurrency import AVFoundation
+@preconcurrency import AudioToolbox
 import Foundation
-import AVFoundation
-import AudioToolbox
 import CoreAudioKit
 import Combine
 import Observation
 
+// MARK: - Plugin Instance Core (Nonisolated Resource Owner)
+
+/// Owns Audio Unit resources with deterministic RAII cleanup.
+///
+/// # Architecture: Core + Model Split
+///
+/// `PluginInstanceCore` is intentionally **not** `@MainActor`. It owns the
+/// `AVAudioUnit` / `AUAudioUnit` and cleans them up in `deinit`, which can
+/// run on any thread without requiring an actor hop.
+///
+/// The `@MainActor @Observable` `PluginInstance` holds this core. When the
+/// model is released, the core is released, and resources are cleaned up
+/// deterministically via RAII — no manual `cleanup()` calls needed.
+///
+/// This pattern restores proper RAII resource management.
+final class PluginInstanceCore {
+    
+    /// The underlying AUAudioUnit (for advanced access)
+    private(set) var auAudioUnit: AUAudioUnit?
+    
+    /// The AVAudioUnit node (for connecting to AVAudioEngine graph)
+    private(set) var avAudioUnit: AVAudioUnit?
+    
+    /// Cached view controller for the plugin's custom UI
+    var cachedViewController: NSViewController?
+    
+    /// Sample rate used when loading the plugin (for latency calculations and recovery)
+    var loadedSampleRate: Double = 48000
+    
+    /// M-9: Per-instance rate limit using token bucket (no Date allocations).
+    var parameterRateLimitLock = os_unfair_lock()
+    var parameterTokens: Int = 120
+    var lastParameterRefillTime: UInt64 = 0
+    
+    /// Store the audio unit references
+    func setAudioUnit(_ avUnit: AVAudioUnit) {
+        self.avAudioUnit = avUnit
+        self.auAudioUnit = avUnit.auAudioUnit
+    }
+    
+    /// Explicitly release audio unit resources (for manual cleanup before deinit)
+    func clearAudioUnit() {
+        cachedViewController = nil
+        auAudioUnit?.deallocateRenderResources()
+        avAudioUnit = nil
+        auAudioUnit = nil
+    }
+    
+    /// RAII: Deterministic cleanup of audio unit resources.
+    /// Runs on whatever thread releases the last reference — no actor hop needed.
+    deinit {
+        if auAudioUnit != nil {
+            auAudioUnit?.deallocateRenderResources()
+        }
+    }
+}
+
 // MARK: - Plugin Instance
 
 /// Represents a loaded, running Audio Unit plugin instance
+///
+/// # Architecture: @MainActor Observable Model
+///
+/// Owns a `PluginInstanceCore` that manages Audio Unit resource lifetime.
+/// UI-facing properties (`isLoaded`, `isBypassed`, `parameters`) are
+/// `@Observable` for fine-grained SwiftUI updates.
+///
+/// When this model is released, the core's `deinit` handles cleanup
+/// automatically via RAII.
 // PERFORMANCE: Using @Observable for fine-grained SwiftUI updates
 @Observable
 @MainActor
@@ -33,33 +100,38 @@ class PluginInstance: Identifiable {
     var parameters: [PluginParameter] = []
     var loadError: String?
     
-    /// The underlying AUAudioUnit (for advanced access)
-    @ObservationIgnored
-    private(set) var auAudioUnit: AUAudioUnit?
+    // MARK: - Core (Nonisolated Resource Owner)
     
-    /// The AVAudioUnit node (for connecting to AVAudioEngine graph)
+    /// Nonisolated core that owns audio unit resources and handles RAII cleanup.
     @ObservationIgnored
-    private(set) var avAudioUnit: AVAudioUnit?
+    private let core = PluginInstanceCore()
     
-    /// Cached view controller for the plugin's custom UI
+    /// The underlying AUAudioUnit (delegates to core)
     @ObservationIgnored
-    private var cachedViewController: NSViewController?
+    var auAudioUnit: AUAudioUnit? { core.auAudioUnit }
     
-    /// Sample rate used when loading the plugin (for latency calculations and recovery)
+    /// The AVAudioUnit node (delegates to core)
     @ObservationIgnored
-    private(set) var loadedSampleRate: Double = 48000
+    var avAudioUnit: AVAudioUnit? { core.avAudioUnit }
     
-    /// M-9: Per-instance rate limit using token bucket (no Date allocations).
+    /// Cached view controller for the plugin's custom UI (delegates to core)
     @ObservationIgnored
-    private var parameterRateLimitLock = os_unfair_lock()
+    var cachedViewController: NSViewController? {
+        get { core.cachedViewController }
+        set { core.cachedViewController = newValue }
+    }
+    
+    /// Sample rate used when loading the plugin (delegates to core)
     @ObservationIgnored
-    private var parameterTokens: Int = 120
-    @ObservationIgnored
-    private var lastParameterRefillTime: UInt64 = 0
-    private static let maxParameterUpdatesPerSecond = 120
+    var loadedSampleRate: Double {
+        get { core.loadedSampleRate }
+        set { core.loadedSampleRate = newValue }
+    }
     
     /// M-9: Global rate limiter across all plugin instances (prevents 100 plugins × 120 = 12k/sec).
     private static let globalParameterLimiter = PluginParameterRateLimiter.shared
+    
+    private static let maxParameterUpdatesPerSecond = 120
     
     // MARK: - Initialization
     
@@ -67,8 +139,8 @@ class PluginInstance: Identifiable {
         self.id = UUID()
         self.descriptor = descriptor
     }
-
-    nonisolated deinit {}
+    
+    // PluginInstanceCore handles RAII cleanup — no manual deinit needed.
     
     // MARK: - Loading
     
@@ -158,8 +230,7 @@ class PluginInstance: Identifiable {
         do {
             // Instantiate the Audio Unit
             let audioUnit = try await AVAudioUnit.instantiate(with: componentDesc, options: [])
-            self.avAudioUnit = audioUnit
-            self.auAudioUnit = audioUnit.auAudioUnit
+            core.setAudioUnit(audioUnit)
             
             // Negotiate format with fallback support
             try negotiateFormat(for: audioUnit, targetRate: sampleRate)
@@ -187,8 +258,7 @@ class PluginInstance: Identifiable {
         do {
             // Use out-of-process instantiation for crash isolation
             let audioUnit = try await AVAudioUnit.instantiate(with: componentDesc, options: .loadOutOfProcess)
-            self.avAudioUnit = audioUnit
-            self.auAudioUnit = audioUnit.auAudioUnit
+            core.setAudioUnit(audioUnit)
             
             // Negotiate format with fallback support
             try negotiateFormat(for: audioUnit, targetRate: sampleRate)
@@ -201,15 +271,11 @@ class PluginInstance: Identifiable {
         }
     }
 
-    /// Unload and release resources
+    /// Unload and release resources (explicit cleanup — also handled by core's RAII deinit)
     func unload() {
         guard isLoaded else { return }
         
-        
-        cachedViewController = nil
-        auAudioUnit?.deallocateRenderResources()
-        avAudioUnit = nil
-        auAudioUnit = nil
+        core.clearAudioUnit()
         parameters.removeAll()
         isLoaded = false
     }
@@ -242,29 +308,29 @@ class PluginInstance: Identifiable {
         guard Self.globalParameterLimiter.shouldAllow() else { return }
         
         // Per-instance rate limit using token bucket
-        os_unfair_lock_lock(&parameterRateLimitLock)
+        os_unfair_lock_lock(&core.parameterRateLimitLock)
         
         let now = mach_absolute_time()
         var timebaseInfo = mach_timebase_info_data_t()
         mach_timebase_info(&timebaseInfo)
         
         // Refill tokens based on elapsed time (1 token per 8.33ms at 120/sec)
-        let elapsedNanos = (now - lastParameterRefillTime) * UInt64(timebaseInfo.numer) / UInt64(timebaseInfo.denom)
+        let elapsedNanos = (now - core.lastParameterRefillTime) * UInt64(timebaseInfo.numer) / UInt64(timebaseInfo.denom)
         let refillIntervalNanos: UInt64 = 1_000_000_000 / UInt64(Self.maxParameterUpdatesPerSecond)
         let tokensToAdd = Int(elapsedNanos / refillIntervalNanos)
         
         if tokensToAdd > 0 {
-            parameterTokens = min(Self.maxParameterUpdatesPerSecond, parameterTokens + tokensToAdd)
-            lastParameterRefillTime = now
+            core.parameterTokens = min(Self.maxParameterUpdatesPerSecond, core.parameterTokens + tokensToAdd)
+            core.lastParameterRefillTime = now
         }
         
         // Try to consume a token
-        guard parameterTokens > 0 else {
-            os_unfair_lock_unlock(&parameterRateLimitLock)
+        guard core.parameterTokens > 0 else {
+            os_unfair_lock_unlock(&core.parameterRateLimitLock)
             return
         }
-        parameterTokens -= 1
-        os_unfair_lock_unlock(&parameterRateLimitLock)
+        core.parameterTokens -= 1
+        os_unfair_lock_unlock(&core.parameterRateLimitLock)
         
         guard let tree = auAudioUnit?.parameterTree,
               let param = tree.parameter(withAddress: address) else {
@@ -357,19 +423,20 @@ class PluginInstance: Identifiable {
             return false
         }
         
-        // Parse and validate on background thread
-        let validatedState: [String: Any]? = await Task.detached(priority: .userInitiated) {
-            do {
-                guard let fullState = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
-                    return nil
-                }
-                return fullState
-            } catch {
-                return nil
+        // Parse plist synchronously — PropertyListSerialization is fast and thread-safe
+        let fullState: [String: Any]
+        do {
+            guard let parsed = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+                loadParameters()
+                return false
             }
-        }.value
+            fullState = parsed
+        } catch {
+            loadParameters()
+            return false
+        }
         
-        guard let fullState = validatedState else {
+        guard !fullState.isEmpty else {
             loadParameters()
             return false
         }
@@ -387,28 +454,25 @@ class PluginInstance: Identifiable {
             return false
         }
         
-        // Apply state with timeout protection using structured concurrency
-        let applied: Bool = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                // Apply state on background thread
-                await Task.detached(priority: .userInitiated) {
+        // Apply state synchronously — AUAudioUnit.fullState= is a synchronous setter.
+        // Wrapped in a timeout task to protect against hung plugins.
+        let applied: Bool
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
                     auUnit.fullState = fullState
-                }.value
-                return true
-            }
-            
-            group.addTask {
-                // Timeout task
-                try? await Task.sleep(nanoseconds: UInt64(Self.stateRestoreTimeout * 1_000_000_000))
-                return false
-            }
-            
-            // Return first completed result
-            if let result = await group.next() {
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(Self.stateRestoreTimeout * 1_000_000_000))
+                    throw CancellationError()
+                }
+                // Wait for whichever finishes first
+                try await group.next()
                 group.cancelAll()
-                return result
             }
-            return false
+            applied = true
+        } catch {
+            applied = false
         }
         
         if !applied {
@@ -562,9 +626,8 @@ class PluginInstance: Identifiable {
     nonisolated func cloneForOfflineRender() async throws -> AVAudioUnit {
         // Capture descriptor and state on MainActor
         let componentDesc = await descriptor.componentDescription.audioComponentDescription
-        let currentState = await auAudioUnit?.fullState
+        let currentState: [String: Any]? = await auAudioUnit?.fullState
         let currentBypass = await isBypassed
-        let pluginName = await descriptor.name
         
         // Instantiate fresh AU with same component description
         let clone: AVAudioUnit
@@ -641,7 +704,10 @@ class PluginInstance: Identifiable {
 /// Prevents DoS when many plugins receive updates simultaneously (e.g. automation).
 ///
 /// LOGGING: Logs a warning when rate limiting kicks in, throttled to at most once per second.
-final class PluginParameterRateLimiter {
+///
+/// ARCHITECTURE: Nonisolated + @unchecked Sendable with internal lock.
+/// Not @MainActor — parameter updates can come from automation threads.
+final class PluginParameterRateLimiter: @unchecked Sendable {
     static let shared = PluginParameterRateLimiter()
     
     private var lock = os_unfair_lock()
@@ -670,9 +736,7 @@ final class PluginParameterRateLimiter {
         timebaseInfo = info
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
+    // os_unfair_lock is a value type cleaned up by ARC — no manual deinit needed.
     
     /// Returns true if the update is allowed; false if global limit exceeded.
     /// Uses token bucket algorithm: O(1) time complexity, no allocations.
@@ -743,7 +807,11 @@ protocol PluginInstanceManagerProtocol: AnyObject {
 
 // MARK: - Plugin Instance Manager
 
-/// Manages all active plugin instances across the project
+/// Manages all active plugin instances across the project.
+///
+/// ARCHITECTURE: @MainActor @Observable for UI state.
+/// Resource cleanup is handled by PluginInstanceCore RAII — when instances
+/// are removed from the dictionary, their cores release AU resources automatically.
 @Observable
 @MainActor
 class PluginInstanceManager: PluginInstanceManagerProtocol {
@@ -792,7 +860,4 @@ class PluginInstanceManager: PluginInstanceManagerProtocol {
         instances.removeAll()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 }

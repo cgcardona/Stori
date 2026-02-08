@@ -5,8 +5,9 @@
 //  Audio analysis and waveform generation utilities
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Accelerate
 import Observation
 
@@ -60,9 +61,6 @@ class AudioAnalyzer {
     @ObservationIgnored
     private var waveformCache: [URL: WaveformData] = [:]
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Analyze audio file and generate waveform data
     func analyzeAudioFile(at url: URL, targetSamples: Int = 1000) async throws -> WaveformData {

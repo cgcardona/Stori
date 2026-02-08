@@ -24,6 +24,7 @@ struct ObjCExceptionError: Error, LocalizedError {
 
 // MARK: - Bridge API
 
+// Logger is Sendable — no nonisolated(unsafe) needed for module-scope let.
 private let logger = Logger(subsystem: "com.tellurstori.stori", category: "ObjCBridge")
 
 /// Executes `block` and catches any Objective-C `NSException`,

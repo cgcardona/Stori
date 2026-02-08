@@ -18,9 +18,9 @@ enum WindowID: String {
 
 // MARK: - Shared Project Manager
 /// Singleton project manager accessible from all windows
+@MainActor
 class SharedProjectManager {
     static let shared = ProjectManager()
-    nonisolated deinit {}
 }
 
 // MARK: - Shared Audio Engine
@@ -29,16 +29,11 @@ class SharedProjectManager {
 @MainActor
 class SharedAudioEngine {
     static let shared = AudioEngine()
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan).
-    nonisolated deinit {}
 }
 
 // MARK: - App Delegate
 /// Handles macOS app lifecycle events like reopening windows
 class StoriAppDelegate: NSObject, NSApplicationDelegate {
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Called when user clicks dock icon with no windows open
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -902,13 +897,11 @@ private func openDocumentation(_ relativePath: String) {
 }
 
 // MARK: - App State
+@MainActor
 @Observable
 class AppState {
     var currentProject: AudioProject?
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 }
 
 // MARK: - Notification Names

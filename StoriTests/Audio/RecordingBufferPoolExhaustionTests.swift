@@ -90,7 +90,7 @@ final class RecordingBufferPoolExhaustionTests: XCTestCase {
     }
     
     /// Test pool exhaustion with predictive pre-allocation (OPTIMAL Issue #55)
-    func testPoolExhaustionWithPredictivePreallocation() {
+    func testPoolExhaustionWithPredictivePreallocation() async {
         let pool = createTestPool()
         var buffers: [AVAudioPCMBuffer] = []
         
@@ -112,7 +112,7 @@ final class RecordingBufferPoolExhaustionTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             expectation.fulfill()
         }
-        waitForExpectations(timeout: 1.0)
+        await fulfillment(of: [expectation], timeout: 1.0)
         
         // Overflow buffers should be pre-allocated (proactive)
         // Note: Hybrid approach may use emergency fallback if prediction didn't complete fast enough
@@ -284,7 +284,7 @@ final class RecordingBufferPoolExhaustionTests: XCTestCase {
     }
     
     /// Test concurrent acquire/release (simulates multi-threaded recording)
-    func testConcurrentAcquireRelease() {
+    func testConcurrentAcquireRelease() async {
         let pool = createTestPool()
         let iterations = 100
         let expectation = self.expectation(description: "Concurrent operations")
@@ -312,7 +312,7 @@ final class RecordingBufferPoolExhaustionTests: XCTestCase {
             expectation.fulfill()
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
         
         // Pool should be stable after concurrent operations
         XCTAssertEqual(pool.currentBuffersInUse, 0, "All buffers should be released")

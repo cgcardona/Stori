@@ -11,7 +11,7 @@ import SwiftUI
 
 // MARK: - Model
 
-public struct TrackIconCategory: Hashable, Identifiable {
+public struct TrackIconCategory: Hashable, Identifiable, Sendable {
     public var id: String { name }
     public let name: String
     public let icons: [String]
