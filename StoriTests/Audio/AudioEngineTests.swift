@@ -447,8 +447,10 @@ final class AudioEngineTests: XCTestCase {
     // MARK: - Recording Tests
     
     func testEngineRecordingState() async throws {
-        // Load project first (required for record())
-        let project = AudioProject(name: "Test", tempo: 120.0)
+        // Load project with a MIDI track so record() takes the MIDI path and sets transport to .recording.
+        // (Empty project would create an audio track and go through mic permission, never setting .recording.)
+        var project = AudioProject(name: "Test", tempo: 120.0)
+        project.addTrack(AudioTrack(name: "MIDI 1", trackType: .midi, color: .red))
         engine.loadProject(project)
         
         XCTAssertFalse(engine.isRecording)

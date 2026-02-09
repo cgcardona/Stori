@@ -39,7 +39,7 @@ struct SSEEvent: Codable {
 // MARK: - API Client
 
 @Observable
-class StoriAPIClient {
+class StoriAPIClient: @unchecked Sendable {
     static let shared = StoriAPIClient()
     
     /// Base URL for API requests - configured via AppConfig
@@ -49,6 +49,7 @@ class StoriAPIClient {
         // Validate secure connection on initialization
         AppConfig.validateSecureConnection()
     }
+    
     
     // MARK: - Private Helpers
     
@@ -68,9 +69,23 @@ class StoriAPIClient {
         mode: String = "create",
         project: [String: Any]? = nil
     ) -> AsyncThrowingStream<SSEEvent, Error> {
+        // Serialize request body before entering the Task to avoid sending non-Sendable [String: Any]
+        var requestBody: [String: Any] = [
+            "prompt": prompt,
+            "mode": mode
+        ]
+        if let project = project {
+            requestBody["project"] = project
+        }
+        let bodyData = try? JSONSerialization.data(withJSONObject: requestBody)
+        
         return AsyncThrowingStream { continuation in
-            Task {
+            Task { [weak self] in
                 do {
+                    guard let self else {
+                        continuation.finish()
+                        return
+                    }
                     // Get token
                     let authHeader = try self.authHeader()
                     
@@ -79,20 +94,16 @@ class StoriAPIClient {
                         return
                     }
                     
-                    // Build request body
-                    var requestBody: [String: Any] = [
-                        "prompt": prompt,
-                        "mode": mode
-                    ]
-                    if let project = project {
-                        requestBody["project"] = project
+                    guard let httpBody = bodyData else {
+                        continuation.finish(throwing: AuthError.invalidURL)
+                        return
                     }
                     
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-                    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+                    request.httpBody = httpBody
                     request.timeoutInterval = AppConfig.extendedTimeout
                     
                     // Stream SSE events
@@ -114,7 +125,7 @@ class StoriAPIClient {
                     #if DEBUG
                     // SECURITY: Only log non-sensitive headers
                     let safeHeaderKeys = ["Content-Type", "Content-Length", "Date", "Server"]
-                    let safeHeaders = httpResponse.allHeaderFields.filter { key, _ in
+                    _ = httpResponse.allHeaderFields.filter { key, _ in
                         safeHeaderKeys.contains(key as? String ?? "")
                     }
                     #endif
@@ -196,8 +207,5 @@ class StoriAPIClient {
         }
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }

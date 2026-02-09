@@ -12,8 +12,6 @@ import AVFoundation
 
 /// Adaptive colors for the step sequencer that respect system appearance
 struct SequencerColors {
-    @Environment(\.colorScheme) static var colorScheme
-    
     // Backgrounds
     static var background: Color { Color(nsColor: .windowBackgroundColor) }
     static var controlBackground: Color { Color(nsColor: .controlBackgroundColor) }
@@ -3594,6 +3592,7 @@ struct SequencerKeyboardHandler: NSViewRepresentable {
     
     class KeyCaptureView: NSView {
         var onKeyDown: ((NSEvent) -> Void)?
+        
         
         override var acceptsFirstResponder: Bool { true }
         

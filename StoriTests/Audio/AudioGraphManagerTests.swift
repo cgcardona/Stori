@@ -81,6 +81,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphConnections {
             self.mutationExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(mutationExecuted)
         XCTAssertEqual(sut.graphGeneration, initialGeneration, "Connection mutation should NOT increment generation")
@@ -93,6 +94,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphForTrack(trackId) {
             self.mutationExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(mutationExecuted)
         XCTAssertEqual(sut.graphGeneration, initialGeneration, "Hot-swap mutation should NOT increment generation")
@@ -208,6 +210,7 @@ final class AudioGraphManagerTests: XCTestCase {
             // Note: AVAudioEngine.pause() doesn't set isRunning to false
             self.mutationExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(mutationExecuted)
         XCTAssertTrue(mockEngine.isRunning, "Engine should still be running after connection mutation")
@@ -220,6 +223,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphConnections {
             self.mutationExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(mutationExecuted)
         // No way to directly verify reset() wasn't called, but mutation should complete successfully
@@ -233,6 +237,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphForTrack(trackId1) {
             self.mutationExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(mutationExecuted)
         // Only the affected track's instrument should be reset
@@ -245,6 +250,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphForTrack(trackId) {
             self.mutationExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(mutationExecuted)
         // Hot-swap should not affect other tracks' playback state
@@ -409,6 +415,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphConnections {
             executed = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(executed)
         XCTAssertEqual(sut.graphGeneration, initialGeneration, "Generation should not change")
@@ -422,6 +429,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphForTrack(trackId) {
             executed = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(executed)
         XCTAssertEqual(sut.graphGeneration, initialGeneration, "Generation should not change")
@@ -444,6 +452,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphForTrack(trackId) {
             hotSwapExecuted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(structuralExecuted)
         XCTAssertTrue(connectionExecuted)
@@ -477,6 +486,7 @@ final class AudioGraphManagerTests: XCTestCase {
             // Plugin insertion logic would go here
             pluginInserted = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(pluginInserted)
     }
@@ -489,6 +499,7 @@ final class AudioGraphManagerTests: XCTestCase {
             // Routing change logic would go here
             routingChanged = true
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(routingChanged)
     }
@@ -576,6 +587,7 @@ final class AudioGraphManagerTests: XCTestCase {
             // Just a comment
             // Another comment
         }
+        sut.flushPendingMutations()
         
         XCTAssertTrue(true, "Comment-only mutation completed")
     }
@@ -588,6 +600,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try sut.modifyGraphForTrack(trackId) {}
         try sut.modifyGraphSafely {}
         try sut.modifyGraphConnections {}
+        sut.flushPendingMutations()
         
         XCTAssertTrue(true, "Mixed mutation sequence completed")
     }
@@ -618,6 +631,7 @@ final class AudioGraphManagerTests: XCTestCase {
         try minimalManager.modifyGraphConnections {
             executed = true
         }
+        minimalManager.flushPendingMutations()
         
         XCTAssertTrue(executed)
     }
@@ -650,12 +664,14 @@ final class AudioGraphManagerTests: XCTestCase {
         
         // 2. Connection mutation (e.g., change routing)
         try sut.modifyGraphConnections {}
+        sut.flushPendingMutations()
         let gen2 = sut.graphGeneration
         XCTAssertEqual(gen2, gen1, "Connection should not increment")
         
         // 3. Hot-swap mutation (e.g., insert plugin)
         let trackId = UUID()
         try sut.modifyGraphForTrack(trackId) {}
+        sut.flushPendingMutations()
         let gen3 = sut.graphGeneration
         XCTAssertEqual(gen3, gen2, "Hot-swap should not increment")
         
@@ -737,6 +753,7 @@ final class AudioGraphManagerTests: XCTestCase {
             tempManager.mixer = AVAudioMixerNode()
             
             try tempManager.modifyGraphConnections {}
+            tempManager.flushPendingMutations()
         }
         
         XCTAssertTrue(true, "Multiple manager lifecycles completed")

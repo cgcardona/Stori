@@ -115,10 +115,7 @@ final class UpdateService {
         self.currentBuild = currentBuild ?? (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
     }
     
-    deinit {
-        periodicCheckTask?.cancel()
-        downloadTask?.cancel()
-    }
+    // No deinit needed — all tasks use [weak self] and terminate naturally when this object is released.
     
     // MARK: - Display Properties
     
@@ -668,6 +665,7 @@ private final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate
     init(onProgress: @escaping @Sendable (Int64, Int64) -> Void) {
         self.onProgress = onProgress
     }
+    
     
     func urlSession(
         _ session: URLSession,

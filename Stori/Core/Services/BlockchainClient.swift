@@ -14,6 +14,12 @@ import SwiftUI
 import Network
 import Observation
 
+/// Nonisolated owner of an NWPathMonitor for safe deinit cleanup.
+private final class MonitorHolder {
+    let monitor = NWPathMonitor()
+    deinit { monitor.cancel() }
+}
+
 // MARK: - Blockchain Client
 @MainActor
 @Observable
@@ -44,7 +50,7 @@ class BlockchainClient {
     
     // MARK: - Network Monitoring
     @ObservationIgnored
-    private let networkMonitor = NWPathMonitor()
+    private let monitorHolder = MonitorHolder()
     @ObservationIgnored
     private let networkQueue = DispatchQueue(label: "NetworkMonitor")
     
@@ -71,8 +77,8 @@ class BlockchainClient {
         // See: TokenizeProjectView for payment workflow
         
         // Initialize connection check
-        Task {
-            await checkConnections()
+        Task { [weak self] in
+            await self?.checkConnections()
         }
     }
     
@@ -87,8 +93,8 @@ class BlockchainClient {
             )
             
             // Load user STEMs in background
-            Task {
-                await loadUserSTEMs()
+            Task { [weak self] in
+                await self?.loadUserSTEMs()
             }
         }
     }
@@ -103,7 +109,7 @@ class BlockchainClient {
     
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
-        networkMonitor.pathUpdateHandler = { [weak self] path in
+        monitorHolder.monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 if path.status == .satisfied {
                     await self?.checkConnections()
@@ -113,7 +119,7 @@ class BlockchainClient {
                 }
             }
         }
-        networkMonitor.start(queue: networkQueue)
+        monitorHolder.monitor.start(queue: networkQueue)
     }
     
     // MARK: - Connection Management
@@ -164,12 +170,12 @@ class BlockchainClient {
     
     // MARK: - Initial Data Loading
     private func loadInitialData() async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadNetworkInfo() }
-            group.addTask { await self.loadGasPrice() }
-            group.addTask { await self.loadUserSTEMs() }
-            group.addTask { await self.loadMarketplaceListings() }
-            group.addTask { await self.loadRecentActivity() }
+        await withTaskGroup(of: Void.self) { [weak self] group in
+            group.addTask { [weak self] in await self?.loadNetworkInfo() }
+            group.addTask { [weak self] in await self?.loadGasPrice() }
+            group.addTask { [weak self] in await self?.loadUserSTEMs() }
+            group.addTask { [weak self] in await self?.loadMarketplaceListings() }
+            group.addTask { [weak self] in await self?.loadRecentActivity() }
         }
     }
     
@@ -757,9 +763,7 @@ class BlockchainClient {
         await loadInitialData()
     }
     
-    deinit {
-        networkMonitor.cancel()
-    }
+    // No deinit needed — MonitorHolder.deinit cancels the NWPathMonitor via RAII.
 }
 
 // MARK: - Supporting Types

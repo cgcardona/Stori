@@ -40,6 +40,7 @@ final class UpdateStore {
         self.defaults = defaults
     }
     
+    
     // MARK: - Last Check
     
     var lastCheckDate: Date? {
@@ -216,4 +217,6 @@ final class UpdateStore {
             defaults.removeObject(forKey: key)
         }
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }

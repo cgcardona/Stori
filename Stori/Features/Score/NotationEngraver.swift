@@ -20,13 +20,6 @@ class NotationEngraver {
     let minimumNoteSpacing: CGFloat = 20.0
     let accidentalSpacing: CGFloat = 8.0
     
-    // MARK: - Deinit Protection (ASan Issue #84742+)
-    
-    deinit {
-        // CRITICAL: Protective deinit to prevent ASan crash during test teardown
-        // Even though this class is not @Observable or @MainActor, it can be
-        // deallocated on MainActor during test cleanup, causing task-local issues
-    }
     
     // MARK: - Stem Direction
     

@@ -128,7 +128,7 @@ struct CycleOverlay: View {
                                 let isShiftPressed = flags.contains(.shift)
                                 
                                 // Snap function (all in BEATS)
-                                func applySnap(_ beats: Double) -> Double {
+                                @MainActor func applySnap(_ beats: Double) -> Double {
                                     if isCommandPressed {
                                         isSnapped = false
                                         return beats

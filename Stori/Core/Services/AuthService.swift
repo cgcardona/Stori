@@ -56,6 +56,7 @@ struct TokenValidation: Codable {
 
 // MARK: - Auth Service
 
+@MainActor
 @Observable
 class AuthService {
     static let shared = AuthService()
@@ -67,6 +68,7 @@ class AuthService {
     #endif
     
     private init() {}
+    
     
     // MARK: - Public API
     
@@ -162,10 +164,7 @@ class AuthService {
         }
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Auth Errors

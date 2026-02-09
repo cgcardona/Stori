@@ -13,6 +13,7 @@ import Observation
 // MARK: - Score Entry Controller
 
 /// Manages step-time note entry and editing operations
+@MainActor
 @Observable
 class ScoreEntryController {
     
@@ -46,17 +47,6 @@ class ScoreEntryController {
     
     init() {}
     
-    // MARK: - Deinit Protection (ASan Issue #84742+)
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Root cause: @Observable classes have implicit Swift Concurrency tasks
-        // for property change notifications that can cause double-free on deinit.
-        // See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient,
-        //      AudioAnalysisService, AudioExportService, SelectionManager, ScrollSyncModel,
-        //      RegionDragState, AudioAnalyzer
-        // https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-    }
     
     /// Configure with a MIDI region and update callback
     func configure(

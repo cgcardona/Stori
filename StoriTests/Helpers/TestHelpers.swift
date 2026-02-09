@@ -12,55 +12,28 @@ import XCTest
 // MARK: - Async Test Helpers
 
 extension XCTestCase {
-    /// Wait for an async operation with timeout
-    func awaitAsync<T>(
+    /// Wait for an async operation with timeout.
+    /// Prefer native `async` test methods in Swift 6 instead of this helper.
+    func awaitAsync<T: Sendable>(
         timeout: TimeInterval = 5.0,
-        _ operation: @escaping () async throws -> T
-    ) throws -> T {
-        let expectation = expectation(description: "Async operation")
-        var result: Result<T, Error>?
-        
-        Task {
-            do {
-                let value = try await operation()
-                result = .success(value)
-            } catch {
-                result = .failure(error)
-            }
-            expectation.fulfill()
-        }
-        
-        wait(for: [expectation], timeout: timeout)
-        
-        switch result {
-        case .success(let value):
-            return value
-        case .failure(let error):
-            throw error
-        case .none:
-            throw TestError.timeout
-        }
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await operation()
     }
     
-    /// Run an async test with proper error handling
+    /// Run an async test with proper error handling.
+    /// Prefer native `async throws` test methods in Swift 6 instead of this helper.
     func runAsyncTest(
         timeout: TimeInterval = 5.0,
         file: StaticString = #file,
         line: UInt = #line,
-        _ test: @escaping () async throws -> Void
-    ) {
-        let expectation = expectation(description: "Async test")
-        
-        Task {
-            do {
-                try await test()
-            } catch {
-                XCTFail("Async test failed: \(error)", file: file, line: line)
-            }
-            expectation.fulfill()
+        _ test: @escaping @Sendable () async throws -> Void
+    ) async {
+        do {
+            try await test()
+        } catch {
+            XCTFail("Async test failed: \(error)", file: file, line: line)
         }
-        
-        wait(for: [expectation], timeout: timeout)
     }
 }
 

@@ -8,8 +8,9 @@
 //  Plays MIDI through the track's synth and captures the output.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 // MARK: - Bounce State
@@ -61,7 +62,8 @@ class MIDIBounceEngine {
     
     @ObservationIgnored
     private let channels: AVAudioChannelCount = 2
-    
+
+
     // MARK: - Bounce Method
     
     /// Bounce a MIDI region to an audio file
@@ -273,11 +275,6 @@ class MIDIBounceEngine {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - SynthEngine Offline Rendering Extension

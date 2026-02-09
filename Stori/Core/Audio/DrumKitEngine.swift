@@ -6,8 +6,9 @@
 //  Uses the same samples as Step Sequencer for consistent sound.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Drum Kit Engine
 
@@ -63,6 +64,7 @@ class DrumKitEngine {
     init() {
         self.mixerNode = AVAudioMixerNode()
     }
+    
     
     /// Attach the drum kit to an audio engine
     /// - Parameters:

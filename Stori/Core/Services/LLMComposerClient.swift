@@ -11,7 +11,7 @@ import Observation
 
 // MARK: - Composer Models
 
-struct ComposerToolCall: Codable, Identifiable {
+struct ComposerToolCall: Codable, Identifiable, Sendable {
     var id: String { "\(tool)-\(UUID().uuidString)" }
     let tool: String
     let params: [String: AnyCodableValue]
@@ -121,7 +121,7 @@ struct AutomationSummary: Codable {
     let isVisible: Bool
 }
 
-struct ComposerResponse: Codable {
+struct ComposerResponse: Codable, Sendable {
     let success: Bool
     let toolCalls: [ComposerToolCall]
     let rawResponse: String?
@@ -137,7 +137,7 @@ struct ComposerResponse: Codable {
 
 // MARK: - Streaming Models
 
-enum ComposerStreamEvent {
+enum ComposerStreamEvent: Sendable {
     case status(String)
     case content(String)
     case toolStart(String)
@@ -195,7 +195,7 @@ enum ComposerError: Error, LocalizedError {
 
 // MARK: - AnyCodableValue for handling dynamic JSON
 
-enum AnyCodableValue: Codable {
+enum AnyCodableValue: Codable, Sendable {
     static let maxNestingDepth = 20
 
     case string(String)
@@ -299,8 +299,6 @@ class LLMComposerClient {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #83866)
-    /// See: MetronomeEngine, ProjectExportService, AutomationServer for detailed explanation
     @ObservationIgnored
     private var streamingTask: Task<Void, Never>?
     @ObservationIgnored
@@ -479,28 +477,32 @@ class LLMComposerClient {
         return AsyncThrowingStream { continuation in
             // Cancel any existing streaming task before starting new one
             streamingTask?.cancel()
-            streamingTask = Task {
-                guard isConnected else {
+            streamingTask = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                guard await MainActor.run(body: { self.isConnected }) else {
                     continuation.finish(throwing: ComposerError.notConnected)
                     return
                 }
                 
                 await MainActor.run {
-                    isProcessing = true
-                    streamingStatus = "Starting..."
-                    streamingContent = ""
-                    streamingTools = []
+                    self.isProcessing = true
+                    self.streamingStatus = "Starting..."
+                    self.streamingContent = ""
+                    self.streamingTools = []
                 }
                 
                 defer {
                     // Cancel previous cleanup task if any
-                    cleanupTask?.cancel()
-                    cleanupTask = Task { @MainActor in
-                        isProcessing = false
-                        self.cleanupTask = nil
+                    self.cleanupTask?.cancel()
+                    self.cleanupTask = Task { @MainActor [weak self] in
+                        self?.isProcessing = false
+                        self?.cleanupTask = nil
                     }
                     // Clear streaming task reference
-                    streamingTask = nil
+                    self.streamingTask = nil
                 }
                 
                 // Build exhaustive context
@@ -865,17 +867,5 @@ class LLMComposerClient {
         }
     }
     
-    // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine, ProjectExportService, AutomationServer (Issue #83866)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored
-        streamingTask?.cancel()
-        cleanupTask?.cancel()
-    }
+    // No deinit needed — all tasks use [weak self] and terminate naturally when this object is released.
 }

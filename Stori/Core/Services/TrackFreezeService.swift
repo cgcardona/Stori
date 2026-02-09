@@ -11,9 +11,9 @@
 //  2. Playback: Use frozen audio file instead of original regions + plugins
 //  3. Unfreeze: Restore original regions, re-enable plugins, delete frozen file
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Track Freeze Error
 
@@ -59,6 +59,7 @@ class TrackFreezeService {
     // MARK: - Initialization
     
     private init() {}
+    
     
     // MARK: - Freeze Track
     
@@ -342,6 +343,8 @@ class TrackFreezeService {
         let sanitizedName = project.name.replacingOccurrences(of: "/", with: "_")
         return documentsDir.appendingPathComponent("Stori/Projects/\(sanitizedName).stori_assets")
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }
 
 // NOTE: frozenAudioPath property is defined in AudioTrack model (AudioModels.swift)

@@ -363,6 +363,7 @@ struct ParameterSliderView: View {
 class PluginEditorWindow: NSObject {
     private var windowController: NSWindowController?
     
+    
     @MainActor
     static func open(for plugin: PluginInstance, audioEngine: AudioEngine) {
         let editorView = PluginEditorView(plugin: plugin)

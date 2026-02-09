@@ -41,7 +41,8 @@ class DrumKitLoader {
             loadSamplesForKit(kit)
         }
     }
-    
+
+
     /// Load samples for a kit synchronously
     private func loadSamplesForKit(_ kit: DrumKit) {
         // Clear existing buffers
@@ -346,8 +347,5 @@ class DrumKitLoader {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 

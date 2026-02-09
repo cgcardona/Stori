@@ -27,6 +27,7 @@ class LicenseEnforcer {
         loadPlayCounts()
     }
     
+    
     // MARK: - Permission Checks
     
     /// Check if playback is allowed for a license
@@ -227,10 +228,7 @@ class LicenseEnforcer {
         return getRemainingPlays(for: license)
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Playback Permission
@@ -264,6 +262,7 @@ enum PlaybackPermission: Equatable {
 // MARK: - License Player State
 
 /// Manages the state of the license player with real AVFoundation playback
+@MainActor
 @Observable
 class LicensePlayerState {
     var license: PurchasedLicense?
@@ -291,6 +290,7 @@ class LicensePlayerState {
     @ObservationIgnored private var streamPlayer: AVPlayer?      // For IPFS streaming
     @ObservationIgnored private var progressTimer: Timer?
     @ObservationIgnored private var timeObserver: Any?
+    
     
     var progress: Double {
         guard duration > 0 else { return 0 }
@@ -372,31 +372,35 @@ class LicensePlayerState {
         if let streamURL = contentService.getStreamingURL(for: license, enforcer: enforcer) {
             
             // Use AVPlayer for streaming (not AVAudioPlayer which requires local files)
-            Task {
+            Task { [weak self] in
+                guard let self else { return }
                 if let player = await contentService.createStreamingPlayer(for: license, enforcer: enforcer) {
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
                         self.streamPlayer = player
                         
                         // Observe duration when ready
-                        Task {
+                        Task { [weak self] in
                             try? await Task.sleep(nanoseconds: 500_000_000) // Wait for metadata
                             if let item = player.currentItem {
                                 let seconds = CMTimeGetSeconds(item.duration)
-                                if !seconds.isNaN && seconds > 0 {
-                                    self.duration = seconds
-                                } else {
-                                    self.duration = 225 // Fallback
+                                await MainActor.run {
+                                    if !seconds.isNaN && seconds > 0 {
+                                        self?.duration = seconds
+                                    } else {
+                                        self?.duration = 225 // Fallback
+                                    }
                                 }
                             }
                         }
                         
-                        isLoading = false
+                        self.isLoading = false
                     }
                 } else {
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
                         // Fall back to demo mode
-                        isLoading = false
-                        duration = 225
+                        self?.isLoading = false
+                        self?.duration = 225
                         error = "Could not load audio from IPFS"
                     }
                 }

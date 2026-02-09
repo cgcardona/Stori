@@ -5,8 +5,9 @@
 //  Professional bus audio node for auxiliary effects processing
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import AudioToolbox
 import Combine
 import Accelerate
@@ -97,6 +98,7 @@ class BusAudioNode {
         self.pluginChain = PluginChain(id: UUID(), maxSlots: 8)
         setupAudioChain()
     }
+
     
     // MARK: - Audio Chain Setup
     private func setupAudioChain() {
@@ -211,8 +213,4 @@ class BusAudioNode {
     }
     
     // MARK: - Cleanup
-    deinit {
-        // Note: Cannot call @MainActor methods in deinit
-        // Level monitoring will be cleaned up automatically when nodes are deallocated
-    }
 }

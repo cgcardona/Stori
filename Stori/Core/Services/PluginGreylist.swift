@@ -78,6 +78,7 @@ class PluginGreylist {
         pruneOldRecords()
     }
     
+    
     // MARK: - Public API
     
     /// Check if a plugin should be loaded sandboxed (out-of-process)
@@ -241,6 +242,8 @@ class PluginGreylist {
             saveCrashRecords()
         }
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }
 
 // MARK: - PluginDescriptor Extension

@@ -11,8 +11,9 @@
 //  current iteration ends, eliminating gaps during loop jumps.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 /// Coordinates audio track scheduling and cycle loop handling
@@ -59,6 +60,7 @@ final class PlaybackSchedulingCoordinator {
     // MARK: - Initialization
     
     init() {}
+    
     
     // MARK: - Primary Scheduling API
     
@@ -326,7 +328,4 @@ final class PlaybackSchedulingCoordinator {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @MainActor classes can have implicit tasks from the Swift Concurrency runtime
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

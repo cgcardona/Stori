@@ -33,8 +33,8 @@ final class CycleLoopSeamlessTests: XCTestCase {
     var mockProject: AudioProject!
     var counters: Counters!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
 
         transportController = TransportController(
             getProject: { [weak self] in self?.mockProject },
@@ -53,14 +53,14 @@ final class CycleLoopSeamlessTests: XCTestCase {
         counters?.reset()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         if transportController.isPlaying {
             transportController.stop()
         }
         transportController = nil
         mockProject = nil
         counters = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Core Seamless Loop Tests

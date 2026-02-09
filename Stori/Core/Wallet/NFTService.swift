@@ -121,6 +121,7 @@ class NFTService {
         self.ipfsGateway = "http://127.0.0.1:8080"
     }
     
+    
     /// Fetch all NFTs owned by an address
     func fetchNFTs(for address: String) async {
         portfolio.isLoading = true
@@ -319,11 +320,6 @@ class NFTService {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - NFT Errors

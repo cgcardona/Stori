@@ -57,6 +57,7 @@ struct MixerView: View {
                 mixerContent
             }
         }
+        .storiAccessibilityID(AccessibilityID.Mixer.container)
     }
     
     @ViewBuilder
@@ -114,7 +115,10 @@ struct MixerView: View {
                         ProfessionalMasterChannelStrip(
                             audioEngine: audioEngine,
                             projectManager: projectManager,
-                            meterData: meterProvider.masterMeterData
+                            meterData: meterProvider.masterMeterData,
+                            onResetClipIndicator: {
+                                meterProvider.resetMasterClipIndicator()
+                            }
                         )
                     } else {
                         EmptyMixerView()
@@ -563,6 +567,15 @@ struct TrackChannelStrip: View {
                 value: Binding(
                     get: { Double(track.mixerSettings.volume) },
                     set: { newValue in
+                        // Register undo for volume change (Issue #71)
+                        let oldValue = track.mixerSettings.volume
+                        UndoService.shared.registerVolumeChange(
+                            track.id,
+                            from: oldValue,
+                            to: Float(newValue),
+                            projectManager: projectManager,
+                            audioEngine: audioEngine
+                        )
                         // AudioEngine.updateTrackVolume() handles both audio AND project model updates
                         // This avoids triggering the onChange listener that reloads the entire audio engine
                         audioEngine.updateTrackVolume(trackId: track.id, volume: Float(newValue))
@@ -601,6 +614,13 @@ struct TrackChannelStrip: View {
                 // Mute Button
                 Button(action: {
                     let newState = !track.mixerSettings.isMuted
+                    // Register undo for mute toggle (Issue #71)
+                    UndoService.shared.registerMuteToggle(
+                        track.id,
+                        wasMuted: track.mixerSettings.isMuted,
+                        projectManager: projectManager,
+                        audioEngine: audioEngine
+                    )
                     audioEngine.updateTrackMute(trackId: track.id, isMuted: newState)
                 }) {
                 Text("M")
@@ -618,6 +638,13 @@ struct TrackChannelStrip: View {
             // Solo Button  
             Button(action: {
                 let newState = !track.mixerSettings.isSolo
+                // Register undo for solo toggle (Issue #71)
+                UndoService.shared.registerSoloToggle(
+                    track.id,
+                    wasSolo: track.mixerSettings.isSolo,
+                    projectManager: projectManager,
+                    audioEngine: audioEngine
+                )
                 audioEngine.updateTrackSolo(trackId: track.id, isSolo: newState)
             }) {
                 Text("S")

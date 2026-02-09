@@ -82,6 +82,7 @@ final class TokenApprovalsService {
         #endif
     }
     
+    
     func fetchApprovals(for address: String) async {
         isLoading = true
         error = nil
@@ -126,10 +127,7 @@ final class TokenApprovalsService {
     }
     #endif
     
-    // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Token Approvals View

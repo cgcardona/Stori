@@ -31,13 +31,10 @@ final class AudioAnalysisService {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task tracking to prevent memory corruption on deinit (ASan Issue #84023)
-    /// See: MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient
-    /// These are detached tasks, but still need tracking to prevent double-free
     @ObservationIgnored
-    nonisolated(unsafe) private var tempoAnalysisTask: Task<Void, Never>?
+    private var tempoAnalysisTask: Task<Void, Never>?
     @ObservationIgnored
-    nonisolated(unsafe) private var keyAnalysisTask: Task<Void, Never>?
+    private var keyAnalysisTask: Task<Void, Never>?
     
     // MARK: - Audio Analysis Constants
     @ObservationIgnored
@@ -144,7 +141,7 @@ final class AudioAnalysisService {
         return try await withCheckedThrowingContinuation { continuation in
             // Cancel any existing tempo analysis task
             tempoAnalysisTask?.cancel()
-            tempoAnalysisTask = Task.detached {
+            tempoAnalysisTask = Task.detached { [weak self] in
                 do {
                     // Load audio file (url resolved on MainActor above)
                     let audioFile = try AVAudioFile(forReading: url)
@@ -165,13 +162,11 @@ final class AudioAnalysisService {
                     try audioFile.read(into: buffer)
                     
                     // Perform tempo analysis using onset detection + autocorrelation
-                    let tempo = await self.analyzeTempoFromBuffer(buffer)
+                    let tempo = await self?.analyzeTempoFromBuffer(buffer)
                     continuation.resume(returning: tempo)
-                    self.tempoAnalysisTask = nil
                     
                 } catch {
                     continuation.resume(throwing: error)
-                    self.tempoAnalysisTask = nil
                 }
             }
         }
@@ -183,7 +178,7 @@ final class AudioAnalysisService {
         return try await withCheckedThrowingContinuation { continuation in
             // Cancel any existing key analysis task
             keyAnalysisTask?.cancel()
-            keyAnalysisTask = Task.detached {
+            keyAnalysisTask = Task.detached { [weak self] in
                 do {
                     // Load audio file (url resolved on MainActor above)
                     let audioFile = try AVAudioFile(forReading: url)
@@ -204,13 +199,11 @@ final class AudioAnalysisService {
                     try audioFile.read(into: buffer)
                     
                     // Perform key analysis using chroma features + template matching
-                    let key = await self.analyzeKeyFromBuffer(buffer)
+                    let key = await self?.analyzeKeyFromBuffer(buffer)
                     continuation.resume(returning: key)
-                    self.keyAnalysisTask = nil
                     
                 } catch {
                     continuation.resume(throwing: error)
-                    self.keyAnalysisTask = nil
                 }
             }
         }
@@ -647,17 +640,5 @@ final class AudioAnalysisService {
         return ("\(key) \(mode)", confidence)
     }
     
-    // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Cancel async resources before implicit deinit
-        // ASan detected double-free during swift_task_deinitOnExecutorImpl
-        // Root cause: Untracked detached Tasks holding self reference during @MainActor class cleanup
-        // Same bug pattern as MetronomeEngine, ProjectExportService, AutomationServer, LLMComposerClient (Issue #84023)
-        // See: https://github.com/cgcardona/Stori/issues/AudioEngine-MemoryBug
-        
-        // Note: Cannot access @MainActor properties in deinit, but these are @ObservationIgnored nonisolated(unsafe)
-        tempoAnalysisTask?.cancel()
-        keyAnalysisTask?.cancel()
-    }
+    // No deinit needed — analysis tasks use detached execution and terminate naturally.
 }

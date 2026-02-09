@@ -5,9 +5,9 @@
 //  MIDI-based Step Sequencer engine with internal sampler preview
 //  Supports routing to MIDI tracks, multi-track output, and external devices
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Combine
 
 // MARK: - Sequencer Engine
@@ -72,7 +72,8 @@ class SequencerEngine {
         loadFavoritesFromUserDefaults()
         loadRecentsFromUserDefaults()
     }
-    
+
+
     // Note: stepTimer cleanup happens via stop() or when the engine is deallocated
     // Cannot access @MainActor properties in deinit
     
@@ -1305,9 +1306,6 @@ class SequencerEngine {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
     /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 
 // MARK: - Drum Player
@@ -1328,6 +1326,7 @@ private class DrumPlayer {
     init(soundType: DrumSoundType) {
         self.soundType = soundType
     }
+    
     
     func attach(to engine: AVAudioEngine, mixer: AVAudioMixerNode, format: AVAudioFormat) {
         let player = AVAudioPlayerNode()
@@ -1573,7 +1572,4 @@ private class DrumPlayer {
     
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// Even simple nested classes can have implicit tasks that cause memory corruption
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

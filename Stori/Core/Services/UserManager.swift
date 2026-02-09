@@ -83,6 +83,7 @@ class UserManager {
         self.session = URLSession(configuration: config)
     }
     
+    
     // MARK: - User ID Management
     
     /// Get or create persistent user ID
@@ -284,11 +285,6 @@ class UserManager {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - User Manager Errors

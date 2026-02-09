@@ -26,6 +26,7 @@ struct DAWControlBar: View {
     @State private var showingMetronomeSettings = false
     @State private var editedTempo: Double = 120
     @State private var isCountingIn = false  // True during count-in before recording
+    @State private var showingRecordAlert = false  // Alert when no tracks are armed
     
     var body: some View {
         HStack(spacing: 0) {
@@ -124,7 +125,7 @@ struct DAWControlBar: View {
                     .help("Rewind 1 beat (,)")
                     .keyboardShortcut(",", modifiers: [])
                     
-                    // Play/Pause
+                    // Play/Pause (no count-in — count-in is recording-only, standard DAW behavior)
                     TransportButton(
                         icon: audioEngine.isPlaying ? "pause.fill" : "play.fill",
                         isActive: audioEngine.isPlaying,
@@ -447,6 +448,15 @@ struct DAWControlBar: View {
                     alignment: .top
                 )
         )
+        .alert("No Track Armed for Recording", isPresented: $showingRecordAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Create an audio or MIDI track and arm it for recording (R button) before starting to record.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleRecording)) { _ in
+            // Forward VK's R key press through the same count-in logic
+            handleRecordButton()
+        }
     }
     
     
@@ -474,26 +484,25 @@ struct DAWControlBar: View {
         
         if isCountingIn { return }
         
+        // Guard: require at least one track in the project
+        guard let project = projectManager.currentProject, !project.tracks.isEmpty else {
+            showingRecordAlert = true
+            return
+        }
+        
         // Check if count-in is enabled
         if metronomeEngine.countInEnabled {
             isCountingIn = true
             
             Task {
-                // Pre-setup everything BEFORE count-in to avoid delay after
                 await audioEngine.prepareRecordingDuringCountIn()
-                
-                // Perform count-in (uses precise DispatchSourceTimer)
                 await metronomeEngine.performCountIn()
-                
-                // Count-in complete, start recording immediately
-                // Everything is already prepared, just flip the switch
                 await MainActor.run {
                     isCountingIn = false
                     audioEngine.startRecordingAfterCountIn()
                 }
             }
         } else {
-            // No count-in, start recording immediately
             audioEngine.record()
         }
     }

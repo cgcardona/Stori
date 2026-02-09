@@ -7,8 +7,9 @@
 //  the host DAW from plugin crashes.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import AudioToolbox
 
 // MARK: - Sandboxed Plugin Host
@@ -61,6 +62,7 @@ class SandboxedPluginHost {
     private init() {
         loadPreferences()
     }
+    
     
     // MARK: - Plugin Instantiation
     

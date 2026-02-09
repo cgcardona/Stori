@@ -89,15 +89,18 @@ final class TrackAudioNodeMeteringTests: XCTestCase {
         let expectation = expectation(description: "Concurrent reads complete")
         expectation.expectedFulfillmentCount = 100
         
+        // Capture node reference on MainActor before spawning detached tasks
+        let node = trackNode!
+        
         // Spawn 100 concurrent readers
         for _ in 0..<100 {
             Task.detached {
                 // Rapidly read metering values
                 for _ in 0..<1000 {
-                    _ = await self.trackNode.currentLevelLeft
-                    _ = await self.trackNode.currentLevelRight
-                    _ = await self.trackNode.peakLevelLeft
-                    _ = await self.trackNode.peakLevelRight
+                    _ = node.currentLevelLeft
+                    _ = node.currentLevelRight
+                    _ = node.peakLevelLeft
+                    _ = node.peakLevelRight
                 }
                 expectation.fulfill()
             }
@@ -133,29 +136,26 @@ final class TrackAudioNodeMeteringTests: XCTestCase {
         // Since we can't directly call the private callback, we'll verify
         // that reads are consistent across multiple threads
         
+        // Capture node reference on MainActor before spawning detached tasks
+        let node = trackNode!
+        
         // Read from 100 threads simultaneously
-        var readValues: [[Float]] = []
-        let lock = NSLock()
-        
-        let expectation = expectation(description: "Concurrent reads")
-        expectation.expectedFulfillmentCount = 100
-        
-        for _ in 0..<100 {
-            Task.detached {
-                let left = await self.trackNode.currentLevelLeft
-                let right = await self.trackNode.currentLevelRight
-                let peakL = await self.trackNode.peakLevelLeft
-                let peakR = await self.trackNode.peakLevelRight
-                
-                lock.lock()
-                readValues.append([left, right, peakL, peakR])
-                lock.unlock()
-                
-                expectation.fulfill()
+        let readValues = await withTaskGroup(of: [Float].self, returning: [[Float]].self) { group in
+            for _ in 0..<100 {
+                group.addTask {
+                    let left = node.currentLevelLeft
+                    let right = node.currentLevelRight
+                    let peakL = node.peakLevelLeft
+                    let peakR = node.peakLevelRight
+                    return [left, right, peakL, peakR]
+                }
             }
+            var results: [[Float]] = []
+            for await value in group {
+                results.append(value)
+            }
+            return results
         }
-        
-        await fulfillment(of: [expectation], timeout: 5.0)
         
         // All reads should return valid floats (not NaN, not Inf)
         for values in readValues {
