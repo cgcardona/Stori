@@ -70,7 +70,7 @@ struct VirtualKeyboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             // Configure keyboard state with audio engine for tempo-aware latency compensation
-            keyboardState.configure(audioEngine: audioEngine)
+            keyboardState.configure(audioEngine: audioEngine, onClose: onClose)
             keyboardState.startListening()
         }
         .onDisappear {
@@ -605,6 +605,9 @@ class VirtualKeyboardState {
     /// Access to audio engine for tempo information (needed for beat compensation calculation)
     @ObservationIgnored private weak var audioEngine: AudioEngine?
     
+    /// Callback to close the Virtual Keyboard (called when Escape is pressed)
+    @ObservationIgnored private var onClose: (() -> Void)?
+    
     /// Calculate latency compensation in beats from seconds
     /// - Parameter latencySeconds: Latency in seconds to convert
     /// - Returns: Latency in beats based on current tempo
@@ -724,14 +727,26 @@ class VirtualKeyboardState {
     
     
     /// Configure audio engine reference for tempo-aware latency compensation and transport key forwarding
-    func configure(audioEngine: AudioEngine) {
+    /// - Parameters:
+    ///   - audioEngine: Audio engine for tempo and transport control
+    ///   - onClose: Callback to close the Virtual Keyboard
+    func configure(audioEngine: AudioEngine, onClose: (() -> Void)? = nil) {
         self.audioEngine = audioEngine
+        self.onClose = onClose
     }
     
     func startListening() {
         // Monitor key down events
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            
+            // Handle Escape key to close Virtual Keyboard
+            if event.keyCode == 53 { // Escape key code
+                MainActor.assumeIsolated {
+                    self.onClose?()
+                }
+                return nil // Consume the event
+            }
             
             // Ignore key repeats (holding down a key) - we want one note per physical press
             if event.isARepeat {
