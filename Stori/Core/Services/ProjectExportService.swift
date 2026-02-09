@@ -1897,11 +1897,14 @@ class ProjectExportService {
         self.processSamplerEventsInRange(startSample: 0, frameCount: initialLookahead)
         samplerEventPosition = AVAudioFramePosition(initialLookahead)
         
+        // CRITICAL: Store tapNode reference for proper cleanup
+        // The tap MUST be removed from the same node it was installed on
+        let tapNode = exportMasterLimiter ?? renderEngine.mainMixerNode
+        
         return try await withCheckedThrowingContinuation { continuation in
             // CRITICAL FIX (Bug #02): Tap from master limiter output (not mainMixer) to match live signal path
             // Live path ends at: mixer → masterEQ → masterLimiter → output
             // Export MUST tap after limiter for WYHIWYG
-            let tapNode = exportMasterLimiter ?? renderEngine.mainMixerNode
             
             tapNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
                 guard let self = self else { return }
@@ -1988,7 +1991,7 @@ class ProjectExportService {
                 // Check for cancellation
                 if self.isCancelled {
                     if state.tryResume() {
-                        renderEngine.mainMixerNode.removeTap(onBus: 0)
+                        tapNode.removeTap(onBus: 0)
                         renderEngine.stop()
                         continuation.resume(throwing: ExportError.cancelled)
                     }
@@ -2001,7 +2004,7 @@ class ProjectExportService {
                 if capturedFrames >= totalCapacity {
                     // All frames captured (target + drain) - ready to finalize
                     if state.tryResume() {
-                        renderEngine.mainMixerNode.removeTap(onBus: 0)
+                        tapNode.removeTap(onBus: 0)
                         renderEngine.stop()
                         
                         // Trim output buffer to exact target length
@@ -2018,7 +2021,7 @@ class ProjectExportService {
             timeoutTask = Task { [weak self] in
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
                 if state.tryResume() {
-                    renderEngine.mainMixerNode.removeTap(onBus: 0)
+                    tapNode.removeTap(onBus: 0)
                     renderEngine.stop()
                     continuation.resume(throwing: ExportError.renderTimeout)
                 }
