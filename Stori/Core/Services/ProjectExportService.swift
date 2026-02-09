@@ -892,6 +892,9 @@ class ProjectExportService {
         var playerNodes: [(node: AVAudioPlayerNode, region: AudioRegion, track: AudioTrack)] = []
         var midiTrackCount = 0
         
+        // Check if any tracks are soloed (changes mute behavior per DAW standards)
+        let hasSoloedTracks = project.tracks.contains { $0.mixerSettings.isSolo }
+        
         for track in project.tracks {
             guard track.isEnabled && !track.isFrozen else { continue }
             
@@ -901,9 +904,17 @@ class ProjectExportService {
             assert(track.mixerSettings.pan >= 0.0 && track.mixerSettings.pan <= 1.0,
                    "Track \(track.name) pan out of range: \(track.mixerSettings.pan)")
             
-            // Verify mute/solo states are correctly handled (track should be excluded if muted and not soloed)
-            if track.mixerSettings.isMuted && !track.mixerSettings.isSolo {
-                AppLogger.shared.warning("⚠️ Track \(track.name) is muted - should be skipped in export", category: .audio)
+            // Handle mute/solo logic (professional DAW behavior):
+            // - If ANY tracks are soloed: ONLY export soloed tracks (mute ignored)
+            // - If NO tracks are soloed: Skip muted tracks
+            if hasSoloedTracks {
+                guard track.mixerSettings.isSolo else {
+                    AppLogger.shared.debug("⏭️ Skipping non-soloed track '\(track.name)' (solo mode)", category: .audio)
+                    continue
+                }
+            } else if track.mixerSettings.isMuted {
+                AppLogger.shared.debug("⏭️ Skipping muted track '\(track.name)'", category: .audio)
+                continue
             }
             
             // Create per-track mixer node for volume/pan automation
