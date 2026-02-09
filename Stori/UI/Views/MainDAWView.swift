@@ -1848,7 +1848,7 @@ extension MainDAWView {
                 }
             }
         }
-        .transition(.move(edge: .bottom))
+        .transition(.opacity)
     }
     
     private func synthesizerPanelView(availableHeight: CGFloat) -> some View {
@@ -1887,7 +1887,7 @@ extension MainDAWView {
                 .frame(height: synthesizerHeight)
                 .clipped()
         }
-        .transition(.move(edge: .bottom))
+        .transition(.opacity)
     }
     
     private func stepSequencerPanelView(availableHeight: CGFloat) -> some View {
@@ -1916,7 +1916,7 @@ extension MainDAWView {
                 .frame(height: stepSequencerHeight)
                 .clipped()
         }
-        .transition(.move(edge: .bottom))
+        .transition(.opacity)
     }
     
     private var selectionPanelView: some View {
@@ -1990,7 +1990,7 @@ extension MainDAWView {
             .frame(height: mixerHeight)
             .clipped()
         }
-        .transition(.move(edge: .bottom))
+        .transition(.opacity)
     }
     
     private func dawContentView(geometry: GeometryProxy) -> some View {
