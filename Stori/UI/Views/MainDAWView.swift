@@ -1848,7 +1848,6 @@ extension MainDAWView {
                 }
             }
         }
-        .transition(.move(edge: .bottom))
     }
     
     private func synthesizerPanelView(availableHeight: CGFloat) -> some View {
@@ -1887,7 +1886,6 @@ extension MainDAWView {
                 .frame(height: synthesizerHeight)
                 .clipped()
         }
-        .transition(.move(edge: .bottom))
     }
     
     private func stepSequencerPanelView(availableHeight: CGFloat) -> some View {
@@ -1916,7 +1914,6 @@ extension MainDAWView {
                 .frame(height: stepSequencerHeight)
                 .clipped()
         }
-        .transition(.move(edge: .bottom))
     }
     
     private var selectionPanelView: some View {
@@ -1990,7 +1987,6 @@ extension MainDAWView {
             .frame(height: mixerHeight)
             .clipped()
         }
-        .transition(.move(edge: .bottom))
     }
     
     private func dawContentView(geometry: GeometryProxy) -> some View {
@@ -2031,10 +2027,7 @@ extension MainDAWView {
         }
         .animation(.easeInOut(duration: 0.3), value: showingInspector)
         .animation(.easeInOut(duration: 0.3), value: showingSelection)
-        .animation(.easeInOut(duration: 0.25), value: showingMixer)
-        .animation(.easeInOut(duration: 0.25), value: showingStepSequencer)
-        .animation(.easeInOut(duration: 0.2), value: showingPianoRoll)
-        .animation(.easeInOut(duration: 0.25), value: showingSynthesizer)
+        // Bottom panels: No animation for instant show/hide (removed animations for better performance)
         .onChange(of: showingSynthesizer) { _, newValue in
             // Sync with DAWUIState for NSEvent handler access
             DAWUIState.shared.isSynthesizerVisible = newValue

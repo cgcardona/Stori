@@ -70,7 +70,7 @@ struct VirtualKeyboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             // Configure keyboard state with audio engine for tempo-aware latency compensation
-            keyboardState.configure(audioEngine: audioEngine)
+            keyboardState.configure(audioEngine: audioEngine, onClose: onClose)
             keyboardState.startListening()
         }
         .onDisappear {
@@ -135,7 +135,7 @@ struct VirtualKeyboardView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             
-            Text("Latency: \(String(format: "%.0f", keyboardState.currentLatencyMs))ms (\(String(format: "%.3f", keyboardState.currentLatencyBeats)) beats @ \(String(format: "%.0f", keyboardState.currentTempo)) BPM)")
+            Text("Latency: \(String(format: "%.1f", keyboardState.currentLatencyMs))ms (\(String(format: "%.3f", keyboardState.currentLatencyBeats)) beats @ \(String(format: "%.0f", keyboardState.currentTempo)) BPM)")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundColor(.secondary)
         }
@@ -595,11 +595,18 @@ class VirtualKeyboardState {
     @ObservationIgnored
     private let fallbackLatencySeconds: TimeInterval = 0.030 // 30ms fallback
     
+    /// Last measured latency from hardware timestamps (sub-millisecond accuracy)
+    /// Updated each time a note is played with hardware timestamp
+    private var lastMeasuredLatencySeconds: TimeInterval = 0.030
+    
     /// Access to shared instrument manager
     @ObservationIgnored private var instrumentManager: InstrumentManager { InstrumentManager.shared }
     
     /// Access to audio engine for tempo information (needed for beat compensation calculation)
     @ObservationIgnored private weak var audioEngine: AudioEngine?
+    
+    /// Callback to close the Virtual Keyboard (called when Escape is pressed)
+    @ObservationIgnored private var onClose: (() -> Void)?
     
     /// Calculate latency compensation in beats from seconds
     /// - Parameter latencySeconds: Latency in seconds to convert
@@ -620,16 +627,16 @@ class VirtualKeyboardState {
         audioEngine?.currentProject?.tempo ?? 120.0
     }
     
-    /// Current latency compensation in milliseconds
+    /// Current latency compensation in milliseconds (shows actual measured latency when available)
     var currentLatencyMs: Double {
-        fallbackLatencySeconds * 1000.0
+        lastMeasuredLatencySeconds * 1000.0
     }
     
     /// Current latency compensation in beats (dynamically updates with tempo)
     var currentLatencyBeats: Double {
         let tempo = audioEngine?.currentProject?.tempo ?? 120.0
         let beatsPerSecond = tempo / 60.0
-        return fallbackLatencySeconds * beatsPerSecond
+        return lastMeasuredLatencySeconds * beatsPerSecond
     }
     
     /// Calculate actual UI latency from hardware timestamp
@@ -720,14 +727,26 @@ class VirtualKeyboardState {
     
     
     /// Configure audio engine reference for tempo-aware latency compensation and transport key forwarding
-    func configure(audioEngine: AudioEngine) {
+    /// - Parameters:
+    ///   - audioEngine: Audio engine for tempo and transport control
+    ///   - onClose: Callback to close the Virtual Keyboard
+    func configure(audioEngine: AudioEngine, onClose: (() -> Void)? = nil) {
         self.audioEngine = audioEngine
+        self.onClose = onClose
     }
     
     func startListening() {
         // Monitor key down events
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            
+            // Handle Escape key to close Virtual Keyboard
+            if event.keyCode == 53 { // Escape key code
+                MainActor.assumeIsolated {
+                    self.onClose?()
+                }
+                return nil // Consume the event
+            }
             
             // Ignore key repeats (holding down a key) - we want one note per physical press
             if event.isARepeat {
@@ -906,6 +925,8 @@ class VirtualKeyboardState {
         let compensationBeats: Double
         if let hwTimestamp = hardwareTimestamp {
             let actualLatency = calculateActualLatency(hardwareTimestamp: hwTimestamp)
+            // Update last measured latency for UI display (sub-ms accuracy)
+            lastMeasuredLatencySeconds = actualLatency
             compensationBeats = latencySecondsToBeats(actualLatency)
         } else {
             // Fallback to fixed compensation for events without hardware timestamp
@@ -927,6 +948,8 @@ class VirtualKeyboardState {
         let compensationBeats: Double
         if let hwTimestamp = hardwareTimestamp {
             let actualLatency = calculateActualLatency(hardwareTimestamp: hwTimestamp)
+            // Update last measured latency for UI display (sub-ms accuracy)
+            lastMeasuredLatencySeconds = actualLatency
             compensationBeats = latencySecondsToBeats(actualLatency)
         } else {
             // Fallback to fixed compensation for events without hardware timestamp

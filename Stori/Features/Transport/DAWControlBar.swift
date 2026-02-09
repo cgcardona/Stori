@@ -277,6 +277,39 @@ struct DAWControlBar: View {
                                 .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
                         )
                 )
+                .accessibilityLabel("Position Display")
+                .accessibilityValue(audioEngine.currentMusicalTimeString)
+                .accessibilityIdentifier("transport.positionDisplay")
+                
+                // Latency Display (Issue #65) - Shows round-trip monitoring latency
+                VStack(spacing: 0) {
+                    Text(audioEngine.monitoringLatencyDisplayString)
+                        .font(.system(.callout, design: .monospaced))
+                        .fontWeight(.semibold)
+                        .foregroundColor(latencyDisplayColor)
+                        .frame(width: 60, alignment: .center)
+                        .monospacedDigit()
+                    
+                    Text("LATENCY")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .tracking(0.5)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.black.opacity(0.3))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(latencyBorderColor, lineWidth: audioEngine.isMonitoringLatencyHigh ? 1.0 : 0.5)
+                        )
+                )
+                .help(latencyTooltip)
+                .accessibilityLabel("Monitoring Latency")
+                .accessibilityValue(audioEngine.monitoringLatencyDisplayString)
+                .accessibilityHint(latencyAccessibilityHint)
+                .accessibilityIdentifier("transport.latencyDisplay")
                 
                 // Separator
                 Rectangle()
@@ -459,6 +492,75 @@ struct DAWControlBar: View {
         }
     }
     
+    
+    // MARK: - Latency Display Helpers (Issue #65)
+    
+    /// Color for latency display text based on severity
+    private var latencyDisplayColor: Color {
+        if audioEngine.isMonitoringLatencyCritical {
+            return .red
+        } else if audioEngine.isMonitoringLatencyHigh {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+    
+    /// Color for latency display border based on severity
+    private var latencyBorderColor: Color {
+        if audioEngine.isMonitoringLatencyHigh {
+            return latencyDisplayColor.opacity(0.6)
+        } else {
+            return Color.secondary.opacity(0.2)
+        }
+    }
+    
+    /// Tooltip with latency explanation and recommendations
+    private var latencyTooltip: String {
+        let latency = audioEngine.totalMonitoringLatencyMs
+        
+        if audioEngine.isMonitoringLatencyCritical {
+            return """
+            Monitoring Latency: \(audioEngine.monitoringLatencyDisplayString)
+            ⚠️ HIGH - Performance timing will be affected
+            
+            Recommendations:
+            • Enable hardware direct monitoring on your audio interface
+            • Reduce buffer size in Audio MIDI Setup
+            • Bypass high-latency plugins during recording
+            • Consider using a Thunderbolt interface
+            """
+        } else if audioEngine.isMonitoringLatencyHigh {
+            return """
+            Monitoring Latency: \(audioEngine.monitoringLatencyDisplayString)
+            ⚠ NOTICEABLE - May affect timing feel
+            
+            Recommendations:
+            • Reduce buffer size if CPU allows
+            • Bypass plugins during recording
+            • Consider hardware direct monitoring
+            """
+        } else {
+            return """
+            Monitoring Latency: \(audioEngine.monitoringLatencyDisplayString)
+            ✓ LOW - Optimal for recording
+            
+            Round-trip delay from input to output.
+            Includes: audio interface + buffer + plugins
+            """
+        }
+    }
+    
+    /// Accessibility hint for latency display
+    private var latencyAccessibilityHint: String {
+        if audioEngine.isMonitoringLatencyCritical {
+            return "High latency detected. Enable hardware direct monitoring."
+        } else if audioEngine.isMonitoringLatencyHigh {
+            return "Noticeable latency. Consider reducing buffer size."
+        } else {
+            return "Latency is optimal for recording."
+        }
+    }
     
     // MARK: - Helper Methods
     private func setTempo(_ tempo: Double) {
