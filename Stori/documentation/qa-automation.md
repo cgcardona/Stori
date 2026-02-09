@@ -2,12 +2,14 @@
 
 ## Architecture Overview
 
-The QA system has four pillars:
+The QA system has six pillars:
 
 | Layer | Location | Runs On | What It Catches |
 |-------|----------|---------|-----------------|
 | **Unit Tests** | `StoriTests/` | Every PR | Logic bugs, model regressions |
-| **UI Smoke Tests** | `StoriUITests/` | Every PR | Broken workflows, UI regressions |
+| **UI Smoke Tests** | `StoriUITests/SmokeTests/` | Every PR | Broken workflows, UI regressions |
+| **UI Workflow Tests** | `StoriUITests/Workflows/` | Nightly | Feature completeness, edge cases |
+| **Performance Tests** | `StoriUITests/Performance/` | Nightly | Scalability, load handling |
 | **Audio Regression** | `StoriTests/AudioRegression/` | Every PR (small), Nightly (full) | Silent exports, routing bugs, timing drift |
 | **Stress Tests** | `StoriTests/StressTests/` | Nightly | Race conditions, deadlocks, crashes |
 
@@ -22,15 +24,24 @@ The QA system has four pillars:
 
 ```
 Stori/
-├── StoriUITests/                          # XCUITest UI automation target
+├── StoriUITests/                          # XCUITest UI automation target (114+ tests)
 │   ├── StoriUITestCase.swift              # Base class (launch, helpers, screenshots)
-│   ├── StoriUITestsLaunchTests.swift      # Launch validation
-│   └── SmokeTests/
-│       ├── TransportSmokeTests.swift      # Play/Stop/Navigate
-│       ├── TrackWorkflowSmokeTests.swift  # Create Audio/MIDI, Play workflow
-│       ├── PanelToggleSmokeTests.swift    # Mixer/PianoRoll/StepSeq toggles
-│       ├── ExportSmokeTests.swift         # Export dialog workflow
-│       └── ProjectLifecycleSmokeTests.swift # New/Save/Undo/Redo
+│   ├── StoriUITestsLaunchTests.swift      # Launch validation (3 tests)
+│   ├── SmokeTests/                        # Critical path tests (21 tests)
+│   │   ├── TransportSmokeTests.swift      # Play/Stop/Navigate
+│   │   ├── TrackWorkflowSmokeTests.swift  # Create Audio/MIDI, Play workflow
+│   │   ├── PanelToggleSmokeTests.swift    # Mixer/PianoRoll/StepSeq toggles
+│   │   ├── ExportSmokeTests.swift         # Export dialog workflow
+│   │   └── ProjectLifecycleSmokeTests.swift # New/Save/Undo/Redo
+│   ├── Workflows/                         # Comprehensive feature tests (93 tests)
+│   │   ├── MIDIEditingWorkflowTests.swift # Piano roll, quantize, velocity (9 tests)
+│   │   ├── MixerAutomationWorkflowTests.swift # Mixer, mute/solo, automation (11 tests)
+│   │   ├── PluginWorkflowTests.swift      # Insert, bypass, presets (12 tests)
+│   │   ├── RecordingWorkflowTests.swift   # Punch, overdub, monitoring (12 tests)
+│   │   ├── RegionEditingWorkflowTests.swift # Split, fade, loop (18 tests)
+│   │   └── AutomationLaneWorkflowTests.swift # Automation modes, curves (17 tests)
+│   └── Performance/                       # Load & scalability tests (14 tests)
+│       └── PerformanceAndLoadTests.swift  # 10/50/100 tracks, stress scenarios
 │
 ├── StoriTests/
 │   ├── AudioRegression/
