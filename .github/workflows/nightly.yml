@@ -1,5 +1,5 @@
 # ============================================================================
-# Stori DAW — Nightly Test Pipeline
+# Stori DAW — Nightly Test Pipeline (CURRENTLY DISABLED)
 # ============================================================================
 # Runs every night (or on-demand) with the full test suite:
 #   - All unit + integration tests
@@ -10,15 +10,20 @@
 #
 # This is the heavy pipeline that catches everything.
 # Target runtime: <30 minutes.
+#
+# STATUS: Disabled until CI infrastructure is funded and configured.
+#         All tests can be run locally via xcodebuild.
 # ============================================================================
 
-name: Nightly Tests
+# DISABLED: Uncomment to enable nightly runs
+# name: Nightly Tests
+name: Nightly Tests (Disabled)
 
 on:
-  schedule:
-    # Run at 3:00 AM UTC every day (10 PM EST)
-    - cron: '0 3 * * *'
-  workflow_dispatch:  # Allow manual triggers
+  # schedule:
+  #   # Run at 3:00 AM UTC every day (10 PM EST)
+  #   - cron: '0 3 * * *'
+  workflow_dispatch:  # Manual trigger only
     inputs:
       update_goldens:
         description: 'Update golden audio files'

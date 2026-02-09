@@ -1,5 +1,5 @@
 # ============================================================================
-# Stori DAW — PR Test Pipeline
+# Stori DAW — PR Test Pipeline (CURRENTLY DISABLED)
 # ============================================================================
 # Runs on every pull request to main/develop branches.
 # Fast path: unit tests + integration tests + UI smoke suite + small audio regression.
@@ -8,21 +8,28 @@
 # Requirements:
 #   - macOS runner with Xcode 26+ installed
 #   - Self-hosted Mac mini recommended for audio tests (GitHub-hosted has no audio device)
+#
+# STATUS: Disabled until CI infrastructure is funded and configured.
+#         All tests can be run locally via xcodebuild.
 # ============================================================================
 
-name: PR Tests
+# DISABLED: Uncomment the lines below to enable CI
+# name: PR Tests
+name: PR Tests (Disabled)
 
+# on:
+#   pull_request:
+#     branches: [main, develop]
+#   push:
+#     branches: [main, develop]
 on:
-  pull_request:
-    branches: [main, develop]
-  push:
-    branches: [main, develop]
+  workflow_dispatch:  # Manual trigger only
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# concurrency:
+#   group: ${{ github.workflow }}-${{ github.ref }}
+#   cancel-in-progress: true
 
-env:
+# env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
   SCHEME: Stori
   PROJECT: Stori.xcodeproj
