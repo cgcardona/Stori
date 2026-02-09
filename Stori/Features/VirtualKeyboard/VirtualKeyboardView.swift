@@ -143,6 +143,7 @@ struct VirtualKeyboardView: View {
         .padding(.vertical, 4)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.8))
         .cornerRadius(6)
+        .accessibilityIdentifier("virtualKeyboard.latencyBadge")
         .help("Compensating for UI event latency to ensure accurate MIDI recording timestamps")
     }
     

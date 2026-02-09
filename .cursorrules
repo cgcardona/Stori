@@ -345,17 +345,34 @@ function mintSTEM(address to, uint256 amount) external {
 ### Accessibility
 - **MANDATORY**: Implement VoiceOver support for ALL new UI elements
 - **MANDATORY**: Add proper accessibility labels (`.accessibilityLabel()`)
+- **MANDATORY**: Add accessibility identifiers for XCUITests (`.accessibilityIdentifier()`)
 - **MANDATORY**: Provide keyboard navigation alternatives for all actions
 - **MANDATORY**: Ensure all buttons have clear focus indicators
 - Use semantic colors and support dark mode
 - Test with assistive technologies
 - Follow WCAG guidelines for web components
-- **NEW FEATURE CHECKLIST**:
-  - [ ] VoiceOver labels for all interactive elements
-  - [ ] Keyboard shortcuts for primary actions
-  - [ ] Focus indicators visible and clear
-  - [ ] High contrast mode tested
-  - [ ] Documented in Stori/documentation/ or README as appropriate
+
+#### XCUITest Identifiers (E2E Automation)
+- **All interactive UI elements MUST have accessibility identifiers**
+- **Naming Convention**: Use dot notation for hierarchy
+  - Examples: `"transport.playButton"`, `"mixer.track1.volumeSlider"`, `"virtualKeyboard.keyC4"`
+- **Apply to**: Buttons, sliders, text fields, toggles, pickers, menus, tabs, list items
+- **Implementation**:
+  ```swift
+  Button("Play") { playAction() }
+      .accessibilityIdentifier("transport.playButton")
+      .accessibilityLabel("Play")
+  ```
+- **Testing**: Every identifier should be documented and used in at least one XCUITest
+
+#### NEW FEATURE CHECKLIST
+- [ ] VoiceOver labels for all interactive elements
+- [ ] Accessibility identifiers for all interactive elements (XCUITests)
+- [ ] Keyboard shortcuts for primary actions
+- [ ] Focus indicators visible and clear
+- [ ] High contrast mode tested
+- [ ] E2E test coverage for critical user flows
+- [ ] Documented in Stori/documentation/ or README as appropriate
 
 ### Internationalization
 - Use localized strings for all user-facing text
