@@ -152,7 +152,7 @@ final class ExportPlaybackParityTests: XCTestCase {
             XCTAssertTrue(track.mixerSettings.volume >= 0.0 && track.mixerSettings.volume <= 2.0,
                          "Track volume should be in valid range")
             XCTAssertTrue(track.mixerSettings.pan >= 0.0 && track.mixerSettings.pan <= 1.0,
-                         "Track pan should be normalized (0-1)")
+                         "Track pan should be normalized (0-1 mixer range, 0.5=center)")
         }
         
         // Tempo should be positive

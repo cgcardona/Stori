@@ -254,10 +254,11 @@ final class UndoServiceTests: XCTestCase {
         
         // Make changes
         settings.volume = 0.5
-        settings.pan = -0.5
+        // MixerSettings.pan: 0-1 range (0.5=center). 0.25 = left of center
+        settings.pan = 0.25
         
         XCTAssertEqual(settings.volume, 0.5)
-        XCTAssertEqual(settings.pan, -0.5)
+        XCTAssertEqual(settings.pan, 0.25)
         
         // Undo
         settings.volume = originalVolume

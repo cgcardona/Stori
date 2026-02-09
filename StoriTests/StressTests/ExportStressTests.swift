@@ -151,7 +151,9 @@ final class ExportStressTests: XCTestCase {
             ))
             track.midiRegions.append(region)
             track.mixerSettings.volume = Float(0.5 + Double(i % 5) * 0.1)
-            track.mixerSettings.pan = Float(Double(i - 10) / 10.0)
+            // MixerSettings.pan uses 0-1 range (0.5=center), not -1 to 1
+            // Map i (0-19) to pan range: 0.0 (full left) to 1.0 (full right)
+            track.mixerSettings.pan = Float(Double(i) / 19.0)
             project.tracks.append(track)
         }
         project.tempo = 120

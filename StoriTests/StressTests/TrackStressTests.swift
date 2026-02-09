@@ -106,7 +106,8 @@ final class TrackStressTests: XCTestCase {
                 guard trackIndex < currentProject.tracks.count else { continue }
 
                 currentProject.tracks[trackIndex].mixerSettings.volume = Float(j) / 20.0
-                currentProject.tracks[trackIndex].mixerSettings.pan = Float(j % 2 == 0 ? -1 : 1)
+                // MixerSettings.pan uses 0-1 range (0.5=center), not -1 to 1
+                currentProject.tracks[trackIndex].mixerSettings.pan = Float(j % 2 == 0 ? 0.0 : 1.0)
                 currentProject.tracks[trackIndex].mixerSettings.isMuted = j % 3 == 0
                 currentProject.tracks[trackIndex].mixerSettings.isSolo = j % 5 == 0
                 projectManager.currentProject = currentProject
@@ -129,7 +130,8 @@ final class TrackStressTests: XCTestCase {
             let trackType: TrackType = i % 3 == 0 ? .midi : .audio
             var track = AudioTrack(name: "Track-\(i)", trackType: trackType)
             track.mixerSettings.volume = Float.random(in: 0.3...1.0)
-            track.mixerSettings.pan = Float.random(in: -1.0...1.0)
+            // MixerSettings.pan uses 0-1 range (0.5=center), not -1 to 1
+            track.mixerSettings.pan = Float.random(in: 0.0...1.0)
             project.tracks.append(track)
         }
 

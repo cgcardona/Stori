@@ -148,7 +148,8 @@ final class GoldenFileRegressionTests: AudioRegressionTestCase {
 
         // Track panned hard left
         var leftTrack = AudioTrack(name: "Left", trackType: .midi)
-        leftTrack.mixerSettings.pan = -1.0  // Hard left
+        // MixerSettings.pan: 0-1 range (0.0=hard left, 0.5=center, 1.0=hard right)
+        leftTrack.mixerSettings.pan = 0.0  // Hard left
         var leftRegion = MIDIRegion(name: "LeftNote")
         leftRegion.startBeat = 0
         leftRegion.durationBeats = 4

@@ -172,7 +172,8 @@ final class ProjectLifecycleTests: XCTestCase {
         // Create track with content
         var originalTrack = AudioTrack(name: "Original", trackType: .midi, color: .purple)
         originalTrack.mixerSettings.volume = 0.75
-        originalTrack.mixerSettings.pan = -0.3
+        // MixerSettings.pan: 0-1 range (0.5=center). 0.35 = slightly left
+        originalTrack.mixerSettings.pan = 0.35
         
         var region = MIDIRegion(name: "Pattern")
         region.addNote(MIDINote(pitch: 60, startBeat: 0, durationBeats: 1.0))
