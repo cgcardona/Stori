@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C045F0032F1EC5130075C872 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
+		C06AF1322F3A122D00ACF3DA /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C0ATOMICSPROD2026 /* Atomics */; };
 		C0VERSION2024110000002 /* VERSION in Resources */ = {isa = PBXBuildFile; fileRef = C0VERSION2024110000001 /* VERSION */; };
 /* End PBXBuildFile section */
 
@@ -79,6 +80,7 @@
 				Core/Audio/QuantizationEngine.swift,
 				Core/Audio/RecordingBufferPool.swift,
 				Core/Audio/RecordingController.swift,
+				Core/Audio/RTSafeAtomic.swift,
 				Core/Audio/SampleAccurateMIDIScheduler.swift,
 				Core/Audio/SamplerEngine.swift,
 				Core/Audio/SandboxedPluginHost.swift,
@@ -273,6 +275,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C06AF1322F3A122D00ACF3DA /* Atomics in Frameworks */,
 				C045F0032F1EC5130075C872 /* (null) in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -332,6 +335,7 @@
 			);
 			name = Stori;
 			packageProductDependencies = (
+				C0ATOMICSPROD2026 /* Atomics */,
 			);
 			productName = "Stori-macOS";
 			productReference = C0D691962E84DD91005A90A6 /* Stori.app */;
@@ -408,6 +412,7 @@
 			mainGroup = C00CFD232E6611E100FE5CE5;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				C0ATOMICS2026 /* XCRemoteSwiftPackageReference "swift-atomics" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C00CFD2D2E6611E100FE5CE5 /* Products */;
@@ -806,6 +811,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C0ATOMICS2026 /* XCRemoteSwiftPackageReference "swift-atomics" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-atomics.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C0ATOMICSPROD2026 /* Atomics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0ATOMICS2026 /* XCRemoteSwiftPackageReference "swift-atomics" */;
+			productName = Atomics;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C00CFD242E6611E100FE5CE5 /* Project object */;
 }

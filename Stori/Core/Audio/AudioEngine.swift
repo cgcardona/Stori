@@ -247,6 +247,19 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     private var engineExpectedToRun: Bool = false
     
+    // MARK: - Real-Time Error Tracking (Issue #78)
+    /// Lock-free atomic counters for error tracking without blocking audio thread
+    /// Uses Swift Atomics (official Apple package) - truly lock-free, zero unsafe keywords
+    @ObservationIgnored
+    private let rtClippingCounter = RTSafeCounter()
+    
+    @ObservationIgnored
+    private let rtClippingMaxLevel = RTSafeMaxTracker()
+    
+    /// Timer for periodic flush of RT error events to AppLogger (runs on .utility queue)
+    @ObservationIgnored
+    private let rtErrorFlushTimerHolder = TimerHolder()
+    
     /// Nonisolated state shared with the health-monitor timer on a background queue.
     /// The timer closure captures this holder directly — never the @MainActor AudioEngine —
     /// so Swift 6's runtime isolation check is satisfied.
@@ -909,6 +922,9 @@ class AudioEngine: AudioEngineContext {
         // Stop health monitoring timer (prevents retain cycle - Issue #72)
         stopEngineHealthMonitoring()
         
+        // Stop RT error flush timer (Issue #78)
+        stopRTErrorFlushTimer()
+        
         // Stop transport position timer
         transportController.stopPositionTimer()
         
@@ -1072,11 +1088,19 @@ class AudioEngine: AudioEngineContext {
         // Start feedback monitoring
         feedbackMonitor.startMonitoring()
         
+        // Start RT error flush timer (deferred logging - Issue #78)
+        startRTErrorFlushTimer()
+        
         AppLogger.shared.info("Feedback protection: Monitoring enabled", category: .audio)
-        // print("🔍 CLIPPING DETECTION: Taps installed on mixer and master output")  // DEBUG: Disabled for production
+        AppLogger.shared.info("RT error tracking: Monitoring enabled (deferred logging every 2s)", category: .audio)
     }
     
     /// Detect and log clipping in an audio buffer
+    /// Detect clipping in audio buffer - RT-SAFE (Issue #78)
+    /// - NO print() or logging on audio thread
+    /// - Uses atomic counters with trylock pattern (never blocks)
+    /// - Errors are flushed periodically on background thread
+    /// - If lock is busy, we skip this buffer's error tracking (acceptable)
     private func detectClipping(in buffer: AVAudioPCMBuffer, location: String) {
         guard let channelData = buffer.floatChannelData else { return }
         
@@ -1086,6 +1110,7 @@ class AudioEngine: AudioEngineContext {
         var maxSample: Float = 0
         var clippedFrames = 0
         
+        // TODO: Use vDSP_maxmgv() for 4-8x speedup via SIMD
         for channel in 0..<channelCount {
             for frame in 0..<frameCount {
                 let sample = abs(channelData[channel][frame])
@@ -1097,9 +1122,52 @@ class AudioEngine: AudioEngineContext {
             }
         }
         
+        // RT-SAFE: Lock-free atomic operations (Swift Atomics - never blocks)
+        // Truly lock-free using CPU atomic instructions, safe for RT audio thread
         if clippedFrames > 0 || maxSample > 0.95 {
-            print("⚠️ CLIPPING DETECTED at \(location): \(clippedFrames) frames, max: \(maxSample)")
+            rtClippingCounter.increment()
+            rtClippingMaxLevel.updateMax(maxSample)
         }
+    }
+    
+    // MARK: - RT Error Tracking Timer (Issue #78)
+    
+    /// Start periodic timer to flush RT error events to AppLogger
+    /// Runs on utility queue to avoid blocking main thread or audio thread
+    private func startRTErrorFlushTimer() {
+        rtErrorFlushTimerHolder.timer?.cancel()
+        rtErrorFlushTimerHolder.timer = nil
+        
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: .seconds(2))
+        timer.setEventHandler { [weak self] in
+            self?.flushRTErrorEvents()
+        }
+        timer.resume()
+        
+        rtErrorFlushTimerHolder.timer = timer
+    }
+    
+    /// Flush accumulated RT error events to AppLogger (called periodically on utility queue)
+    /// THREAD SAFE: Uses lock-free Swift Atomics, never blocks RT thread
+    private nonisolated func flushRTErrorEvents() {
+        // Read and reset counters atomically (lock-free)
+        // RT thread can update concurrently - no blocking, no contention
+        let eventsDetected = rtClippingCounter.readAndReset()
+        let maxLevel = rtClippingMaxLevel.readAndReset()
+        
+        if eventsDetected > 0 {
+            AppLogger.shared.warning(
+                "⚠️ CLIPPING DETECTED: \(eventsDetected) event(s) in last 2s, max level: \(String(format: "%.3f", maxLevel))",
+                category: .audio
+            )
+        }
+    }
+    
+    /// Stop RT error flush timer
+    private func stopRTErrorFlushTimer() {
+        rtErrorFlushTimerHolder.timer?.cancel()
+        rtErrorFlushTimerHolder.timer = nil
     }
     
     // MARK: - Feedback Protection (Issue #57)
