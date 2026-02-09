@@ -394,6 +394,10 @@ class SynthVoice {
     private var phase1: Float = 0
     private var phase2: Float = 0
     
+    // ISSUE #108 FIX: Filter state (per-voice isolation)
+    // Prevents cross-contamination when multiple voices render into the same buffer
+    private var filterState: Float = 0.0
+    
     private let sampleRate: Float
     private let baseFrequency: Float
     
@@ -493,8 +497,13 @@ class SynthVoice {
                 cutoff += lfoValue * 0.3
             }
             cutoff = max(0, min(1, cutoff))
-            // Simple RC filter approximation
-            sample = sample * cutoff + buffer[frame] * (1 - cutoff) * 0.1
+            
+            // ISSUE #108 FIX: RC filter with isolated per-voice state
+            // OLD (buggy): sample = sample * cutoff + buffer[frame] * (1 - cutoff) * 0.1
+            // This read from buffer caused cross-contamination between voices
+            // NEW (correct): Each voice maintains its own filter memory
+            filterState = sample * cutoff + filterState * (1 - cutoff)
+            sample = filterState
             
             // ISSUE #102: Use per-sample smoothed master volume
             let masterVol = smoothedVolumes[frame]
