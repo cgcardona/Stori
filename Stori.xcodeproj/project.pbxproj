@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		C045F0032F1EC5130075C872 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 		C06AF1322F3A122D00ACF3DA /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C0ATOMICSPROD2026 /* Atomics */; };
-		C0VERSION2024110000002 /* VERSION in Resources */ = {isa = PBXBuildFile; fileRef = C0VERSION2024110000001 /* VERSION */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,7 +32,6 @@
 		C0D691962E84DD91005A90A6 /* Stori.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stori.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0TEST00012026 /* StoriTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StoriTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0UITST00012026 /* StoriUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StoriUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C0VERSION2024110000001 /* VERSION */ = {isa = PBXFileReference; lastKnownFileType = text; path = VERSION; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -300,7 +298,6 @@
 		C00CFD232E6611E100FE5CE5 = {
 			isa = PBXGroup;
 			children = (
-				C0VERSION2024110000001 /* VERSION */,
 				C00CFD2E2E6611E100FE5CE5 /* Stori */,
 				C0TEST00022026 /* StoriTests */,
 				C0UITST00022026 /* StoriUITests */,
@@ -431,7 +428,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C0VERSION2024110000002 /* VERSION in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
