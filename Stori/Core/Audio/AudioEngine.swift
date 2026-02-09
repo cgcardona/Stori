@@ -163,7 +163,7 @@ class AudioEngine: AudioEngineContext {
     @ObservationIgnored
     let mixer = AVAudioMixerNode()
     @ObservationIgnored
-    internal let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo (internal for export parity)
+    let masterEQ = AVAudioUnitEQ(numberOfBands: 3)  // Master EQ: Hi, Mid, Lo
     @ObservationIgnored
     private let masterLimiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
         componentType: kAudioUnitType_Effect,
