@@ -261,4 +261,20 @@ class StoriUITestCase: XCTestCase {
     func typeShortcut(_ key: String, modifiers: XCUIElement.KeyModifierFlags = []) {
         app.typeKey(key, modifierFlags: modifiers)
     }
+
+    /// Type a special keyboard key (delete, return, escape, etc).
+    func typeKey(_ key: XCUIKeyboardKey) {
+        app.typeKey(key.rawValue, modifierFlags: [])
+    }
+}
+
+// MARK: - XCUIKeyboardKey Extension
+
+/// Keyboard key constants for typeKey() method.
+extension XCUIKeyboardKey {
+    static let delete = XCUIKeyboardKey.delete
+    static let deleteForward = XCUIKeyboardKey(rawValue: "\u{F728}")
+    static let escape = XCUIKeyboardKey(rawValue: "\u{001B}")
+    static let `return` = XCUIKeyboardKey(rawValue: "\r")
+    static let tab = XCUIKeyboardKey(rawValue: "\t")
 }

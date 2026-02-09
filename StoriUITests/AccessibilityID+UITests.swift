@@ -42,6 +42,9 @@ enum AccessibilityID {
     // MARK: - Mixer
     enum Mixer {
         static let container = "mixer.container"
+        static let toolbar = "mixer.toolbar"
+        static let masterVolume = "mixer.master.volume"
+        static let masterMeter = "mixer.master.meter"
 
         static func trackMute(_ trackId: UUID) -> String {
             "mixer.track.\(trackId.uuidString).mute"
@@ -51,6 +54,37 @@ enum AccessibilityID {
         }
         static func channelStrip(_ trackId: UUID) -> String {
             "mixer.track.\(trackId.uuidString).strip"
+        }
+    }
+
+    // MARK: - Piano Roll
+    enum PianoRoll {
+        static let container = "piano_roll.container"
+        static let toolSelector = "piano_roll.tool_selector"
+        static let quantizeButton = "piano_roll.quantize"
+        static let velocitySlider = "piano_roll.velocity"
+    }
+
+    // MARK: - Step Sequencer
+    enum StepSequencer {
+        static let container = "step_sequencer.container"
+        static let presetPicker = "step_sequencer.preset_picker"
+    }
+
+    // MARK: - Synthesizer
+    enum Synthesizer {
+        static let container = "synthesizer.container"
+    }
+
+    // MARK: - Plugins
+    enum Plugin {
+        static let browser = "plugin.browser"
+        static let insert = "plugin.insert"
+        static let bypass = "plugin.bypass"
+        static let editor = "plugin.editor"
+
+        static func pluginSlot(_ trackId: UUID, slot: Int) -> String {
+            "plugin.slot.\(trackId.uuidString).\(slot)"
         }
     }
 

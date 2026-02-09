@@ -30,8 +30,7 @@ final class MIDIEditingWorkflowTests: StoriUITestCase {
 
         // Close piano roll
         tap(AccessibilityID.Panel.togglePianoRoll)
-        assertNotExists(AccessibilityID.PianoRoll.container, timeout: 3,
-                       message: "Piano roll should close when toggled off")
+        assertNotExists(AccessibilityID.PianoRoll.container, timeout: 3)
     }
 
     // MARK: - Test: Piano Roll Tool Selection
