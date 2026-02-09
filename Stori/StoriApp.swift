@@ -18,6 +18,7 @@ enum WindowID: String {
 
 // MARK: - Shared Project Manager
 /// Singleton project manager accessible from all windows
+@MainActor
 class SharedProjectManager {
     static let shared = ProjectManager()
 }
@@ -33,6 +34,7 @@ class SharedAudioEngine {
 // MARK: - App Delegate
 /// Handles macOS app lifecycle events like reopening windows
 class StoriAppDelegate: NSObject, NSApplicationDelegate {
+    
     /// Called when user clicks dock icon with no windows open
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
@@ -895,14 +897,11 @@ private func openDocumentation(_ relativePath: String) {
 }
 
 // MARK: - App State
+@MainActor
 @Observable
 class AppState {
     var currentProject: AudioProject?
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
-    // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Notification Names

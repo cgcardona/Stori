@@ -16,11 +16,50 @@
 //  - Position timer uses DispatchSourceTimer on high-priority queue (immune to main thread blocking)
 //  - Cycle jumps use generation counter to avoid races
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import QuartzCore
 import os.lock
+
+/// Helper class for non-isolated timer cleanup (Swift 6.1 workaround for isolated deinit)
+/// The deinit of this helper implicitly runs on MainActor when parent is deallocated
+/// This pattern is required until Swift 6.2 when isolated deinit becomes available
+private final class PositionTimerHolder {
+    var timer: DispatchSourceTimer?
+    
+    deinit {
+        // This deinit is implicitly nonisolated and can safely cancel the timer
+        // When TransportController (MainActor) is deallocated, this helper is too
+        timer?.cancel()
+    }
+}
+
+/// Nonisolated relay for the position timer's event handler.
+///
+/// DispatchSourceTimer event handlers run on a background serial queue.
+/// In Swift 6, closures formed inside a `@MainActor` method inherit that
+/// isolation, causing a runtime `_dispatch_assert_queue_fail` when they
+/// fire on a non-main queue.
+///
+/// By moving the event handler installation into this nonisolated class's
+/// method, the closure is formed in a nonisolated context and won't
+/// inherit `@MainActor`.
+private final class PositionTimerRelay: @unchecked Sendable {
+    var onTick: (@MainActor (TimeInterval) -> Void)?
+    
+    /// Install the event handler on the timer. Must be called from this
+    /// nonisolated context so the closure does not inherit @MainActor.
+    func installHandler(on timer: DispatchSourceTimer) {
+        timer.setEventHandler {
+            let capturedWallTime = CACurrentMediaTime()
+            let handler = self.onTick
+            Task { @MainActor in
+                handler?(capturedWallTime)
+            }
+        }
+    }
+}
 
 /// Transport controller manages playback state, position tracking, and cycle behavior.
 /// It coordinates with AudioEngine via callbacks for actual audio operations.
@@ -131,8 +170,15 @@ class TransportController {
     )
     
     /// High-precision timer for position updates (60 FPS for UI)
+    /// Wrapped in helper class for safe non-isolated cleanup (Swift 6.1 workaround)
     @ObservationIgnored
-    private var positionTimer: DispatchSourceTimer?
+    private let timerHolder = PositionTimerHolder()
+    
+    /// Convenience accessor for position timer
+    private var positionTimer: DispatchSourceTimer? {
+        get { timerHolder.timer }
+        set { timerHolder.timer = newValue }
+    }
     
     // MARK: - Cycle Loop State (Generation Counter Pattern)
     
@@ -278,28 +324,17 @@ class TransportController {
         }
     }
     
-    nonisolated deinit {
-        // Ensure position timer is stopped to prevent memory leaks
-        // Cancel the timer directly since deinit is nonisolated
-        positionTimer?.cancel()
-    }
+    // MARK: - Cleanup
+    // NOTE: Explicit deinit removed - cleanup now handled by PositionTimerHolder
+    // This is a Swift 6.1 workaround until isolated deinit becomes available in Swift 6.2
+    // See: https://forums.swift.org/t/isolated-deinit-not-in-swift-6-1/78055
     
     // MARK: - Transport Controls
     
     func play() {
-        // Block during plugin installation
-        if isInstallingPlugin() {
-            return
-        }
-        
-        // Block while graph is unstable
-        if !isGraphStable() {
-            return
-        }
-        
-        guard let project = getProject() else {
-            return
-        }
+        if isInstallingPlugin() { return }
+        if !isGraphStable() { return }
+        guard let project = getProject() else { return }
         
         switch transportState {
         case .stopped:
@@ -388,7 +423,6 @@ class TransportController {
     }
     
     func stop() {
-        // print("⏹️  STOP: Resetting position to beat 0")  // DEBUG: Disabled for production
         transportState = .stopped
         onTransportStateChanged(.stopped)
         stopPlayback()
@@ -418,6 +452,20 @@ class TransportController {
     func stopRecordingMode() {
         transportState = .stopped
         onTransportStateChanged(.stopped)
+        stopPlayback()
+        
+        // Stop position timer
+        stopPositionTimer()
+        
+        // Reset position to beat 0 (Logic Pro behavior: stop = return to beginning)
+        playbackStartBeat = 0
+        if let project = getProject() {
+            currentPosition = PlaybackPosition(beats: 0, timeSignature: project.timeSignature, tempo: project.tempo)
+            onPositionChanged(currentPosition)
+        }
+        
+        // Update atomic state
+        updateAtomicBeatPosition(0, isPlaying: false)
     }
     
     // MARK: - Position Control (Beats-First)
@@ -517,18 +565,13 @@ class TransportController {
             repeating: .milliseconds(16),  // ~60 FPS
             leeway: .microseconds(500)
         )
-        timer.setEventHandler { [weak self] in
-            // CRITICAL FIX: Capture wall time NOW (on background queue) before dispatching to MainActor.
-            // If we calculate elapsed time on MainActor, and MainActor is blocked by resume work
-            // (starting audio engine, MIDI, etc.), the Task might not run for 100+ ms, causing
-            // elapsedSeconds to be stale and the playhead to jump forward.
-            let capturedWallTime = CACurrentMediaTime()
-            
-            // Dispatch to MainActor for UI updates with captured time
-            Task { @MainActor in
-                self?.updatePosition(capturedWallTime: capturedWallTime)
-            }
+        // Use a nonisolated relay to form the event handler closure outside
+        // of @MainActor context. See PositionTimerRelay doc comment for details.
+        let relay = PositionTimerRelay()
+        relay.onTick = { [weak self] capturedWallTime in
+            self?.updatePosition(capturedWallTime: capturedWallTime)
         }
+        relay.installHandler(on: timer)
         timer.resume()
         positionTimer = timer
     }

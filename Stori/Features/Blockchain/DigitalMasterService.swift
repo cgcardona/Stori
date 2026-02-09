@@ -258,6 +258,8 @@ actor DigitalMasterService {
         
         return try decoder.decode(IndexerGraphQLResponse<T>.self, from: data)
     }
+    
+    // Root cause: actor types have implicit actor isolation mechanisms
 }
 
 // MARK: - Error Types

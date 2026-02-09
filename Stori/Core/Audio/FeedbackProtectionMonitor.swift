@@ -21,8 +21,9 @@
 //  - Ableton: Automatic feedback prevention
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Accelerate
 import os.lock
 
@@ -96,6 +97,7 @@ final class FeedbackProtectionMonitor {
     init() {
         rmsHistory.reserveCapacity(10)  // Pre-allocate for efficiency
     }
+    
     
     // MARK: - Monitoring Control
     

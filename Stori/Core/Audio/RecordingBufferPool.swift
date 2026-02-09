@@ -16,8 +16,9 @@
 //  - Statistics tracking for debugging heavy load scenarios
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import os.lock
 
 // MARK: - Recording Buffer Pool
@@ -139,6 +140,7 @@ final class RecordingBufferPool: @unchecked Sendable {
             AppLogger.shared.warning("RecordingBufferPool: Only allocated \(availableBuffers.count)/\(poolSize) buffers", category: .audio)
         }
     }
+    
     
     // MARK: - Buffer Acquisition (Real-Time Safe with Emergency Allocation)
     
@@ -435,9 +437,6 @@ final class RecordingBufferPool: @unchecked Sendable {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @unchecked Sendable classes can have implicit tasks that cause
     /// memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }
 
 // MARK: - Buffer Copy Helper

@@ -36,9 +36,9 @@
 //  - No blocking I/O or syscalls in critical path
 //  - Stack-allocated temporary storage for event dispatch
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import os.lock
 
 // MARK: - Audio Debug Configuration
@@ -278,7 +278,7 @@ struct MIDITimingReference {
     private static let maxReasonableElapsedSamples: Double = 2.0 * 48000.0 // 2 seconds at 48kHz
     
     /// Convert mach_absolute_time to nanoseconds
-    private static var timebaseInfo: mach_timebase_info_data_t = {
+    private static let timebaseInfo: mach_timebase_info_data_t = {
         var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
         return info
@@ -515,6 +515,7 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
         // Reserve capacity for typical burst size (e.g., chord with 8 notes + CC events)
         eventBuffer.reserveCapacity(32)
     }
+    
     
     // MARK: - Configuration (Call from MainActor)
     
@@ -862,7 +863,6 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
                 tempo: tempo,
                 sampleRate: sampleRate
             )
-            AppLogger.shared.info("MIDI: Regenerated stale timing reference at beat \(currentBeat)", category: .audio)
         }
         
         guard let timing = timingReference else {
@@ -951,7 +951,4 @@ final class SampleAccurateMIDIScheduler: @unchecked Sendable {
     /// Explicit deinit to prevent Swift Concurrency task leak
     /// @unchecked Sendable classes can have implicit tasks that cause
     /// memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
 }

@@ -39,6 +39,7 @@ enum DAWSheet: String, Identifiable {
 
 /// Global state tracker for UI elements that need to be accessed from NSEvent handlers
 /// NSEvent closures capture @State values at creation time, so we need a class-based workaround
+@MainActor
 final class DAWUIState {
     static let shared = DAWUIState()
     var isSynthesizerVisible: Bool = false      // Synthesizer panel at bottom
@@ -50,6 +51,7 @@ final class DAWUIState {
     }
     
     private init() {}
+    
 }
 
 struct MainDAWView: View {
@@ -97,6 +99,12 @@ struct MainDAWView: View {
     
     // Fallback state for when no project is open
     @State private var fallbackShowingInspector: Bool = false  // Composer panel hidden until service is available
+    
+    // MARK: - Drag Start Snapshots (for smooth panel resizing)
+    // Captured at drag start so onDrag never depends on reading back
+    // the current height from the model mid-gesture.
+    @State private var dragStartPanelHeight: CGFloat = 0
+    @State private var dragStartInspectorWidth: CGFloat = 0
     
     private var horizontalZoom: Double {
         projectManager.currentProject?.uiState.horizontalZoom ?? 0.8
@@ -1213,6 +1221,49 @@ struct MainDAWView: View {
     // MARK: - Update Service
     private var updateService = UpdateService.shared
     
+    @ViewBuilder
+    private var exportAndLoadingOverlay: some View {
+        if exportService.isExporting {
+            ExportProgressView(
+                progress: exportService.exportProgress,
+                status: exportService.exportStatus,
+                elapsedTime: exportService.elapsedTime,
+                estimatedTimeRemaining: exportService.estimatedTimeRemaining,
+                onCancel: {
+                    exportService.cancelExport()
+                }
+            )
+        } else if !audioEngine.isGraphStable && projectManager.currentProject != nil {
+            ZStack {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .controlSize(.large)
+                    
+                    Text("Loading Project...")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.primary)
+                    
+                    Text("Restoring instruments and effects")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.regularMaterial)
+                        .shadow(color: .black.opacity(0.3), radius: 20)
+                )
+            }
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: audioEngine.isGraphStable)
+        }
+    }
+    
     private var bodyContent: some View {
         GeometryReader { geometry in
             dawContentView(geometry: geometry)
@@ -1220,7 +1271,7 @@ struct MainDAWView: View {
     }
     
     var body: some View {
-        bodyContent
+        let contentWithSheets = bodyContent
             .modifier(DAWSheetModifiers(
                 showingNewProjectSheet: $showingNewProjectSheet,
                 showingProjectBrowser: $showingProjectBrowser,
@@ -1230,6 +1281,7 @@ struct MainDAWView: View {
                 renameTrackText: $renameTrackText,
                 showingExportSettings: $showingExportSettings,
                 activeSheet: $activeSheet,
+                audioEngine: audioEngine,
                 projectManager: projectManager,
                 exportService: exportService,
                 availableBuses: projectManager.currentProject?.buses ?? [],
@@ -1237,115 +1289,52 @@ struct MainDAWView: View {
                 onRenameTrack: performRenameTrack,
                 onExportWithSettings: performExportWithSettings
             ))
-            .sheet(isPresented: $showingMarketplaceSheet) {
-                MarketplaceComingSoonView()
-            }
-            .sheet(isPresented: $showingWalletSheet) {
-                WalletComingSoonView()
-            }
-            .sheet(isPresented: $showingTokenInput) {
-                TokenInputView(allowDismiss: true)
-            }
-        // Update banner (non-blocking, slides in at top)
-        .overlay(alignment: .top) {
-            if updateService.showBanner,
-               case .updateAvailable(let release) = updateService.state {
-                UpdateBannerView(updateService: updateService, release: release)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: updateService.showBanner)
-                    .zIndex(100)
-            }
-        }
-        .overlay {
-            if exportService.isExporting {
-                ExportProgressView(
-                    progress: exportService.exportProgress,
-                    status: exportService.exportStatus,
-                    elapsedTime: exportService.elapsedTime,
-                    estimatedTimeRemaining: exportService.estimatedTimeRemaining,
-                    onCancel: {
-                        exportService.cancelExport()
-                    }
-                )
-            } else if !audioEngine.isGraphStable && projectManager.currentProject != nil {
-                // Show loading overlay while audio graph is being built
-                ZStack {
-                    Color.black.opacity(0.6)
-                        .ignoresSafeArea()
-                    
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .controlSize(.large)
-                        
-                        Text("Loading Project...")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primary)
-                        
-                        Text("Restoring instruments and effects")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 32)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(.regularMaterial)
-                            .shadow(color: .black.opacity(0.3), radius: 20)
-                    )
+            .modifier(AdditionalSheetsModifier(
+                showingMarketplaceSheet: $showingMarketplaceSheet,
+                showingWalletSheet: $showingWalletSheet,
+                showingTokenInput: $showingTokenInput
+            ))
+        
+        let withOverlays = contentWithSheets
+            .overlay(alignment: .bottom) {
+                if activeSheet == .virtualKeyboard {
+                    VirtualKeyboardView(onClose: { activeSheet = nil })
+                        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: audioEngine.isGraphStable)
             }
-        }
-        .alert("Export Complete", isPresented: $showingExportAlert) {
-            Button("OK") {
-                showingExportAlert = false
-            }
-            Button("Show in Finder") {
-                if let url = exportedFileURL {
-                    NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+            .overlay(alignment: .top) {
+                if updateService.showBanner,
+                   case .updateAvailable(let release) = updateService.state {
+                    UpdateBannerView(updateService: updateService, release: release)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: updateService.showBanner)
+                        .zIndex(100)
                 }
-                showingExportAlert = false
             }
-        } message: {
-            if let url = exportedFileURL {
-                Text("Your project has been exported to:\n\(url.lastPathComponent)")
+            .overlay {
+                exportAndLoadingOverlay
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
-            showingNewProjectSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
-            showingProjectBrowser = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showAboutWindow)) { _ in
-            showingAboutWindow = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cleanupOrphanedFiles)) { _ in
-            projectManager.cleanupOrphanedAudioFiles()
-        }
-        // Time Display Mode toggle removed - beats is now the standard unit
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSnapToGrid)) { _ in
-            setSnapToGrid(!snapToGrid)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openWalletTab)) { _ in
-            showingWalletSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openMarketplace)) { _ in
-            showingMarketplaceSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showTokenInput)) { _ in
-            showingTokenInput = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SetHorizontalZoom"))) { notification in
-            if let zoom = notification.userInfo?["zoom"] as? Double {
-                setHorizontalZoom(zoom)
-            }
-        }
-        .modifier(MIDINotificationModifier(
+        
+        return withOverlays
+            .modifier(AlertsAndNotificationsModifier(
+                showingExportAlert: $showingExportAlert,
+                exportedFileURL: $exportedFileURL,
+                showingNewProjectSheet: $showingNewProjectSheet,
+                showingProjectBrowser: $showingProjectBrowser,
+                showingAboutWindow: $showingAboutWindow,
+                showingWalletSheet: $showingWalletSheet,
+                showingMarketplaceSheet: $showingMarketplaceSheet,
+                showingTokenInput: $showingTokenInput,
+                projectManager: projectManager,
+                onSetSnapToGrid: setSnapToGrid,
+                onSetHorizontalZoom: setHorizontalZoom,
+                snapToGrid: snapToGrid
+            ))
+            .modifier(MIDINotificationModifier(
             activeSheet: $activeSheet,
             onTogglePianoRoll: togglePianoRoll,
             onToggleSynthesizer: toggleSynthesizer,
@@ -1390,6 +1379,15 @@ struct MainDAWView: View {
             // Install metronome into DAW's audio graph for sample-accurate sync
             // This is idempotent - safe to call multiple times (handles engine restart if needed)
             audioEngine.installMetronome(metronomeEngine)
+            
+            // UI Test Mode: Auto-create a default project if none exists
+            // This ensures tests can immediately interact with the DAW
+            if ProcessInfo.processInfo.environment["STORI_UI_TEST"] == "1" {
+                if projectManager.currentProject == nil {
+                    let timestamp = Int(Date().timeIntervalSince1970)
+                    try? projectManager.createNewProject(name: "UITest-\(timestamp)", tempo: 120.0)
+                }
+            }
             
             // Sync metronome with project tempo
             if let project = projectManager.currentProject {
@@ -1630,7 +1628,16 @@ struct MainDAWView: View {
 extension MainDAWView {
     
     
-    private var centerContentView: some View {
+    /// Maximum height a bottom panel's **content** can occupy.
+    /// Subtracts panel chrome (resize handle + header ≈ 60pt) so the
+    /// content frame never overflows the VStack. The timeline can shrink
+    /// to zero, matching Logic Pro's behaviour where the editor can fill
+    /// the entire window.
+    private func maxPanelContentHeight(availableHeight: CGFloat) -> CGFloat {
+        max(0, availableHeight - 60)
+    }
+    
+    private func centerContentView(availableHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             // Timeline and tracks area - takes remaining space after bottom panels
             VStack(spacing: 0) {
@@ -1674,39 +1681,45 @@ extension MainDAWView {
                     }
                 )
             }
-            .frame(minHeight: 150) // Ensure timeline is always visible
+            // No .frame(minHeight:) here — the panel's maxContentHeight
+            // already reserves 150pt for the timeline, and adding a SwiftUI
+            // minHeight constraint would fight with the panel's fixed height
+            // causing layout oscillation / jitter.
             
             // Bottom area: Mixer panel (when visible)
             if showingMixer {
-                mixerPanelView
+                mixerPanelView(availableHeight: availableHeight)
             }
             
             // Bottom area: Step Sequencer panel (when visible)
             if showingStepSequencer {
-                stepSequencerPanelView
+                stepSequencerPanelView(availableHeight: availableHeight)
             }
             
             // Bottom area: Piano Roll panel (when visible)
             if showingPianoRoll {
-                pianoRollPanelView()
+                pianoRollPanelView(availableHeight: availableHeight)
             }
             
             // Bottom area: Synthesizer panel (when visible)
             if showingSynthesizer {
-                synthesizerPanelView
+                synthesizerPanelView(availableHeight: availableHeight)
             }
         }
     }
     
     @ViewBuilder
-    private func pianoRollPanelView() -> some View {
+    private func pianoRollPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
         VStack(spacing: 0) {
             // Resize Handle - at TOP so it's clear this is a resizable panel
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setPianoRollHeight(max(150, pianoRollHeight - delta))
+                onDragStarted: { dragStartPanelHeight = pianoRollHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setPianoRollHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             
@@ -1789,6 +1802,7 @@ extension MainDAWView {
                     snapToGrid: snapToGrid  // [PHASE-4] Pass snap toggle state
                 )
                 .frame(height: pianoRollHeight)
+                .clipped()
             } else {
                 // Score Notation Content - Multi-track display
                 let midiTracks = projectManager.currentProject?.tracks.filter { $0.isMIDITrack } ?? []
@@ -1811,6 +1825,7 @@ extension MainDAWView {
                         cycleEndBeat: audioEngine.cycleEndBeat
                     )
                     .frame(height: pianoRollHeight)
+                    .clipped()
                 } else {
                     // No MIDI tracks
                     VStack {
@@ -1827,6 +1842,7 @@ extension MainDAWView {
                         Spacer()
                     }
                     .frame(height: pianoRollHeight)
+                    .clipped()
                     .frame(maxWidth: .infinity)
                     .background(Color(nsColor: .textBackgroundColor))
                 }
@@ -1835,8 +1851,10 @@ extension MainDAWView {
         .transition(.move(edge: .bottom))
     }
     
-    private var synthesizerPanelView: some View {
-        VStack(spacing: 0) {
+    private func synthesizerPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
+        return VStack(spacing: 0) {
             // Header with close button
             HStack {
                 Image(systemName: "waveform.path.ecg.rectangle")
@@ -1857,21 +1875,25 @@ extension MainDAWView {
             // Resize Handle
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setSynthesizerHeight(max(150, synthesizerHeight - delta))
+                onDragStarted: { dragStartPanelHeight = synthesizerHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setSynthesizerHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             
             // Synthesizer Content
             SynthesizerPanelContent(audioEngine: audioEngine)
                 .frame(height: synthesizerHeight)
+                .clipped()
         }
         .transition(.move(edge: .bottom))
     }
     
-    private var stepSequencerPanelView: some View {
-        VStack(spacing: 0) {
+    private func stepSequencerPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
+        return VStack(spacing: 0) {
             // Visible top border for drag affordance
             Rectangle()
                 .fill(Color(.separatorColor))
@@ -1880,17 +1902,20 @@ extension MainDAWView {
             // Resize Handle with visible styling
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setStepSequencerHeight(max(150, stepSequencerHeight - delta))
+                onDragStarted: { dragStartPanelHeight = stepSequencerHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setStepSequencerHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
             
-            // Step Sequencer Content
+            // Step Sequencer Content — height applied only here so the
+            // resize handle stays visible even when collapsed to 0.
             StepSequencerView(sequencer: audioEngine.sequencerEngine, projectManager: projectManager, audioEngine: audioEngine, selectedTrackId: $selectedTrackId)
+                .frame(height: stepSequencerHeight)
+                .clipped()
         }
-        .frame(height: stepSequencerHeight)
         .transition(.move(edge: .bottom))
     }
     
@@ -1922,8 +1947,9 @@ extension MainDAWView {
             // Resize Handle
             ResizeHandle(
                 orientation: .vertical,
-                onDrag: { delta in
-                    setInspectorWidth(max(250, min(500, inspectorWidth - delta)))
+                onDragStarted: { dragStartInspectorWidth = inspectorWidth },
+                onDrag: { cumulativeDelta in
+                    setInspectorWidth(max(250, min(500, dragStartInspectorWidth - cumulativeDelta)))
                 }
             )
             
@@ -1933,8 +1959,10 @@ extension MainDAWView {
         .transition(.move(edge: .trailing))
     }
     
-    private var mixerPanelView: some View {
-        VStack(spacing: 0) {
+    private func mixerPanelView(availableHeight: CGFloat) -> some View {
+        let maxContent = maxPanelContentHeight(availableHeight: availableHeight)
+        
+        return VStack(spacing: 0) {
             // Visible top border for drag affordance
             Rectangle()
                 .fill(Color(.separatorColor))
@@ -1943,40 +1971,47 @@ extension MainDAWView {
             // Resize Handle with visible styling
             ResizeHandle(
                 orientation: .horizontal,
-                onDrag: { delta in
-                    // Allow dragging to nearly full screen (keep 150px for timeline)
-                    setMixerHeight(max(150, mixerHeight - delta))
+                onDragStarted: { dragStartPanelHeight = mixerHeight },
+                onDrag: { cumulativeDelta in
+                    let newHeight = dragStartPanelHeight - cumulativeDelta
+                    setMixerHeight(max(0, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
             
-            // Mixer Content
+            // Mixer Content — height applied only here so the
+            // resize handle stays visible even when collapsed to 0.
             MixerView(
                 audioEngine: audioEngine,
                 projectManager: projectManager,
                 selectedTrackId: $selectedTrackId,
                 isGraphStable: audioEngine.isGraphStable
             )
+            .frame(height: mixerHeight)
+            .clipped()
         }
-        .frame(height: mixerHeight)
         .transition(.move(edge: .bottom))
     }
     
     private func dawContentView(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
-            // Main content area with professional panel layout
-            HStack(spacing: 0) {
-                // Left Panel: Selection Info (when visible)
-                if showingSelection {
-                    selectionPanelView
-                }
-                
-                // Center: Main DAW Content
-                centerContentView
-                
-                // Right Panel: Inspector (when visible)
-                if showingInspector {
-                    rightPanelView
+            // Main content area with professional panel layout.
+            // GeometryReader here measures the ACTUAL space available
+            // after the DAWControlBar — no hardcoded subtraction needed.
+            GeometryReader { contentGeo in
+                HStack(spacing: 0) {
+                    // Left Panel: Selection Info (when visible)
+                    if showingSelection {
+                        selectionPanelView
+                    }
+                    
+                    // Center: Main DAW Content
+                    centerContentView(availableHeight: contentGeo.size.height)
+                    
+                    // Right Panel: Inspector (when visible)
+                    if showingInspector {
+                        rightPanelView
+                    }
                 }
             }
             
@@ -2185,6 +2220,96 @@ extension MainDAWView {
         project.modifiedAt = Date()
         projectManager.currentProject = project
         projectManager.hasUnsavedChanges = true  // Mark as unsaved, don't auto-save
+    }
+}
+
+// MARK: - Additional Sheets Modifier
+
+/// ViewModifier to handle marketplace, wallet, and token input sheets
+/// Extracted to reduce body complexity and improve compile time
+private struct AdditionalSheetsModifier: ViewModifier {
+    @Binding var showingMarketplaceSheet: Bool
+    @Binding var showingWalletSheet: Bool
+    @Binding var showingTokenInput: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingMarketplaceSheet) {
+                MarketplaceComingSoonView()
+            }
+            .sheet(isPresented: $showingWalletSheet) {
+                WalletComingSoonView()
+            }
+            .sheet(isPresented: $showingTokenInput) {
+                TokenInputView(allowDismiss: true)
+            }
+    }
+}
+
+// MARK: - Alerts and Notifications Modifier
+
+/// ViewModifier to handle export alerts and notification center subscriptions
+/// Extracted to reduce body complexity and improve compile time
+private struct AlertsAndNotificationsModifier: ViewModifier {
+    @Binding var showingExportAlert: Bool
+    @Binding var exportedFileURL: URL?
+    @Binding var showingNewProjectSheet: Bool
+    @Binding var showingProjectBrowser: Bool
+    @Binding var showingAboutWindow: Bool
+    @Binding var showingWalletSheet: Bool
+    @Binding var showingMarketplaceSheet: Bool
+    @Binding var showingTokenInput: Bool
+    let projectManager: ProjectManager
+    let onSetSnapToGrid: (Bool) -> Void
+    let onSetHorizontalZoom: (Double) -> Void
+    let snapToGrid: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .alert("Export Complete", isPresented: $showingExportAlert) {
+                Button("OK") {
+                    showingExportAlert = false
+                }
+                Button("Show in Finder") {
+                    if let url = exportedFileURL {
+                        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+                    }
+                    showingExportAlert = false
+                }
+            } message: {
+                if let url = exportedFileURL {
+                    Text("Your project has been exported to:\n\(url.lastPathComponent)")
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
+                showingNewProjectSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
+                showingProjectBrowser = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showAboutWindow)) { _ in
+                showingAboutWindow = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cleanupOrphanedFiles)) { _ in
+                projectManager.cleanupOrphanedAudioFiles()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleSnapToGrid)) { _ in
+                onSetSnapToGrid(!snapToGrid)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openWalletTab)) { _ in
+                showingWalletSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openMarketplace)) { _ in
+                showingMarketplaceSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showTokenInput)) { _ in
+                showingTokenInput = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SetHorizontalZoom"))) { notification in
+                if let zoom = notification.userInfo?["zoom"] as? Double {
+                    onSetHorizontalZoom(zoom)
+                }
+            }
     }
 }
 

@@ -221,41 +221,43 @@ final class SynthEngineTests: XCTestCase {
     
     // MARK: - Concurrency Tests
     
-    func testConcurrentNoteOn() {
+    func testConcurrentNoteOn() async {
         let expectation = self.expectation(description: "Concurrent note on")
         expectation.expectedFulfillmentCount = 5
+        let engine = synth!
         
         for i in 0..<5 {
             DispatchQueue.global(qos: .userInteractive).async {
                 for j in 0..<100 {
                     let note = UInt8(60 + ((i + j) % 12))
-                    self.synth.noteOn(pitch: note, velocity: 100)
+                    engine.noteOn(pitch: note, velocity: 100)
                 }
                 expectation.fulfill()
             }
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
     
-    func testConcurrentPresetChanges() {
+    func testConcurrentPresetChanges() async {
         let expectation = self.expectation(description: "Concurrent preset changes")
         expectation.expectedFulfillmentCount = 3
+        let engine = synth!
         
         for i in 0..<3 {
             DispatchQueue.global(qos: .userInteractive).async {
                 for j in 0..<100 {
                     if (i + j) % 2 == 0 {
-                        self.synth.preset = .brightLead
+                        engine.preset = .brightLead
                     } else {
-                        self.synth.preset = .warmPad
+                        engine.preset = .warmPad
                     }
                 }
                 expectation.fulfill()
             }
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
     
     // MARK: - Edge Case Tests

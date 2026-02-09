@@ -6,8 +6,9 @@
 //  Provides MIDI input and audio output integration with the DAW.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import AudioToolbox
 import Combine
 import AppKit
@@ -59,6 +60,7 @@ class InstrumentPluginHost {
         precondition(pluginInstance.descriptor.category == .instrument, "InstrumentPluginHost requires an instrument plugin")
         self.pluginInstance = pluginInstance
     }
+    
     
     // MARK: - Lifecycle
     
@@ -260,11 +262,6 @@ class InstrumentPluginHost {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - InstrumentPluginHost Manager
@@ -277,6 +274,7 @@ class InstrumentPluginHostManager {
     private var hosts: [UUID: InstrumentPluginHost] = [:]
     
     private init() {}
+    
     
     /// Get or create a host for a track
     func getHost(for trackId: UUID) -> InstrumentPluginHost? {
@@ -317,4 +315,6 @@ class InstrumentPluginHostManager {
             host.panic()
         }
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }

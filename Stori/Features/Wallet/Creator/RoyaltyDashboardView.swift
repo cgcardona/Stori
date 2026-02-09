@@ -77,6 +77,7 @@ final class RoyaltyService {
         #endif
     }
     
+    
     func fetchRoyalties(for address: String) async {
         isLoading = true
         defer { isLoading = false }
@@ -131,10 +132,7 @@ final class RoyaltyService {
         return String(format: "%.2f TUS", tusValue)
     }
     
-    // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Royalty Dashboard View

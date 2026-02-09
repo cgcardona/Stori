@@ -31,6 +31,7 @@ final class AssetDownloadService {
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
+    
 
     // MARK: - Paths
 
@@ -655,22 +656,18 @@ final class AssetDownloadService {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Download Delegate for Progress Tracking
 
-private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     let progressHandler: (Double) -> Void
     var completion: CheckedContinuation<(URL, URLResponse), Error>?
     
     init(progressHandler: @escaping (Double) -> Void) {
         self.progressHandler = progressHandler
     }
+    
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let response = downloadTask.response else {

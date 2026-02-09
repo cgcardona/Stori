@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine for better separation of concerns.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - MixerInstrumentManaging Protocol
 
@@ -104,6 +105,7 @@ class MixerController {
         self.onSafeDisconnectTrackNode = onSafeDisconnectTrackNode
         self.instrumentManager = instrumentManager ?? InstrumentManager.shared
     }
+    
     
     // MARK: - Track Volume
     

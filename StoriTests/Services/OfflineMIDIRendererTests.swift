@@ -91,7 +91,7 @@ final class OfflineMIDIRendererTests: XCTestCase {
     
     // MARK: - Real-Time Safety Tests
     
-    func testConcurrentRenderCallsAreThreadSafe() {
+    func testConcurrentRenderCallsAreThreadSafe() async {
         // Given: A renderer with scheduled events
         let renderer = TestRendererFactory.createRenderer()
         let region = TestRegionFactory.createRegionWithMultipleNotes(
@@ -112,13 +112,13 @@ final class OfflineMIDIRendererTests: XCTestCase {
             expectation.fulfill()
         }
         
-        waitForExpectations(timeout: 10.0)
+        await fulfillment(of: [expectation], timeout: 10.0)
         
         // Then: No crashes or data corruption (test passes if we get here)
         XCTAssertTrue(true, "Concurrent renders should be thread-safe")
     }
     
-    func testResetDuringRenderIsThreadSafe() {
+    func testResetDuringRenderIsThreadSafe() async {
         // Given: A renderer with scheduled events
         let renderer = TestRendererFactory.createRenderer()
         let region = TestRegionFactory.createRegionWithMultipleNotes(
@@ -145,7 +145,7 @@ final class OfflineMIDIRendererTests: XCTestCase {
             }
         }
         
-        waitForExpectations(timeout: 10.0)
+        await fulfillment(of: [expectation], timeout: 10.0)
         
         // Then: No crashes or data corruption
         XCTAssertTrue(true, "Reset during render should be thread-safe")
@@ -153,7 +153,7 @@ final class OfflineMIDIRendererTests: XCTestCase {
     
     // MARK: - Bug Scenario from Issue #50
     
-    func testComplexMIDIArrangementUnderLoad() {
+    func testComplexMIDIArrangementUnderLoad() async {
         // Reproduces the scenario from Issue #50: multiple MIDI tracks under load.
         // Use moderate concurrency to validate thread-safety without stressing
         // teardown (avoid malloc "pointer being freed was not allocated").
@@ -184,7 +184,7 @@ final class OfflineMIDIRendererTests: XCTestCase {
             }
         }
         
-        waitForExpectations(timeout: 15.0)
+        await fulfillment(of: [expectation], timeout: 15.0)
         
         XCTAssertTrue(true, "Complex arrangement should render without artifacts")
     }

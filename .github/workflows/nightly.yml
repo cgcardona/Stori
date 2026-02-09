@@ -1,0 +1,306 @@
+# ============================================================================
+# Stori DAW — Nightly Test Pipeline (CURRENTLY DISABLED)
+# ============================================================================
+# Runs every night (or on-demand) with the full test suite:
+#   - All unit + integration tests
+#   - Full UI test suite
+#   - Full golden audio regression suite
+#   - Stress tests (race conditions, crash hunts)
+#   - Performance / long-running tests
+#
+# This is the heavy pipeline that catches everything.
+# Target runtime: <30 minutes.
+#
+# STATUS: Disabled until CI infrastructure is funded and configured.
+#         All tests can be run locally via xcodebuild.
+# ============================================================================
+
+# DISABLED: Uncomment to enable nightly runs
+# name: Nightly Tests
+name: Nightly Tests (Disabled)
+
+on:
+  # schedule:
+  #   # Run at 3:00 AM UTC every day (10 PM EST)
+  #   - cron: '0 3 * * *'
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      update_goldens:
+        description: 'Update golden audio files'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel nightly builds
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  SCHEME: Stori
+  PROJECT: Stori.xcodeproj
+  DESTINATION: 'platform=macOS'
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1: Full Unit + Integration Tests with Coverage
+  # ──────────────────────────────────────────────────────────────────────────
+  full-test-suite:
+    name: Full Test Suite + Coverage
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run All Tests with Coverage
+        run: |
+          xcodebuild test \
+            -project ${{ env.PROJECT }} \
+            -scheme ${{ env.SCHEME }} \
+            -destination '${{ env.DESTINATION }}' \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults/FullTests.xcresult \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee full-test-output.log | xcpretty --color || true
+
+          if grep -q "TEST FAILED" full-test-output.log 2>/dev/null; then
+            echo "::error::Full test suite failed"
+            exit 1
+          fi
+
+      - name: Extract Coverage Report
+        if: always()
+        run: |
+          if [ -d "TestResults/FullTests.xcresult" ]; then
+            xcrun xccov view --report \
+              TestResults/FullTests.xcresult \
+              > coverage-report.txt 2>/dev/null || true
+            echo "=== Coverage Summary ==="
+            head -50 coverage-report.txt || true
+          fi
+
+      - name: Upload Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            TestResults/
+            coverage-report.txt
+            full-test-output.log
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2: Full UI Test Suite
+  # ──────────────────────────────────────────────────────────────────────────
+  full-ui-tests:
+    name: Full UI Test Suite
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run Full UI Tests
+        run: |
+          xcodebuild test \
+            -project ${{ env.PROJECT }} \
+            -scheme ${{ env.SCHEME }} \
+            -destination '${{ env.DESTINATION }}' \
+            -only-testing:StoriUITests \
+            -resultBundlePath TestResults/FullUITests.xcresult \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee ui-test-output.log | xcpretty --color || true
+
+          if grep -q "TEST FAILED" ui-test-output.log 2>/dev/null; then
+            echo "::error::UI tests failed"
+            exit 1
+          fi
+
+      - name: Upload UI Test Results & Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-screenshots
+          path: |
+            TestResults/
+            ui-test-output.log
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3: Full Audio Regression Suite
+  # ──────────────────────────────────────────────────────────────────────────
+  full-audio-regression:
+    name: Full Audio Regression
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run Audio Regression Tests
+        env:
+          STORI_UPDATE_GOLDENS: ${{ github.event.inputs.update_goldens == 'true' && '1' || '0' }}
+        run: |
+          xcodebuild test \
+            -project ${{ env.PROJECT }} \
+            -scheme ${{ env.SCHEME }} \
+            -destination '${{ env.DESTINATION }}' \
+            -only-testing:StoriTests/SilenceDetectionTests \
+            -only-testing:StoriTests/GoldenFileRegressionTests \
+            -resultBundlePath TestResults/AudioRegression.xcresult \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            SRCROOT="${{ github.workspace }}" \
+            2>&1 | tee audio-test-output.log | xcpretty --color || true
+
+          if grep -q "TEST FAILED" audio-test-output.log 2>/dev/null; then
+            echo "::error::Audio regression tests failed"
+            exit 1
+          fi
+
+      - name: Upload Audio Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-regression-full
+          path: |
+            TestResults/
+            audio-test-output.log
+            GoldenProjects/
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 4: Stress Tests
+  # ──────────────────────────────────────────────────────────────────────────
+  stress-tests:
+    name: Stress & Race Condition Tests
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run Stress Tests
+        run: |
+          xcodebuild test \
+            -project ${{ env.PROJECT }} \
+            -scheme ${{ env.SCHEME }} \
+            -destination '${{ env.DESTINATION }}' \
+            -only-testing:StoriTests/TrackStressTests \
+            -only-testing:StoriTests/TransportStressTests \
+            -only-testing:StoriTests/ExportStressTests \
+            -resultBundlePath TestResults/StressTests.xcresult \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee stress-test-output.log | xcpretty --color || true
+
+          if grep -q "TEST FAILED" stress-test-output.log 2>/dev/null; then
+            echo "::error::Stress tests failed"
+            exit 1
+          fi
+
+      - name: Collect Crash Logs
+        if: failure()
+        run: |
+          # Collect any crash reports generated during testing
+          mkdir -p CrashLogs
+          find ~/Library/Logs/DiagnosticReports -name "Stori*" -newer stress-test-output.log -exec cp {} CrashLogs/ \; 2>/dev/null || true
+          find /Library/Logs/DiagnosticReports -name "Stori*" -newer stress-test-output.log -exec cp {} CrashLogs/ \; 2>/dev/null || true
+          ls -la CrashLogs/ || echo "No crash logs found"
+
+      - name: Upload Stress Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-results
+          path: |
+            TestResults/
+            CrashLogs/
+            stress-test-output.log
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 5: Performance Tests
+  # ──────────────────────────────────────────────────────────────────────────
+  performance-tests:
+    name: Performance Tests
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run Performance Tests
+        run: |
+          xcodebuild test \
+            -project ${{ env.PROJECT }} \
+            -scheme ${{ env.SCHEME }} \
+            -destination '${{ env.DESTINATION }}' \
+            -only-testing:StoriTests/PerformanceTests \
+            -resultBundlePath TestResults/PerformanceTests.xcresult \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee perf-test-output.log | xcpretty --color || true
+
+      - name: Upload Performance Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: |
+            TestResults/
+            perf-test-output.log
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Summary
+  # ──────────────────────────────────────────────────────────────────────────
+  nightly-summary:
+    name: Nightly Summary
+    runs-on: macos-15
+    needs: [full-test-suite, full-ui-tests, full-audio-regression, stress-tests, performance-tests]
+    if: always()
+
+    steps:
+      - name: Report Status
+        run: |
+          echo "=== Nightly Test Summary ==="
+          echo "Full Tests:       ${{ needs.full-test-suite.result }}"
+          echo "UI Tests:         ${{ needs.full-ui-tests.result }}"
+          echo "Audio Regression: ${{ needs.full-audio-regression.result }}"
+          echo "Stress Tests:     ${{ needs.stress-tests.result }}"
+          echo "Performance:      ${{ needs.performance-tests.result }}"
+
+          if [ "${{ needs.full-test-suite.result }}" != "success" ] || \
+             [ "${{ needs.full-ui-tests.result }}" != "success" ] || \
+             [ "${{ needs.full-audio-regression.result }}" != "success" ] || \
+             [ "${{ needs.stress-tests.result }}" != "success" ]; then
+            echo "::error::One or more nightly test jobs failed!"
+            exit 1
+          fi
+
+          echo "All nightly tests passed!"

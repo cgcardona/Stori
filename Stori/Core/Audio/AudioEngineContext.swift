@@ -11,9 +11,9 @@
 //  - Breaks circular dependencies between audio subsystems
 //  - Clear separation between observable UI state and thread-safe audio state
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Audio Engine Context Protocol
 
@@ -46,7 +46,7 @@ protocol AudioEngineContext: AudioTimingProvider, AudioTransportProvider, AudioG
 
 /// Provides timing and scheduling information.
 /// Thread-safe: These properties can be read from any thread.
-protocol AudioTimingProvider: AnyObject, Sendable {
+protocol AudioTimingProvider: AnyObject {
     
     /// Current scheduling context (sample rate, tempo, time signature)
     /// Use this for all beat ↔ sample ↔ seconds conversions
@@ -205,7 +205,12 @@ final class MockAudioEngineContext: AudioEngineContext {
     var sharedAVAudioEngine: AVAudioEngine = AVAudioEngine()
     var sharedMixer: AVAudioMixerNode = AVAudioMixerNode()
     var isGraphStable: Bool = true
-    var isGraphReadyForPlayback: Bool = true
+    
+    // This property must be nonisolated to conform to AudioGraphProvider
+    nonisolated var isGraphReadyForPlayback: Bool {
+        MainActor.assumeIsolated { _isGraphReadyForPlayback }
+    }
+    private var _isGraphReadyForPlayback: Bool = true
     
     // MARK: - Initialization
     
@@ -220,6 +225,7 @@ final class MockAudioEngineContext: AudioEngineContext {
             timeSignature: timeSignature
         )
     }
+    
     
     // MARK: - Test Helpers
     
@@ -239,6 +245,8 @@ final class MockAudioEngineContext: AudioEngineContext {
             tempo: currentTempo
         )
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }
 #endif
 

@@ -44,6 +44,7 @@ class AudioFileReferenceManager {
     
     private init() {}
     
+    
     // MARK: - Project Context
     
     /// Set the current project directory for path resolution
@@ -361,4 +362,6 @@ class AudioFileReferenceManager {
         
         return nil
     }
+    
+    // Root cause: @MainActor creates implicit actor isolation task-local storage
 }

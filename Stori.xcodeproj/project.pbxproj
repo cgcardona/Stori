@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C045F0032F1EC5130075C872 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
+		C06AF1322F3A122D00ACF3DA /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = C0ATOMICSPROD2026 /* Atomics */; };
 		C0VERSION2024110000002 /* VERSION in Resources */ = {isa = PBXBuildFile; fileRef = C0VERSION2024110000001 /* VERSION */; };
 /* End PBXBuildFile section */
 
@@ -19,11 +20,19 @@
 			remoteGlobalIDString = C0D691952E84DD91005A90A6;
 			remoteInfo = Stori;
 		};
+		C0UITST00092026 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C00CFD242E6611E100FE5CE5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0D691952E84DD91005A90A6;
+			remoteInfo = Stori;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		C0D691962E84DD91005A90A6 /* Stori.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stori.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0TEST00012026 /* StoriTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StoriTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0UITST00012026 /* StoriUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StoriUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0VERSION2024110000001 /* VERSION */ = {isa = PBXFileReference; lastKnownFileType = text; path = VERSION; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -71,6 +80,7 @@
 				Core/Audio/QuantizationEngine.swift,
 				Core/Audio/RecordingBufferPool.swift,
 				Core/Audio/RecordingController.swift,
+				Core/Audio/RTSafeAtomic.swift,
 				Core/Audio/SampleAccurateMIDIScheduler.swift,
 				Core/Audio/SamplerEngine.swift,
 				Core/Audio/SandboxedPluginHost.swift,
@@ -134,6 +144,7 @@
 				Core/Services/Update/UpdateService.swift,
 				Core/Services/Update/UpdateStore.swift,
 				Core/Services/UserManager.swift,
+				Core/Utilities/AccessibilityIdentifiers.swift,
 				Core/Utilities/FileNameSanitizer.swift,
 				Core/Utilities/ObjCExceptionBridge.swift,
 				Core/Utilities/ObjCExceptionCatcher.m,
@@ -169,6 +180,7 @@
 				Features/Plugins/PluginEditorView.swift,
 				Features/Score/NotationEngraver.swift,
 				Features/Score/NotationQuantizer.swift,
+				Features/Score/ScoreCoordinateMapper.swift,
 				Features/Score/ScoreEntryController.swift,
 				Features/Score/ScoreExporter.swift,
 				Features/Score/ScoreModels.swift,
@@ -251,6 +263,11 @@
 			path = StoriTests;
 			sourceTree = "<group>";
 		};
+		C0UITST00022026 /* StoriUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = StoriUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -258,11 +275,19 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C06AF1322F3A122D00ACF3DA /* Atomics in Frameworks */,
 				C045F0032F1EC5130075C872 /* (null) in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C0TEST00062026 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0UITST00062026 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -278,6 +303,7 @@
 				C0VERSION2024110000001 /* VERSION */,
 				C00CFD2E2E6611E100FE5CE5 /* Stori */,
 				C0TEST00022026 /* StoriTests */,
+				C0UITST00022026 /* StoriUITests */,
 				C00CFD2D2E6611E100FE5CE5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -287,6 +313,7 @@
 			children = (
 				C0D691962E84DD91005A90A6 /* Stori.app */,
 				C0TEST00012026 /* StoriTests.xctest */,
+				C0UITST00012026 /* StoriUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -308,6 +335,7 @@
 			);
 			name = Stori;
 			packageProductDependencies = (
+				C0ATOMICSPROD2026 /* Atomics */,
 			);
 			productName = "Stori-macOS";
 			productReference = C0D691962E84DD91005A90A6 /* Stori.app */;
@@ -334,6 +362,27 @@
 			productReference = C0TEST00012026 /* StoriTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		C0UITST00032026 /* StoriUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0UITST00042026 /* Build configuration list for PBXNativeTarget "StoriUITests" */;
+			buildPhases = (
+				C0UITST00052026 /* Sources */,
+				C0UITST00062026 /* Frameworks */,
+				C0UITST00072026 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C0UITST00082026 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C0UITST00022026 /* StoriUITests */,
+			);
+			name = StoriUITests;
+			productName = StoriUITests;
+			productReference = C0UITST00012026 /* StoriUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -347,6 +396,10 @@
 					C0D691952E84DD91005A90A6 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
+					C0UITST00032026 = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = C0D691952E84DD91005A90A6;
+					};
 				};
 			};
 			buildConfigurationList = C00CFD272E6611E100FE5CE5 /* Build configuration list for PBXProject "Stori" */;
@@ -359,6 +412,7 @@
 			mainGroup = C00CFD232E6611E100FE5CE5;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				C0ATOMICS2026 /* XCRemoteSwiftPackageReference "swift-atomics" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C00CFD2D2E6611E100FE5CE5 /* Products */;
@@ -367,6 +421,7 @@
 			targets = (
 				C0D691952E84DD91005A90A6 /* Stori */,
 				C0TEST00032026 /* StoriTests */,
+				C0UITST00032026 /* StoriUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -381,6 +436,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C0TEST00072026 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0UITST00072026 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -404,6 +466,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0UITST00052026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -411,6 +480,11 @@
 			isa = PBXTargetDependency;
 			target = C0D691952E84DD91005A90A6 /* Stori */;
 			targetProxy = C0TEST00092026 /* PBXContainerItemProxy */;
+		};
+		C0UITST00082026 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0D691952E84DD91005A90A6 /* Stori */;
+			targetProxy = C0UITST00092026 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -570,11 +644,10 @@
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Stori/Stori-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -617,11 +690,10 @@
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Stori/Stori-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -639,7 +711,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stori.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stori";
 			};
 			name = Debug;
@@ -658,8 +730,44 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stori.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stori";
+			};
+			name = Release;
+		};
+		C0UITST000A2026 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tellurstori.StoriUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Stori;
+			};
+			name = Debug;
+		};
+		C0UITST000B2026 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tellurstori.StoriUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Stori;
 			};
 			name = Release;
 		};
@@ -693,7 +801,35 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		C0UITST00042026 /* Build configuration list for PBXNativeTarget "StoriUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0UITST000A2026 /* Debug */,
+				C0UITST000B2026 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C0ATOMICS2026 /* XCRemoteSwiftPackageReference "swift-atomics" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-atomics.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C0ATOMICSPROD2026 /* Atomics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0ATOMICS2026 /* XCRemoteSwiftPackageReference "swift-atomics" */;
+			productName = Atomics;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C00CFD242E6611E100FE5CE5 /* Project object */;
 }

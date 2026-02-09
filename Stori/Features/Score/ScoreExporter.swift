@@ -29,6 +29,7 @@ enum ScorePageSize: String, CaseIterable {
 
 // MARK: - Score PDF Exporter
 
+@MainActor
 class ScorePDFExporter {
     
     // MARK: - Configuration
@@ -45,6 +46,7 @@ class ScorePDFExporter {
     
     private let renderer = StaffRenderer()
     private let quantizer = NotationQuantizer()
+    
     
     // MARK: - Export to PDF
     
@@ -317,9 +319,11 @@ class ScorePDFExporter {
 
 // MARK: - MusicXML Exporter
 
+@MainActor
 class MusicXMLExporter {
     
     private let quantizer = NotationQuantizer()
+    
     
     /// Export a MIDI region to MusicXML format
     func exportToMusicXML(
@@ -547,10 +551,12 @@ class MusicXMLExporter {
 
 // MARK: - Score Print Controller
 
+@MainActor
 class ScorePrintController {
     
     private let renderer = StaffRenderer()
     private let quantizer = NotationQuantizer()
+    
     
     /// Print the score
     func printScore(

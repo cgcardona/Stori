@@ -25,6 +25,7 @@ class IPFSUploadService {
         self.ipfsGatewayURL = StoriEnvironment.ipfsGatewayURL
     }
     
+    
     /// Upload binary data directly to IPFS daemon
     func uploadData(_ data: Data, filename: String) async throws -> MintingIPFSResult {
         guard let url = URL(string: "\(ipfsAPIURL)/api/v0/add?pin=true") else {
@@ -254,6 +255,7 @@ class DigitalMasterMintingService {
     private let ipfsService = IPFSUploadService.shared
     @ObservationIgnored
     private let walletService = WalletService.shared
+    
     
     // MARK: - Mint Digital Master
     
@@ -544,10 +546,7 @@ class DigitalMasterMintingService {
         return "0"
     }
     
-    // CRITICAL: Protective deinit for @Observable class (ASan Issue #84742+)
     // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    deinit {
-    }
 }
 
 // MARK: - Minting Types

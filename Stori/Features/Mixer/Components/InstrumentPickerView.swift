@@ -240,6 +240,7 @@ struct UnifiedInstrumentPickerView: View {
                 Color.clear
             )
             .cornerRadius(4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -605,7 +606,7 @@ struct UnifiedInstrumentPickerView: View {
     }
     
     private func gmInstrumentRow(_ instrument: GMInstrument) -> some View {
-                Button(action: { selectedGMInstrument = instrument }) {
+        Button(action: { selectedGMInstrument = instrument }) {
             HStack(spacing: 8) {
                 // Selection indicator
                 Circle()
@@ -629,6 +630,7 @@ struct UnifiedInstrumentPickerView: View {
                 Color.clear
             )
             .cornerRadius(3)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

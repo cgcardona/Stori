@@ -70,7 +70,8 @@ class PluginScanner {
         // Ensure cache directory exists
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
     }
-    
+
+
     // MARK: - Public Methods
     
     /// Scan for all installed Audio Units
@@ -231,11 +232,6 @@ class PluginScanner {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Cache Model

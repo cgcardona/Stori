@@ -647,6 +647,7 @@ class PianoRollPreviewSampler {
     
     init() {}
     
+    
     /// Start the preview sampler with acoustic piano
     func start() {
         guard !isRunning else { return }
@@ -687,9 +688,4 @@ class PianoRollPreviewSampler {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

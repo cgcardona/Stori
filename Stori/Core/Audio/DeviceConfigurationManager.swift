@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine.swift for better maintainability.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 /// Manages audio hardware configuration changes (e.g., switching audio interfaces)
@@ -91,6 +92,7 @@ final class DeviceConfigurationManager {
     
     init() {}
     
+    
     // MARK: - Public API
     
     /// Setup observer for audio hardware configuration changes (e.g., Bluetooth speaker connected)
@@ -104,7 +106,9 @@ final class DeviceConfigurationManager {
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleHandler()
+            Task { @MainActor in
+                self?.scheduleHandler()
+            }
         }
     }
     
@@ -237,9 +241,4 @@ final class DeviceConfigurationManager {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

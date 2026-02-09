@@ -12,8 +12,9 @@
 //  - Recorded automation commit
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Automation Extension
 
@@ -39,13 +40,17 @@ extension AudioEngine {
         // The cache is updated when tracks change (see updateAutomationTrackCache)
         updateAutomationTrackCache()
         
-        // Thread-safe automation value applier (merge with mixer for nil params = deterministic, no pops on first point)
+        // Thread-safe automation value applier.
+        // Reads from the lock-protected track node cache instead of @MainActor-isolated
+        // trackNodes/currentProject — eliminates the cross-thread data race that caused
+        // EXC_BAD_ACCESS when clearAllTracks() freed nodes while this handler was in flight.
         automationEngine.applyValuesHandler = { [weak self] trackId, values in
-            guard let self = self, let trackNode = self.trackNodes[trackId] else { return }
-            guard let track = self.currentProject?.tracks.first(where: { $0.id == trackId }) else { return }
+            guard let self = self else { return }
+            guard let trackNode = self.automationEngine.getCachedTrackNode(trackId) else { return }
+            let defaults = self.automationEngine.getCachedMixerDefaults(trackId)
             
-            let volume = values.volume ?? track.mixerSettings.volume
-            let pan = values.pan ?? track.mixerSettings.pan
+            let volume = values.volume ?? defaults?.volume ?? 0.8
+            let pan = values.pan ?? defaults?.pan ?? 0.0
             let eqLow = values.eqLow ?? 0.5
             let eqMid = values.eqMid ?? 0.5
             let eqHigh = values.eqHigh ?? 0.5
@@ -190,10 +195,17 @@ extension AudioEngine {
         }
     }
     
-    /// Update the cached track IDs in the automation engine
-    /// REAL-TIME SAFETY: Call this whenever tracks are added/removed
-    /// This prevents array allocation at 120Hz in the automation timer
+    /// Update the automation engine's cached track IDs and node snapshot.
+    /// REAL-TIME SAFETY: Call this whenever tracks are added/removed.
+    /// Prevents array allocation and cross-thread @MainActor access at 120Hz.
     func updateAutomationTrackCache() {
         automationEngine.updateTrackIds(Array(trackNodes.keys))
+        
+        // Build mixer defaults snapshot for fallback values in the automation handler
+        var mixerDefaults: [UUID: (volume: Float, pan: Float)] = [:]
+        for track in currentProject?.tracks ?? [] {
+            mixerDefaults[track.id] = (track.mixerSettings.volume, track.mixerSettings.pan)
+        }
+        automationEngine.updateTrackNodeCache(trackNodes, mixerDefaults: mixerDefaults)
     }
 }

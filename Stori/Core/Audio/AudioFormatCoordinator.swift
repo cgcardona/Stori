@@ -6,8 +6,9 @@
 //  Ensures consistent sample rate and channel count throughout the audio graph.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 // MARK: - Format Subscriber Protocol
@@ -65,6 +66,7 @@ final class AudioFormatCoordinator {
         }
         self.init(initialFormat: format)
     }
+    
     
     // MARK: - Format Updates
     
@@ -151,9 +153,4 @@ final class AudioFormatCoordinator {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

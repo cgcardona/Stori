@@ -31,8 +31,9 @@ import AVFoundation
 
 struct VirtualKeyboardView: View {
     @State private var keyboardState = VirtualKeyboardState()
-    @Environment(\.dismiss) private var dismiss
     @Environment(AudioEngine.self) private var audioEngine
+    /// Close action — works for both overlay and sheet presentation
+    var onClose: (() -> Void)?
     
     /// Use shared InstrumentManager for routing
     private var instrumentManager: InstrumentManager { InstrumentManager.shared }
@@ -161,8 +162,10 @@ struct VirtualKeyboardView: View {
                 .background(Color(nsColor: .controlBackgroundColor))
                 .cornerRadius(4)
             
-            Button("Close") { dismiss() }
-                .keyboardShortcut(.escape)
+            Button("Close") {
+                onClose?()
+            }
+            .keyboardShortcut(.escape)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -594,6 +597,7 @@ class VirtualKeyboardState {
         self.audioEngine = audioEngine
     }
     
+    
     /// Configure audio engine reference for tempo-aware latency compensation and transport key forwarding
     func configure(audioEngine: AudioEngine) {
         self.audioEngine = audioEngine
@@ -604,45 +608,34 @@ class VirtualKeyboardState {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
             
-            // CRITICAL FIX (Issue #121): Forward DAW transport keys to AudioEngine
-            // SwiftUI keyboard shortcuts are window-scoped. When Virtual Keyboard window
-            // has focus, keyboard shortcuts in the main window don't receive events.
-            // Solution: Check for transport keys and trigger actions directly.
-            //
-            // TRANSPORT KEYS (no modifiers):
-            // - 'r': Record/Stop Recording
-            // - Return: Go to Beginning
-            // - ',': Rewind
-            // - '.': Fast Forward
-            //
-            // This ensures recording workflow is never blocked by Virtual Keyboard.
+            // Forward DAW transport keys to AudioEngine.
+            // The VK sheet blocks the parent window's keyboard shortcuts,
+            // so we handle transport keys here directly.
+            // NSEvent local monitors always run on the main thread, so
+            // MainActor.assumeIsolated is safe and executes synchronously
+            // (avoiding Task delays that could cause race conditions).
             if !event.modifierFlags.contains(.command) && 
                !event.modifierFlags.contains(.control) &&
                !event.modifierFlags.contains(.option) {
                 if let char = event.characters?.lowercased().first {
                     switch char {
                     case "r":
-                        // Forward to AudioEngine for recording control
-                        Task { @MainActor in
-                            if self.audioEngine?.isRecording == true {
-                                self.audioEngine?.stopRecording()
-                            } else {
-                                self.audioEngine?.record()
-                            }
-                        }
-                        return nil // Consume - we handled it
-                    case "\r": // Return key
-                        Task { @MainActor in
+                        // Post notification so DAWControlBar handles it with count-in logic.
+                        // Previously called audioEngine.record() directly, which bypassed count-in.
+                        NotificationCenter.default.post(name: .toggleRecording, object: nil)
+                        return nil
+                    case "\r":
+                        MainActor.assumeIsolated {
                             self.audioEngine?.seek(toBeat: 0)
                         }
                         return nil
-                    case ",": // Rewind
-                        Task { @MainActor in
+                    case ",":
+                        MainActor.assumeIsolated {
                             self.audioEngine?.rewindBeats(1)
                         }
                         return nil
-                    case ".": // Fast Forward
-                        Task { @MainActor in
+                    case ".":
+                        MainActor.assumeIsolated {
                             self.audioEngine?.fastForwardBeats(1)
                         }
                         return nil
@@ -671,8 +664,7 @@ class VirtualKeyboardState {
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
             guard let self = self else { return event }
             
-            // CRITICAL FIX (Issue #121): Ignore transport keys in keyUp
-            // Transport keys are handled entirely in keyDown (above) - don't interfere here
+            // Transport keys are handled in keyDown — consume keyUp to prevent interference
             if !event.modifierFlags.contains(.command) && 
                !event.modifierFlags.contains(.control) &&
                !event.modifierFlags.contains(.option) {
@@ -874,11 +866,6 @@ class VirtualKeyboardState {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Notification
@@ -888,5 +875,6 @@ extension Notification.Name {
     static let togglePianoRoll = Notification.Name("togglePianoRoll")
     static let toggleSynthesizer = Notification.Name("toggleSynthesizer")
     static let revealBeatInTimeline = Notification.Name("revealBeatInTimeline")
+    static let toggleRecording = Notification.Name("toggleRecording")
 }
 

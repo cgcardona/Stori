@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine.swift for better maintainability.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 /// Manages project loading and unloading with explicit state machine
@@ -119,6 +120,12 @@ final class ProjectLifecycleManager {
     var onSetTransportStopped: (() -> Void)?
     
     @ObservationIgnored
+    var onStopAutomationEngine: (() -> Void)?
+    
+    @ObservationIgnored
+    var onStopPositionTimer: (() -> Void)?
+    
+    @ObservationIgnored
     var logDebug: ((String, String) -> Void)?
     
     @ObservationIgnored
@@ -127,6 +134,7 @@ final class ProjectLifecycleManager {
     // MARK: - Initialization
     
     init() {}
+    
     
     // MARK: - Public API
     
@@ -165,12 +173,17 @@ final class ProjectLifecycleManager {
         let thisGeneration = projectLoadGeneration
         logDebug?("Project generation: \(thisGeneration)", "PROJECT")
         
-        // Clear and reload automation data
+        // Stop all background timers SYNCHRONOUSLY before the async Task below.
+        // Without this, background queue handlers can access freed TrackAudioNodes
+        // after clearAllTracks() runs in loadProjectAsync().
         automationProcessor?.clearAll()
+        onStopAutomationEngine?()
+        onStopPositionTimer?()
         
         // Launch async loading with proper state machine
-        Task { @MainActor in
-            await loadProjectAsync(project, generation: thisGeneration)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadProjectAsync(project, generation: thisGeneration)
         }
     }
     
@@ -311,9 +324,4 @@ final class ProjectLifecycleManager {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }

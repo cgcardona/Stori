@@ -14,8 +14,9 @@
 //  - Uses AUScheduleMIDIEventBlock with future sample times for sub-sample accuracy
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 import os.lock
 
@@ -115,7 +116,8 @@ class MIDIPlaybackEngine {
     // MARK: - Initialization
     
     init() {}
-    
+
+
     // MARK: - Configuration
     
     /// Configure the engine with dependencies
@@ -235,11 +237,6 @@ class MIDIPlaybackEngine {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - MIDIPlaybackEngine + AudioEngine Integration
@@ -357,8 +354,8 @@ extension MIDIPlaybackEngine {
             
             // Only schedule background error tracking if this is the first occurrence
             if !wasAlreadyFlagged {
-                // Schedule error tracking OFF the audio thread
-                DispatchQueue.global(qos: .utility).async { [weak self] in
+                // Schedule error tracking on MainActor
+                Task { @MainActor [weak self] in
                     self?.handleMissingMIDIBlock(trackId: trackId)
                 }
             }

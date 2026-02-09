@@ -5,10 +5,19 @@
 //  Manages audio graph mutations and node connections.
 //  Extracted from AudioEngine.swift for better maintainability.
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
+
+/// Nonisolated owner of a Foundation Timer for safe deinit cleanup.
+private final class FlushTimerHolder {
+    var timer: Timer?
+    deinit {
+        timer?.invalidate()
+        timer = nil
+    }
+}
 
 /// Manages audio graph mutations with tiered performance characteristics
 @Observable
@@ -41,7 +50,8 @@ final class AudioGraphManager {
         let targetKey: String
         
         var isStale: Bool {
-            Date().timeIntervalSince(timestamp) > AudioGraphManager.mutationStalenessThreshold
+            // Access the static property from MainActor context
+            Date().timeIntervalSince(timestamp) > 10.0  // 10 seconds staleness threshold
         }
     }
     
@@ -82,7 +92,7 @@ final class AudioGraphManager {
     
     /// Timer for flushing coalesced mutations
     @ObservationIgnored
-    private var flushTimer: Timer?
+    private let flushTimerHolder = FlushTimerHolder()
     
     /// Flush delay for mutation coalescing (milliseconds)
     private static let coalescingDelayMs: TimeInterval = 0.050 // 50ms - one buffer period at 512 samples / 48kHz
@@ -149,15 +159,27 @@ final class AudioGraphManager {
     /// Performs multiple graph mutations in batch mode (suspends rate limiting).
     /// Use this for bulk operations like project load, multi-track import, etc.
     /// The Logic Pro approach: batch legitimate bulk operations, rate-limit user spam.
-    func performBatchOperation(_ work: () throws -> Void) rethrows {
+    ///
+    /// ARCHITECTURE: Sets _isGraphMutationInProgress so nested modifyGraph calls
+    /// (from rebuildTrackGraphInternal etc.) hit the reentrancy handler and run
+    /// work directly on the running engine. This avoids both:
+    ///   - engine.pause() deadlock (hot-swap mutation)
+    ///   - engine.reset() corrupting freshly attached nodes (structural mutation)
+    /// AVAudioEngine supports connect/disconnect on a running engine; during project
+    /// load there's no active playback so transient disconnects are harmless.
+    func performBatchOperation(_ work: @escaping () throws -> Void) rethrows {
         let wasBatchMode = isBatchMode
+        let wasInProgress = _isGraphMutationInProgress
         isBatchMode = true
-        defer { isBatchMode = wasBatchMode }
+        _isGraphMutationInProgress = true
+        defer {
+            _isGraphMutationInProgress = wasInProgress
+            isBatchMode = wasBatchMode
+            // Clear rate limit history after batch to prevent spillover
+            recentMutationTimestamps.removeAll()
+        }
         
         try work()
-        
-        // Clear rate limit history after batch to prevent spillover
-        recentMutationTimestamps.removeAll()
     }
     
     /// Check if generation is still valid after an await point
@@ -200,11 +222,6 @@ final class AudioGraphManager {
             
             // Replace any existing mutation for same target (coalescing)
             pendingMutations[targetKey] = mutation
-            
-            AppLogger.shared.debug(
-                "AudioGraphManager: Coalescing mutation for target '\(targetKey)' (pending: \(pendingMutations.count))",
-                category: .audio
-            )
             
             // Schedule flush if not already scheduled
             scheduleFlush()
@@ -270,26 +287,21 @@ final class AudioGraphManager {
     /// Schedule a flush of pending coalesced mutations
     private func scheduleFlush() {
         // Invalidate existing timer
-        flushTimer?.invalidate()
+        flushTimerHolder.timer?.invalidate()
         
         // Schedule new timer on main thread
-        flushTimer = Timer.scheduledTimer(withTimeInterval: Self.coalescingDelayMs, repeats: false) { [weak self] _ in
+        flushTimerHolder.timer = Timer.scheduledTimer(withTimeInterval: Self.coalescingDelayMs, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.flushPendingMutations()
             }
         }
     }
     
-    /// Flush all pending coalesced mutations
+    /// Flush all pending coalesced mutations immediately (public for testing)
     @MainActor
-    private func flushPendingMutations() {
+    func flushPendingMutations() {
         let mutations = pendingMutations.values.sorted { $0.timestamp < $1.timestamp }
         pendingMutations.removeAll()
-        
-        AppLogger.shared.debug(
-            "AudioGraphManager: Flushing \(mutations.count) coalesced mutations",
-            category: .audio
-        )
         
         var executedCount = 0
         var discardedStale = 0
@@ -606,7 +618,7 @@ final class AudioGraphManager {
             do {
                 try engine.start()
             } catch {
-                AppLogger.shared.error("Engine restart failed after hot-swap mutation", category: .audio)
+                AppLogger.shared.error("Engine restart failed after hot-swap mutation: \(error)", category: .audio)
             }
         }
         
@@ -848,14 +860,5 @@ final class AudioGraphManager {
     
     // MARK: - Cleanup
     
-    /// Explicit deinit to prevent Swift Concurrency task leak
-    /// @Observable + @MainActor classes can have implicit tasks from the Observation framework
-    /// that cause memory corruption during deallocation if not properly cleaned up
-    deinit {
-        // Cancel any pending flush timers
-        flushTimer?.invalidate()
-        flushTimer = nil
-        
-        // Empty deinit is sufficient - just ensures proper Swift Concurrency cleanup
-    }
+    // No deinit needed — FlushTimerHolder.deinit invalidates the timer via RAII.
 }

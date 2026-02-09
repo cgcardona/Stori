@@ -394,6 +394,7 @@ struct IntegratedTrackHeader: View {
                         )
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Record Enable")
@@ -402,6 +403,13 @@ struct IntegratedTrackHeader: View {
     private var muteButton: some View {
         Button(action: {
             let newState = !audioTrack.mixerSettings.isMuted
+            // Register undo for mute toggle (Issue #71)
+            UndoService.shared.registerMuteToggle(
+                audioTrack.id,
+                wasMuted: audioTrack.mixerSettings.isMuted,
+                projectManager: projectManager,
+                audioEngine: audioEngine
+            )
             audioEngine.updateTrackMute(trackId: audioTrack.id, isMuted: newState)
         }) {
             Text("M")
@@ -414,6 +422,7 @@ struct IntegratedTrackHeader: View {
                         .stroke(audioTrack.mixerSettings.isMuted ? .orange : .gray, lineWidth: 1)
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Mute")
@@ -422,6 +431,13 @@ struct IntegratedTrackHeader: View {
     private var soloButton: some View {
         Button(action: {
             let newState = !audioTrack.mixerSettings.isSolo
+            // Register undo for solo toggle (Issue #71)
+            UndoService.shared.registerSoloToggle(
+                audioTrack.id,
+                wasSolo: audioTrack.mixerSettings.isSolo,
+                projectManager: projectManager,
+                audioEngine: audioEngine
+            )
             audioEngine.updateTrackSolo(trackId: audioTrack.id, isSolo: newState)
         }) {
             Text("S")
@@ -434,6 +450,7 @@ struct IntegratedTrackHeader: View {
                         .stroke(audioTrack.mixerSettings.isSolo ? .yellow : .gray, lineWidth: 1)
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Solo")
@@ -519,6 +536,15 @@ struct IntegratedTrackHeader: View {
                     get: { Double(audioTrack.mixerSettings.volume) },
                     set: { newValue in
                         let floatValue = Float(newValue)
+                        // Register undo for volume change (Issue #71)
+                        let oldValue = audioTrack.mixerSettings.volume
+                        UndoService.shared.registerVolumeChange(
+                            audioTrack.id,
+                            from: oldValue,
+                            to: floatValue,
+                            projectManager: projectManager,
+                            audioEngine: audioEngine
+                        )
                         audioEngine.updateTrackVolume(trackId: audioTrack.id, volume: floatValue)
                     }
                 ),
@@ -536,6 +562,15 @@ struct IntegratedTrackHeader: View {
                         get: { audioTrack.mixerSettings.pan * 2 - 1 },
                         set: { newValue in
                             let panValue = (newValue + 1) / 2
+                            // Register undo for pan change (Issue #71)
+                            let oldValue = audioTrack.mixerSettings.pan
+                            UndoService.shared.registerPanChange(
+                                audioTrack.id,
+                                from: oldValue,
+                                to: panValue,
+                                projectManager: projectManager,
+                                audioEngine: audioEngine
+                            )
                             audioEngine.updateTrackPan(trackId: audioTrack.id, pan: panValue)
                         }
                     ),
@@ -570,6 +605,7 @@ struct IntegratedTrackHeader: View {
                         )
                 )
                 .cornerRadius(3)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Input Monitor")

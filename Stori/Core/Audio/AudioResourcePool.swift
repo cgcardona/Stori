@@ -6,8 +6,9 @@
 //  Reuses buffers and limits concurrent allocations during device changes.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 // MARK: - Audio Resource Pool
@@ -86,6 +87,7 @@ final class AudioResourcePool {
     static let shared = AudioResourcePool()
     
     init() {}
+    
     
     // MARK: - Buffer Borrowing
     
@@ -252,11 +254,6 @@ final class AudioResourcePool {
     }
     
     // MARK: - Cleanup
-    
-    deinit {
-        // CRITICAL: Protective deinit for @Observable @MainActor class (ASan Issue #84742+)
-        // Prevents double-free from implicit Swift Concurrency property change notification tasks
-    }
 }
 
 // MARK: - Notification Names
