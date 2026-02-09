@@ -127,6 +127,25 @@ struct VirtualKeyboardView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
     
+    // MARK: - Latency Compensation Badge
+    
+    private var latencyCompensationBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "timer")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Text("Latency: \(String(format: "%.0f", keyboardState.currentLatencyMs))ms (\(String(format: "%.3f", keyboardState.currentLatencyBeats)) beats @ \(String(format: "%.0f", keyboardState.currentTempo)) BPM)")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.8))
+        .cornerRadius(6)
+        .help("Compensating for UI event latency to ensure accurate MIDI recording timestamps")
+    }
+    
     // MARK: - Header Bar
     
     private var headerBar: some View {
@@ -155,6 +174,9 @@ struct VirtualKeyboardView: View {
             }
             
             Spacer()
+            
+            // Latency compensation indicator
+            latencyCompensationBadge
             
             // Keyboard shortcut hint
             Text("⌘⇧K")
@@ -588,6 +610,25 @@ class VirtualKeyboardState {
         // Convert seconds to beats: beats = seconds * (BPM / 60)
         let beatsPerSecond = tempo / 60.0
         return latencySeconds * beatsPerSecond
+    }
+    
+    // MARK: - Latency Compensation Visibility (for UI display)
+    
+    /// Current tempo from audio engine
+    var currentTempo: Double {
+        audioEngine?.currentProject?.tempo ?? 120.0
+    }
+    
+    /// Current latency compensation in milliseconds
+    var currentLatencyMs: Double {
+        fallbackLatencySeconds * 1000.0
+    }
+    
+    /// Current latency compensation in beats (dynamically updates with tempo)
+    var currentLatencyBeats: Double {
+        let tempo = audioEngine?.currentProject?.tempo ?? 120.0
+        let beatsPerSecond = tempo / 60.0
+        return fallbackLatencySeconds * beatsPerSecond
     }
     
     /// Calculate actual UI latency from hardware timestamp
