@@ -1221,6 +1221,49 @@ struct MainDAWView: View {
     // MARK: - Update Service
     private var updateService = UpdateService.shared
     
+    @ViewBuilder
+    private var exportAndLoadingOverlay: some View {
+        if exportService.isExporting {
+            ExportProgressView(
+                progress: exportService.exportProgress,
+                status: exportService.exportStatus,
+                elapsedTime: exportService.elapsedTime,
+                estimatedTimeRemaining: exportService.estimatedTimeRemaining,
+                onCancel: {
+                    exportService.cancelExport()
+                }
+            )
+        } else if !audioEngine.isGraphStable && projectManager.currentProject != nil {
+            ZStack {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .controlSize(.large)
+                    
+                    Text("Loading Project...")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.primary)
+                    
+                    Text("Restoring instruments and effects")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.regularMaterial)
+                        .shadow(color: .black.opacity(0.3), radius: 20)
+                )
+            }
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: audioEngine.isGraphStable)
+        }
+    }
+    
     private var bodyContent: some View {
         GeometryReader { geometry in
             dawContentView(geometry: geometry)
@@ -1228,7 +1271,7 @@ struct MainDAWView: View {
     }
     
     var body: some View {
-        bodyContent
+        let contentWithSheets = bodyContent
             .modifier(DAWSheetModifiers(
                 showingNewProjectSheet: $showingNewProjectSheet,
                 showingProjectBrowser: $showingProjectBrowser,
@@ -1246,126 +1289,52 @@ struct MainDAWView: View {
                 onRenameTrack: performRenameTrack,
                 onExportWithSettings: performExportWithSettings
             ))
-            .sheet(isPresented: $showingMarketplaceSheet) {
-                MarketplaceComingSoonView()
-            }
-            .sheet(isPresented: $showingWalletSheet) {
-                WalletComingSoonView()
-            }
-            .sheet(isPresented: $showingTokenInput) {
-                TokenInputView(allowDismiss: true)
-            }
-        // Virtual Keyboard — presented as overlay (not sheet) to avoid
-        // dimming, animation, and playhead stutter during recording.
-        // Matches Logic Pro's Musical Typing behavior (floating panel).
-        .overlay(alignment: .bottom) {
-            if activeSheet == .virtualKeyboard {
-                VirtualKeyboardView(onClose: { activeSheet = nil })
-                    .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
-                    .padding(.bottom, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        // Update banner (non-blocking, slides in at top)
-        .overlay(alignment: .top) {
-            if updateService.showBanner,
-               case .updateAvailable(let release) = updateService.state {
-                UpdateBannerView(updateService: updateService, release: release)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: updateService.showBanner)
-                    .zIndex(100)
-            }
-        }
-        .overlay {
-            if exportService.isExporting {
-                ExportProgressView(
-                    progress: exportService.exportProgress,
-                    status: exportService.exportStatus,
-                    elapsedTime: exportService.elapsedTime,
-                    estimatedTimeRemaining: exportService.estimatedTimeRemaining,
-                    onCancel: {
-                        exportService.cancelExport()
-                    }
-                )
-            } else if !audioEngine.isGraphStable && projectManager.currentProject != nil {
-                // Show loading overlay while audio graph is being built
-                ZStack {
-                    Color.black.opacity(0.6)
-                        .ignoresSafeArea()
-                    
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .controlSize(.large)
-                        
-                        Text("Loading Project...")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primary)
-                        
-                        Text("Restoring instruments and effects")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 32)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(.regularMaterial)
-                            .shadow(color: .black.opacity(0.3), radius: 20)
-                    )
+            .modifier(AdditionalSheetsModifier(
+                showingMarketplaceSheet: $showingMarketplaceSheet,
+                showingWalletSheet: $showingWalletSheet,
+                showingTokenInput: $showingTokenInput
+            ))
+        
+        let withOverlays = contentWithSheets
+            .overlay(alignment: .bottom) {
+                if activeSheet == .virtualKeyboard {
+                    VirtualKeyboardView(onClose: { activeSheet = nil })
+                        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: audioEngine.isGraphStable)
             }
-        }
-        .alert("Export Complete", isPresented: $showingExportAlert) {
-            Button("OK") {
-                showingExportAlert = false
-            }
-            Button("Show in Finder") {
-                if let url = exportedFileURL {
-                    NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+            .overlay(alignment: .top) {
+                if updateService.showBanner,
+                   case .updateAvailable(let release) = updateService.state {
+                    UpdateBannerView(updateService: updateService, release: release)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: updateService.showBanner)
+                        .zIndex(100)
                 }
-                showingExportAlert = false
             }
-        } message: {
-            if let url = exportedFileURL {
-                Text("Your project has been exported to:\n\(url.lastPathComponent)")
+            .overlay {
+                exportAndLoadingOverlay
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
-            showingNewProjectSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
-            showingProjectBrowser = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showAboutWindow)) { _ in
-            showingAboutWindow = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cleanupOrphanedFiles)) { _ in
-            projectManager.cleanupOrphanedAudioFiles()
-        }
-        // Time Display Mode toggle removed - beats is now the standard unit
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSnapToGrid)) { _ in
-            setSnapToGrid(!snapToGrid)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openWalletTab)) { _ in
-            showingWalletSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openMarketplace)) { _ in
-            showingMarketplaceSheet = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showTokenInput)) { _ in
-            showingTokenInput = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SetHorizontalZoom"))) { notification in
-            if let zoom = notification.userInfo?["zoom"] as? Double {
-                setHorizontalZoom(zoom)
-            }
-        }
-        .modifier(MIDINotificationModifier(
+        
+        return withOverlays
+            .modifier(AlertsAndNotificationsModifier(
+                showingExportAlert: $showingExportAlert,
+                exportedFileURL: $exportedFileURL,
+                showingNewProjectSheet: $showingNewProjectSheet,
+                showingProjectBrowser: $showingProjectBrowser,
+                showingAboutWindow: $showingAboutWindow,
+                showingWalletSheet: $showingWalletSheet,
+                showingMarketplaceSheet: $showingMarketplaceSheet,
+                showingTokenInput: $showingTokenInput,
+                projectManager: projectManager,
+                onSetSnapToGrid: setSnapToGrid,
+                onSetHorizontalZoom: setHorizontalZoom,
+                snapToGrid: snapToGrid
+            ))
+            .modifier(MIDINotificationModifier(
             activeSheet: $activeSheet,
             onTogglePianoRoll: togglePianoRoll,
             onToggleSynthesizer: toggleSynthesizer,
@@ -1410,6 +1379,15 @@ struct MainDAWView: View {
             // Install metronome into DAW's audio graph for sample-accurate sync
             // This is idempotent - safe to call multiple times (handles engine restart if needed)
             audioEngine.installMetronome(metronomeEngine)
+            
+            // UI Test Mode: Auto-create a default project if none exists
+            // This ensures tests can immediately interact with the DAW
+            if ProcessInfo.processInfo.environment["STORI_UI_TEST"] == "1" {
+                if projectManager.currentProject == nil {
+                    let timestamp = Int(Date().timeIntervalSince1970)
+                    try? projectManager.createNewProject(name: "UITest-\(timestamp)", tempo: 120.0)
+                }
+            }
             
             // Sync metronome with project tempo
             if let project = projectManager.currentProject {
@@ -2242,6 +2220,96 @@ extension MainDAWView {
         project.modifiedAt = Date()
         projectManager.currentProject = project
         projectManager.hasUnsavedChanges = true  // Mark as unsaved, don't auto-save
+    }
+}
+
+// MARK: - Additional Sheets Modifier
+
+/// ViewModifier to handle marketplace, wallet, and token input sheets
+/// Extracted to reduce body complexity and improve compile time
+private struct AdditionalSheetsModifier: ViewModifier {
+    @Binding var showingMarketplaceSheet: Bool
+    @Binding var showingWalletSheet: Bool
+    @Binding var showingTokenInput: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingMarketplaceSheet) {
+                MarketplaceComingSoonView()
+            }
+            .sheet(isPresented: $showingWalletSheet) {
+                WalletComingSoonView()
+            }
+            .sheet(isPresented: $showingTokenInput) {
+                TokenInputView(allowDismiss: true)
+            }
+    }
+}
+
+// MARK: - Alerts and Notifications Modifier
+
+/// ViewModifier to handle export alerts and notification center subscriptions
+/// Extracted to reduce body complexity and improve compile time
+private struct AlertsAndNotificationsModifier: ViewModifier {
+    @Binding var showingExportAlert: Bool
+    @Binding var exportedFileURL: URL?
+    @Binding var showingNewProjectSheet: Bool
+    @Binding var showingProjectBrowser: Bool
+    @Binding var showingAboutWindow: Bool
+    @Binding var showingWalletSheet: Bool
+    @Binding var showingMarketplaceSheet: Bool
+    @Binding var showingTokenInput: Bool
+    let projectManager: ProjectManager
+    let onSetSnapToGrid: (Bool) -> Void
+    let onSetHorizontalZoom: (Double) -> Void
+    let snapToGrid: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .alert("Export Complete", isPresented: $showingExportAlert) {
+                Button("OK") {
+                    showingExportAlert = false
+                }
+                Button("Show in Finder") {
+                    if let url = exportedFileURL {
+                        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+                    }
+                    showingExportAlert = false
+                }
+            } message: {
+                if let url = exportedFileURL {
+                    Text("Your project has been exported to:\n\(url.lastPathComponent)")
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
+                showingNewProjectSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openProject)) { _ in
+                showingProjectBrowser = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showAboutWindow)) { _ in
+                showingAboutWindow = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cleanupOrphanedFiles)) { _ in
+                projectManager.cleanupOrphanedAudioFiles()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleSnapToGrid)) { _ in
+                onSetSnapToGrid(!snapToGrid)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openWalletTab)) { _ in
+                showingWalletSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openMarketplace)) { _ in
+                showingMarketplaceSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showTokenInput)) { _ in
+                showingTokenInput = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SetHorizontalZoom"))) { notification in
+                if let zoom = notification.userInfo?["zoom"] as? Double {
+                    onSetHorizontalZoom(zoom)
+                }
+            }
     }
 }
 

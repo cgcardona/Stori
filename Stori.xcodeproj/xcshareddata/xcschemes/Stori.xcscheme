@@ -40,6 +40,16 @@
                ReferencedContainer = "container:Stori.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "C0UITST00032026"
+               BuildableName = "StoriUITests.xctest"
+               BlueprintName = "StoriUITests"
+               ReferencedContainer = "container:Stori.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

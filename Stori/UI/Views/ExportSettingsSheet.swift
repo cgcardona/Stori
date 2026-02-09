@@ -218,6 +218,7 @@ struct ExportSettingsSheet: View {
         }
         .frame(width: 520, height: 580)
         .background(Color(nsColor: .windowBackgroundColor))
+        .accessibilityIdentifier(AccessibilityID.Export.dialog)
         .onAppear {
             settings.filename = projectName
         }
@@ -461,6 +462,7 @@ struct ExportSettingsSheet: View {
                 dismiss()
             }
             .keyboardShortcut(.escape)
+            .storiAccessibilityID(AccessibilityID.Export.dialogCancel)
             
             Spacer()
             
@@ -470,7 +472,9 @@ struct ExportSettingsSheet: View {
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.return)
             .disabled(settings.filename.isEmpty)
+            .storiAccessibilityID(AccessibilityID.Export.dialogConfirm)
         }
+        .accessibilityElement(children: .contain)
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
         // Clip warning alert (Issue #73)
