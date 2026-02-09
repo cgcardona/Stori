@@ -12,6 +12,7 @@
 import SwiftUI
 import Combine
 
+@MainActor
 @Observable
 class ScrollSyncModel {
     // MARK: - Scroll Positions (Absolute Pixel Offsets)
@@ -60,8 +61,6 @@ class ScrollSyncModel {
     }
     
     // MARK: - Cleanup
-    /// Avoid Swift Concurrency deinit isolation / task-local bad-free during SwiftUI view updates (ASan crash in testEngineConcurrentVolumeUpdates).
-    nonisolated deinit {}
 }
 
 // MARK: - DAW Layout Configuration

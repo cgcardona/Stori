@@ -21,8 +21,9 @@
 //  - Ableton: Automatic feedback prevention
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Accelerate
 import os.lock
 
@@ -97,9 +98,6 @@ final class FeedbackProtectionMonitor {
         rmsHistory.reserveCapacity(10)  // Pre-allocate for efficiency
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Monitoring Control
     

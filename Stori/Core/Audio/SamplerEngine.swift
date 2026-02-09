@@ -38,9 +38,9 @@
 //  However, this is unlikely to be necessary as Core Audio's implementation is
 //  battle-tested in Logic Pro, GarageBand, and professional audio apps worldwide.
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Combine
 
 // MARK: - General MIDI Instrument
@@ -512,9 +512,6 @@ class SamplerEngine {
         }
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Attach the sampler to the engine (call after loading samples if deferAttachment was true)
     func attachToEngine() {
@@ -878,6 +875,7 @@ enum SamplerError: Error, LocalizedError {
 // MARK: - SoundFont Manager
 
 /// Manages SoundFont files and provides access to available instruments
+@MainActor
 class SoundFontManager {
     
     // MARK: - Singleton

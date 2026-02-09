@@ -66,9 +66,6 @@ final class AccountManager {
         loadFromStorage()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     var selectedAccount: DerivedAccount? {
         guard selectedAccountIndex < accounts.count else { return nil }

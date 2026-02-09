@@ -8,7 +8,9 @@
 //  Virtual keyboard for playing instruments with computer keyboard (Musical Typing).
 //
 //  LATENCY COMPENSATION:
-//  - UI events (clicks, keypresses) have inherent latency (~30ms) from event processing
+//  - Uses NSEvent.timestamp (hardware timestamps) for sub-millisecond accuracy
+//  - Calculates actual latency dynamically by comparing hardware time vs current time
+//  - Falls back to fixed 30ms compensation when hardware timestamp unavailable
 //  - Notes are timestamped with negative compensation to align with user intent
 //  - Audio feedback is immediate (no latency), only recording timestamps are adjusted
 //  - Compensation is tempo-aware: converted from seconds to beats for musical accuracy
@@ -26,6 +28,7 @@ import SwiftUI
 import Combine
 import Observation
 import AVFoundation
+import AppKit
 
 // MARK: - Virtual Keyboard View
 
@@ -67,7 +70,7 @@ struct VirtualKeyboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             // Configure keyboard state with audio engine for tempo-aware latency compensation
-            keyboardState.configure(audioEngine: audioEngine)
+            keyboardState.configure(audioEngine: audioEngine, onClose: onClose)
             keyboardState.startListening()
         }
         .onDisappear {
@@ -124,6 +127,26 @@ struct VirtualKeyboardView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
     
+    // MARK: - Latency Compensation Badge
+    
+    private var latencyCompensationBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "timer")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Text("Latency: \(String(format: "%.1f", keyboardState.currentLatencyMs))ms (\(String(format: "%.3f", keyboardState.currentLatencyBeats)) beats @ \(String(format: "%.0f", keyboardState.currentTempo)) BPM)")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.8))
+        .cornerRadius(6)
+        .accessibilityIdentifier("virtualKeyboard.latencyBadge")
+        .help("Compensating for UI event latency to ensure accurate MIDI recording timestamps")
+    }
+    
     // MARK: - Header Bar
     
     private var headerBar: some View {
@@ -152,6 +175,9 @@ struct VirtualKeyboardView: View {
             }
             
             Spacer()
+            
+            // Latency compensation indicator
+            latencyCompensationBadge
             
             // Keyboard shortcut hint
             Text("⌘⇧K")
@@ -280,8 +306,8 @@ struct VirtualKeyboardView: View {
                             isPressed: keyboardState.pressedNotes.contains(key.pitch),
                             width: whiteKeyWidth - 2,
                             height: whiteKeyHeight,
-                            onPress: { keyboardState.noteOn(key.pitch) },
-                            onRelease: { keyboardState.noteOff(key.pitch) }
+                            onPress: { timestamp in keyboardState.noteOn(key.pitch, hardwareTimestamp: timestamp) },
+                            onRelease: { timestamp in keyboardState.noteOff(key.pitch, hardwareTimestamp: timestamp) }
                         )
                     }
                 }
@@ -293,8 +319,8 @@ struct VirtualKeyboardView: View {
                         isPressed: keyboardState.pressedNotes.contains(key.pitch),
                         width: blackKeyWidth,
                         height: blackKeyHeight,
-                        onPress: { keyboardState.noteOn(key.pitch) },
-                        onRelease: { keyboardState.noteOff(key.pitch) }
+                        onPress: { timestamp in keyboardState.noteOn(key.pitch, hardwareTimestamp: timestamp) },
+                        onRelease: { timestamp in keyboardState.noteOff(key.pitch, hardwareTimestamp: timestamp) }
                     )
                     .offset(x: blackKeyOffset(for: key, whiteKeyWidth: whiteKeyWidth))
                 }
@@ -394,13 +420,29 @@ struct WhiteKeyView: View {
     let isPressed: Bool
     let width: CGFloat
     let height: CGFloat
-    let onPress: () -> Void
-    let onRelease: () -> Void
+    let onPress: (TimeInterval?) -> Void
+    let onRelease: (TimeInterval?) -> Void
     
     @State private var isHovered = false
+    @State private var pressedByMouse = false
     
     var body: some View {
         ZStack(alignment: .bottom) {
+            // Mouse event capture layer (transparent, captures clicks with timestamps)
+            MouseEventCapturingView(
+                onMouseDown: { timestamp in
+                    pressedByMouse = true
+                    onPress(timestamp)
+                },
+                onMouseUp: { timestamp in
+                    if pressedByMouse {
+                        pressedByMouse = false
+                        onRelease(timestamp)
+                    }
+                }
+            )
+            .allowsHitTesting(true)
+            
             // Key shape
             RoundedRectangle(cornerRadius: 4)
                 .fill(isPressed ? Color.blue.opacity(0.3) : Color.white)
@@ -409,6 +451,7 @@ struct WhiteKeyView: View {
                         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                 )
                 .shadow(color: .black.opacity(0.1), radius: isPressed ? 0 : 2, y: isPressed ? 0 : 2)
+                .allowsHitTesting(false) // Let mouse events pass through to capture layer
             
             // Key label
             VStack(spacing: 2) {
@@ -423,16 +466,11 @@ struct WhiteKeyView: View {
                     .foregroundColor(.secondary)
             }
             .padding(.bottom, 8)
+            .allowsHitTesting(false) // Let mouse events pass through to capture layer
         }
         .frame(width: width, height: height)
         .onHover { hovering in
             isHovered = hovering
-        }
-        .onTapGesture {
-            onPress()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                onRelease()
-            }
         }
     }
 }
@@ -444,11 +482,28 @@ struct BlackKeyView: View {
     let isPressed: Bool
     let width: CGFloat
     let height: CGFloat
-    let onPress: () -> Void
-    let onRelease: () -> Void
+    let onPress: (TimeInterval?) -> Void
+    let onRelease: (TimeInterval?) -> Void
+    
+    @State private var pressedByMouse = false
     
     var body: some View {
         ZStack(alignment: .bottom) {
+            // Mouse event capture layer (transparent, captures clicks with timestamps)
+            MouseEventCapturingView(
+                onMouseDown: { timestamp in
+                    pressedByMouse = true
+                    onPress(timestamp)
+                },
+                onMouseUp: { timestamp in
+                    if pressedByMouse {
+                        pressedByMouse = false
+                        onRelease(timestamp)
+                    }
+                }
+            )
+            .allowsHitTesting(true)
+            
             // Key shape
             RoundedRectangle(cornerRadius: 3)
                 .fill(
@@ -459,6 +514,7 @@ struct BlackKeyView: View {
                     )
                 )
                 .shadow(color: .black.opacity(0.3), radius: isPressed ? 0 : 2, y: isPressed ? 0 : 2)
+                .allowsHitTesting(false) // Let mouse events pass through to capture layer
             
             // Key label
             if let keyChar = key.keyboardKey {
@@ -469,12 +525,44 @@ struct BlackKeyView: View {
             }
         }
         .frame(width: width, height: height)
-        .onTapGesture {
-            onPress()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                onRelease()
-            }
+    }
+}
+
+// MARK: - Mouse Event Capturing View
+
+/// Custom view that captures mouse events with hardware timestamps
+/// Used for piano keys to get sub-millisecond click timing accuracy
+struct MouseEventCapturingView: NSViewRepresentable {
+    let onMouseDown: (TimeInterval) -> Void
+    let onMouseUp: (TimeInterval) -> Void
+    
+    func makeNSView(context: Context) -> MouseEventView {
+        let view = MouseEventView()
+        view.onMouseDown = onMouseDown
+        view.onMouseUp = onMouseUp
+        return view
+    }
+    
+    func updateNSView(_ nsView: MouseEventView, context: Context) {
+        nsView.onMouseDown = onMouseDown
+        nsView.onMouseUp = onMouseUp
+    }
+    
+    class MouseEventView: NSView {
+        var onMouseDown: ((TimeInterval) -> Void)?
+        var onMouseUp: ((TimeInterval) -> Void)?
+        
+        override func mouseDown(with event: NSEvent) {
+            onMouseDown?(event.timestamp)
+            super.mouseDown(with: event)
         }
+        
+        override func mouseUp(with event: NSEvent) {
+            onMouseUp?(event.timestamp)
+            super.mouseUp(with: event)
+        }
+        
+        override var acceptsFirstResponder: Bool { true }
     }
 }
 
@@ -501,11 +589,15 @@ class VirtualKeyboardState {
     @ObservationIgnored
     private var sustainedNotes: Set<UInt8> = []
     
-    /// UI latency compensation in seconds (measured/estimated UI event loop delay)
-    /// This represents the delay between physical user action (click/keypress) and note trigger
+    /// Fixed UI latency fallback (seconds) - used when hardware timestamp unavailable
+    /// This represents the estimated delay between physical user action (click/keypress) and note trigger
     /// Typical values: 20-50ms depending on system load and event processing latency
     @ObservationIgnored
-    private let uiLatencySeconds: TimeInterval = 0.030 // 30ms default
+    private let fallbackLatencySeconds: TimeInterval = 0.030 // 30ms fallback
+    
+    /// Last measured latency from hardware timestamps (sub-millisecond accuracy)
+    /// Updated each time a note is played with hardware timestamp
+    private var lastMeasuredLatencySeconds: TimeInterval = 0.030
     
     /// Access to shared instrument manager
     @ObservationIgnored private var instrumentManager: InstrumentManager { InstrumentManager.shared }
@@ -513,15 +605,51 @@ class VirtualKeyboardState {
     /// Access to audio engine for tempo information (needed for beat compensation calculation)
     @ObservationIgnored private weak var audioEngine: AudioEngine?
     
-    /// Calculate UI latency compensation in beats based on current tempo
-    /// This converts the fixed latency compensation time (seconds) to musical time (beats)
-    private var latencyCompensationBeats: Double {
+    /// Callback to close the Virtual Keyboard (called when Escape is pressed)
+    @ObservationIgnored private var onClose: (() -> Void)?
+    
+    /// Calculate latency compensation in beats from seconds
+    /// - Parameter latencySeconds: Latency in seconds to convert
+    /// - Returns: Latency in beats based on current tempo
+    func latencySecondsToBeats(_ latencySeconds: TimeInterval) -> Double {
         // Get current tempo from audio engine (default to 120 BPM if not available)
         let tempo = audioEngine?.currentProject?.tempo ?? 120.0
         
         // Convert seconds to beats: beats = seconds * (BPM / 60)
         let beatsPerSecond = tempo / 60.0
-        return uiLatencySeconds * beatsPerSecond
+        return latencySeconds * beatsPerSecond
+    }
+    
+    // MARK: - Latency Compensation Visibility (for UI display)
+    
+    /// Current tempo from audio engine
+    var currentTempo: Double {
+        audioEngine?.currentProject?.tempo ?? 120.0
+    }
+    
+    /// Current latency compensation in milliseconds (shows actual measured latency when available)
+    var currentLatencyMs: Double {
+        lastMeasuredLatencySeconds * 1000.0
+    }
+    
+    /// Current latency compensation in beats (dynamically updates with tempo)
+    var currentLatencyBeats: Double {
+        let tempo = audioEngine?.currentProject?.tempo ?? 120.0
+        let beatsPerSecond = tempo / 60.0
+        return lastMeasuredLatencySeconds * beatsPerSecond
+    }
+    
+    /// Calculate actual UI latency from hardware timestamp
+    /// Uses NSEvent.timestamp (high-precision hardware time) vs CACurrentMediaTime()
+    /// - Parameter hardwareTimestamp: NSEvent.timestamp from the event
+    /// - Returns: Actual latency in seconds
+    func calculateActualLatency(hardwareTimestamp: TimeInterval) -> TimeInterval {
+        let currentTime = CACurrentMediaTime()
+        // Actual latency = time now - time when user physically acted
+        let actualLatency = currentTime - hardwareTimestamp
+        
+        // Clamp to reasonable range (0-100ms) to handle clock domain edge cases
+        return max(0, min(actualLatency, 0.100))
     }
     
     /// Whether a track instrument is available
@@ -597,19 +725,33 @@ class VirtualKeyboardState {
         self.audioEngine = audioEngine
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Configure audio engine reference for tempo-aware latency compensation and transport key forwarding
-    func configure(audioEngine: AudioEngine) {
+    /// - Parameters:
+    ///   - audioEngine: Audio engine for tempo and transport control
+    ///   - onClose: Callback to close the Virtual Keyboard
+    func configure(audioEngine: AudioEngine, onClose: (() -> Void)? = nil) {
         self.audioEngine = audioEngine
+        self.onClose = onClose
     }
     
     func startListening() {
         // Monitor key down events
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            
+            // Handle Escape key to close Virtual Keyboard
+            if event.keyCode == 53 { // Escape key code
+                MainActor.assumeIsolated {
+                    self.onClose?()
+                }
+                return nil // Consume the event
+            }
+            
+            // Ignore key repeats (holding down a key) - we want one note per physical press
+            if event.isARepeat {
+                return nil // Consume the repeat event without triggering another note
+            }
             
             // Forward DAW transport keys to AudioEngine.
             // The VK sheet blocks the parent window's keyboard shortcuts,
@@ -656,7 +798,8 @@ class VirtualKeyboardState {
             }
             
             if let char = event.characters?.lowercased().first {
-                if self.handleKeyDown(char) {
+                // Use hardware timestamp for precise latency compensation
+                if self.handleKeyDown(char, hardwareTimestamp: event.timestamp) {
                     return nil // Consume the event
                 }
             }
@@ -680,7 +823,8 @@ class VirtualKeyboardState {
             }
             
             if let char = event.characters?.lowercased().first {
-                if self.handleKeyUp(char) {
+                // Use hardware timestamp for precise latency compensation
+                if self.handleKeyUp(char, hardwareTimestamp: event.timestamp) {
                     return nil
                 }
             }
@@ -699,17 +843,18 @@ class VirtualKeyboardState {
         }
         
         // Release all notes (both pressed and sustained)
+        // No hardware timestamp available during cleanup - use fallback
         for pitch in pressedNotes {
-            sendNoteOff(pitch)
+            sendNoteOff(pitch, hardwareTimestamp: nil)
         }
         for pitch in sustainedNotes {
-            sendNoteOff(pitch)
+            sendNoteOff(pitch, hardwareTimestamp: nil)
         }
         pressedNotes.removeAll()
         sustainedNotes.removeAll()
     }
     
-    private func handleKeyDown(_ char: Character) -> Bool {
+    private func handleKeyDown(_ char: Character, hardwareTimestamp: TimeInterval? = nil) -> Bool {
         // Check for control keys
         switch char {
         case "z":
@@ -735,16 +880,16 @@ class VirtualKeyboardState {
         if let pitch = pitchForKey(char) {
             // ALWAYS allow noteOn, even if note is currently sustained
             // This enables piano-style retriggering while sustain is active
-            noteOn(pitch)
+            noteOn(pitch, hardwareTimestamp: hardwareTimestamp)
             return true
         }
         
         return false
     }
     
-    private func handleKeyUp(_ char: Character) -> Bool {
+    private func handleKeyUp(_ char: Character, hardwareTimestamp: TimeInterval? = nil) -> Bool {
         if let pitch = pitchForKey(char) {
-            noteOff(pitch)
+            noteOff(pitch, hardwareTimestamp: hardwareTimestamp)
             return true
         }
         return false
@@ -770,34 +915,66 @@ class VirtualKeyboardState {
     // MARK: - Note Routing
     
     /// Send note on - routes to active track instrument with latency compensation
-    private func sendNoteOn(_ pitch: UInt8) {
+    /// - Parameters:
+    ///   - pitch: MIDI pitch to trigger
+    ///   - hardwareTimestamp: Optional NSEvent.timestamp for precise latency calculation
+    private func sendNoteOn(_ pitch: UInt8, hardwareTimestamp: TimeInterval?) {
         guard instrumentManager.hasActiveInstrument else { return }
+        
+        // Calculate latency compensation from hardware timestamp or use fallback
+        let compensationBeats: Double
+        if let hwTimestamp = hardwareTimestamp {
+            let actualLatency = calculateActualLatency(hardwareTimestamp: hwTimestamp)
+            // Update last measured latency for UI display (sub-ms accuracy)
+            lastMeasuredLatencySeconds = actualLatency
+            compensationBeats = latencySecondsToBeats(actualLatency)
+        } else {
+            // Fallback to fixed compensation for events without hardware timestamp
+            compensationBeats = latencySecondsToBeats(fallbackLatencySeconds)
+        }
+        
         // Apply UI latency compensation for accurate recording timestamps
-        instrumentManager.noteOn(pitch: pitch, velocity: velocity, compensationBeats: latencyCompensationBeats)
+        instrumentManager.noteOn(pitch: pitch, velocity: velocity, compensationBeats: compensationBeats)
     }
     
     /// Send note off - routes to active track instrument with latency compensation
-    private func sendNoteOff(_ pitch: UInt8) {
+    /// - Parameters:
+    ///   - pitch: MIDI pitch to release
+    ///   - hardwareTimestamp: Optional NSEvent.timestamp for precise latency calculation
+    private func sendNoteOff(_ pitch: UInt8, hardwareTimestamp: TimeInterval?) {
         guard instrumentManager.hasActiveInstrument else { return }
+        
+        // Calculate latency compensation from hardware timestamp or use fallback
+        let compensationBeats: Double
+        if let hwTimestamp = hardwareTimestamp {
+            let actualLatency = calculateActualLatency(hardwareTimestamp: hwTimestamp)
+            // Update last measured latency for UI display (sub-ms accuracy)
+            lastMeasuredLatencySeconds = actualLatency
+            compensationBeats = latencySecondsToBeats(actualLatency)
+        } else {
+            // Fallback to fixed compensation for events without hardware timestamp
+            compensationBeats = latencySecondsToBeats(fallbackLatencySeconds)
+        }
+        
         // Apply UI latency compensation for accurate recording timestamps
-        instrumentManager.noteOff(pitch: pitch, compensationBeats: latencyCompensationBeats)
+        instrumentManager.noteOff(pitch: pitch, compensationBeats: compensationBeats)
     }
     
-    func noteOn(_ pitch: UInt8) {
+    func noteOn(_ pitch: UInt8, hardwareTimestamp: TimeInterval? = nil) {
         // Remove from sustained notes if retriggering a sustained note
         sustainedNotes.remove(pitch)
         
         // If note is already pressed, send noteOff first (retrigger)
         if pressedNotes.contains(pitch) {
-            sendNoteOff(pitch)
+            sendNoteOff(pitch, hardwareTimestamp: hardwareTimestamp)
         }
         
         // Add to pressed notes and send noteOn
         pressedNotes.insert(pitch)
-        sendNoteOn(pitch)
+        sendNoteOn(pitch, hardwareTimestamp: hardwareTimestamp)
     }
     
-    func noteOff(_ pitch: UInt8) {
+    func noteOff(_ pitch: UInt8, hardwareTimestamp: TimeInterval? = nil) {
         // Remove from currently pressed notes
         pressedNotes.remove(pitch)
         
@@ -806,18 +983,19 @@ class VirtualKeyboardState {
             sustainedNotes.insert(pitch)
         } else {
             // No sustain: send noteOff immediately
-            sendNoteOff(pitch)
+            sendNoteOff(pitch, hardwareTimestamp: hardwareTimestamp)
         }
     }
     
     func octaveUp() {
         if octave < 8 {
             // Release all notes (pressed and sustained) before changing octave
+            // No hardware timestamp available for octave change - use fallback
             for pitch in pressedNotes {
-                sendNoteOff(pitch)
+                sendNoteOff(pitch, hardwareTimestamp: nil)
             }
             for pitch in sustainedNotes {
-                sendNoteOff(pitch)
+                sendNoteOff(pitch, hardwareTimestamp: nil)
             }
             pressedNotes.removeAll()
             sustainedNotes.removeAll()
@@ -828,11 +1006,12 @@ class VirtualKeyboardState {
     func octaveDown() {
         if octave > 0 {
             // Release all notes (pressed and sustained) before changing octave
+            // No hardware timestamp available for octave change - use fallback
             for pitch in pressedNotes {
-                sendNoteOff(pitch)
+                sendNoteOff(pitch, hardwareTimestamp: nil)
             }
             for pitch in sustainedNotes {
-                sendNoteOff(pitch)
+                sendNoteOff(pitch, hardwareTimestamp: nil)
             }
             pressedNotes.removeAll()
             sustainedNotes.removeAll()
@@ -861,7 +1040,8 @@ class VirtualKeyboardState {
             for pitch in sustainedNotes {
                 // Only send noteOff if key is not currently pressed
                 if !pressedNotes.contains(pitch) {
-                    sendNoteOff(pitch)
+                    // No hardware timestamp available for sustain release - use fallback
+                    sendNoteOff(pitch, hardwareTimestamp: nil)
                 }
             }
             sustainedNotes.removeAll()

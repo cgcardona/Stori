@@ -4,9 +4,9 @@
 //
 //  Audio node representation for individual tracks
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Accelerate
 
 // MARK: - Track Audio Node
@@ -166,9 +166,7 @@ final class TrackAudioNode: @unchecked Sendable {
         setupLevelMonitoring()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {
+    deinit {
         removeLevelMonitoring()
         _currentLevelLeft.deinitialize(count: 1)
         _currentLevelRight.deinitialize(count: 1)

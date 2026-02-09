@@ -32,9 +32,6 @@ final class AssetDownloadService {
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 
     // MARK: - Paths
 
@@ -663,7 +660,7 @@ final class AssetDownloadService {
 
 // MARK: - Download Delegate for Progress Tracking
 
-private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     let progressHandler: (Double) -> Void
     var completion: CheckedContinuation<(URL, URLResponse), Error>?
     
@@ -671,9 +668,6 @@ private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         self.progressHandler = progressHandler
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let response = downloadTask.response else {

@@ -12,8 +12,6 @@ import AVFoundation
 
 /// Adaptive colors for the step sequencer that respect system appearance
 struct SequencerColors {
-    @Environment(\.colorScheme) static var colorScheme
-    
     // Backgrounds
     static var background: Color { Color(nsColor: .windowBackgroundColor) }
     static var controlBackground: Color { Color(nsColor: .controlBackgroundColor) }
@@ -3595,9 +3593,6 @@ struct SequencerKeyboardHandler: NSViewRepresentable {
     class KeyCaptureView: NSView {
         var onKeyDown: ((NSEvent) -> Void)?
         
-        /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-        /// the runtime deinits this object on MainActor/task-local context.
-        nonisolated deinit {}
         
         override var acceptsFirstResponder: Bool { true }
         

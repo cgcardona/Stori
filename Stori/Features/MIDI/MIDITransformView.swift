@@ -438,8 +438,12 @@ struct MIDITransformView: View {
         
         // Register undo
         if let undoManager = undoManager {
+            // Capture region as a weak reference to avoid isolation issues
+            let regionBinding = $region
             undoManager.registerUndo(withTarget: undoManager) { _ in
-                self.region.notes = oldNotes
+                Task { @MainActor in
+                    regionBinding.wrappedValue.notes = oldNotes
+                }
             }
             undoManager.setActionName(selectedOperation.rawValue)
         }

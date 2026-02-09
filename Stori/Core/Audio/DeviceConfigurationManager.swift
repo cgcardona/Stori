@@ -6,8 +6,9 @@
 //  Extracted from AudioEngine.swift for better maintainability.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 /// Manages audio hardware configuration changes (e.g., switching audio interfaces)
@@ -91,9 +92,6 @@ final class DeviceConfigurationManager {
     
     init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Public API
     
@@ -108,7 +106,9 @@ final class DeviceConfigurationManager {
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleHandler()
+            Task { @MainActor in
+                self?.scheduleHandler()
+            }
         }
     }
     

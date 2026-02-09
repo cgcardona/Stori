@@ -189,7 +189,7 @@ final class SamplerEngineTests: XCTestCase {
     
     // MARK: - Concurrency Tests
     
-    func testConcurrentNoteOn() {
+    func testConcurrentNoteOn() async {
         let expectation = self.expectation(description: "Concurrent note on")
         expectation.expectedFulfillmentCount = 5
         
@@ -203,10 +203,10 @@ final class SamplerEngineTests: XCTestCase {
             }
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
     
-    func testConcurrentSoundFontLoad() {
+    func testConcurrentSoundFontLoad() async {
         let expectation = self.expectation(description: "Concurrent SoundFont load")
         expectation.expectedFulfillmentCount = 3
         
@@ -218,7 +218,7 @@ final class SamplerEngineTests: XCTestCase {
             }
         }
         
-        waitForExpectations(timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
     
     // MARK: - Edge Case Tests

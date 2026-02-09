@@ -16,19 +16,19 @@ final class UpdateStoreTests: XCTestCase {
     private var testDefaults: UserDefaults!
     private var suiteName: String!
     
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         suiteName = "com.stori.tests.updateStore.\(UUID().uuidString)"
         testDefaults = UserDefaults(suiteName: suiteName)!
         store = UpdateStore(defaults: testDefaults)
     }
     
-    override func tearDown() {
+    override func tearDown() async throws {
         UserDefaults.standard.removePersistentDomain(forName: suiteName)
         testDefaults = nil
         store = nil
         suiteName = nil
-        super.tearDown()
+        try await super.tearDown()
     }
     
     // MARK: - Last Check Date

@@ -17,8 +17,9 @@
 //  - Professional DAW requirement: Metronome must be sample-accurate reference
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // TimeSignature is defined in AudioModels.swift and will be available when this file is compiled as part of the target
 

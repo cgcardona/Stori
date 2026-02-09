@@ -4,9 +4,9 @@
 //
 //  Manages chains of Audio Unit plugins for tracks and buses.
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Combine
 import Observation
 
@@ -37,7 +37,7 @@ enum PluginChainError: Error, LocalizedError {
 
 /// Explicit state machine for plugin chain lifecycle.
 /// Prevents invalid state transitions and makes the chain's status clear.
-enum ChainState: String, CustomStringConvertible {
+enum ChainState: String, @unchecked Sendable {
     /// Chain created but not associated with an engine
     case uninstalled
     
@@ -48,8 +48,10 @@ enum ChainState: String, CustomStringConvertible {
     /// Mixer nodes created and attached to engine
     /// Ready for plugin insertion
     case realized
-    
-    var description: String { rawValue }
+}
+
+extension ChainState: CustomStringConvertible {
+    nonisolated var description: String { rawValue }
     
     /// Valid transitions from this state
     var validTransitions: Set<ChainState> {
@@ -65,9 +67,123 @@ enum ChainState: String, CustomStringConvertible {
     }
 }
 
-// MARK: - Plugin Chain
+// MARK: - Plugin Chain Core (Nonisolated Resource Owner)
+
+/// Owns audio graph resources (mixer nodes, engine connection) with deterministic RAII cleanup.
+///
+/// # Architecture: Core + Model Split
+///
+/// `PluginChainCore` is intentionally **not** `@MainActor`. It owns the
+/// `AVAudioMixerNode` instances and manages their attachment to the
+/// `AVAudioEngine`. These resources are cleaned up in `deinit`, which
+/// can run on any thread without requiring an actor hop.
+///
+/// The `@MainActor @Observable` `PluginChain` holds this core and manages
+/// the plugin slot array and bypass state for UI observation.
+final class PluginChainCore {
+    
+    // MARK: - Audio Nodes (Lazy — Only Created When Needed)
+    
+    /// Input mixer node — only created when first plugin is inserted
+    private(set) var inputMixer: AVAudioMixerNode?
+    
+    /// Output mixer node — only created when first plugin is inserted
+    private(set) var outputMixer: AVAudioMixerNode?
+    
+    /// Weak reference to the audio engine
+    weak var engine: AVAudioEngine?
+    
+    /// Audio format for chain connections
+    var chainFormat: AVAudioFormat?
+    
+    /// Current state of the plugin chain
+    private(set) var state: ChainState = .uninstalled
+    
+    // MARK: - Lazy Mixer Access
+    
+    /// Get or create the input mixer (lazy instantiation)
+    func getOrCreateInputMixer() -> AVAudioMixerNode {
+        if let existing = inputMixer { return existing }
+        let mixer = AVAudioMixerNode()
+        inputMixer = mixer
+        return mixer
+    }
+    
+    /// Get or create the output mixer (lazy instantiation)
+    func getOrCreateOutputMixer() -> AVAudioMixerNode {
+        if let existing = outputMixer { return existing }
+        let mixer = AVAudioMixerNode()
+        outputMixer = mixer
+        return mixer
+    }
+    
+    // MARK: - State Machine
+    
+    /// Transition to a new state (validates transition and logs errors)
+    @discardableResult
+    func transition(to newState: ChainState) -> Bool {
+        guard state.canTransition(to: newState) else {
+            let error = PluginChainError.invalidStateTransition(from: state, to: newState)
+            AppLogger.shared.error("PluginChain: \(error.localizedDescription)", category: .audio)
+            #if DEBUG
+            fatalError(error.localizedDescription)
+            #else
+            state = newState
+            return false
+            #endif
+        }
+        state = newState
+        return true
+    }
+    
+    /// Force state (for teardown/reconciliation where transitions may be invalid)
+    func forceState(_ newState: ChainState) {
+        state = newState
+    }
+    
+    // MARK: - Mixer Management
+    
+    /// Create new mixer nodes (for recreateMixers)
+    func createFreshMixers() {
+        inputMixer = AVAudioMixerNode()
+        outputMixer = AVAudioMixerNode()
+    }
+    
+    /// Clear mixer references
+    func clearMixers() {
+        inputMixer = nil
+        outputMixer = nil
+    }
+    
+    // MARK: - RAII Cleanup
+    
+    /// Deterministic cleanup of audio graph resources.
+    /// Detaches mixer nodes from the engine if still attached.
+    deinit {
+        guard let engine = engine else { return }
+        
+        if let inputMixer = inputMixer, inputMixer.engine === engine {
+            engine.disconnectNodeOutput(inputMixer)
+            engine.disconnectNodeInput(inputMixer)
+            engine.detach(inputMixer)
+        }
+        
+        if let outputMixer = outputMixer, outputMixer.engine === engine {
+            engine.disconnectNodeOutput(outputMixer)
+            engine.disconnectNodeInput(outputMixer)
+            engine.detach(outputMixer)
+        }
+    }
+}
+
+// MARK: - Plugin Chain (@MainActor Observable Model)
 
 /// Manages an ordered chain of plugin instances for audio processing.
+///
+/// # Architecture: @MainActor Observable Model
+///
+/// Holds a `PluginChainCore` that owns audio graph resources (mixer nodes).
+/// Plugin slots and bypass state are `@Observable` for SwiftUI.
 ///
 /// STATE MACHINE:
 /// - `uninstalled` → Chain created, no engine reference
@@ -99,99 +215,97 @@ class PluginChain {
     /// Whether the entire chain is bypassed
     var isBypassed: Bool = false
     
-    // MARK: - State Machine
+    // MARK: - Core (Nonisolated Resource Owner)
+    
+    /// Nonisolated core that owns mixer nodes and handles RAII cleanup.
+    @ObservationIgnored
+    private let core = PluginChainCore()
+    
+    // MARK: - State Machine (delegates to core)
     
     /// Current state of the plugin chain
-    @ObservationIgnored
-    private(set) var state: ChainState = .uninstalled
+    var state: ChainState { core.state }
     
-    /// Transition to a new state (validates transition and logs errors)
-    /// In release builds, invalid transitions are logged but proceed to prevent crashes
-    /// This allows graceful degradation while still making bugs visible
-    @discardableResult
-    private func transition(to newState: ChainState) -> Bool {
-        guard state.canTransition(to: newState) else {
-            let error = PluginChainError.invalidStateTransition(from: state, to: newState)
-            AppLogger.shared.error("PluginChain: \(error.localizedDescription)", category: .audio)
-            #if DEBUG
-            // In debug builds, crash immediately to catch bugs early
-            fatalError(error.localizedDescription)
-            #else
-            // In release builds, force the transition to prevent stuck states
-            // This is a recovery path - the chain may be in an inconsistent state
-            state = newState
-            return false
-            #endif
-        }
-        state = newState
-        return true
+    /// Whether the chain mixers have been realized (attached to engine)
+    var isRealized: Bool { core.state == .realized }
+    
+    // MARK: - Mixer Access (delegates to core)
+    
+    /// Get or create the input mixer (lazy instantiation)
+    var inputMixer: AVAudioMixerNode { core.getOrCreateInputMixer() }
+    
+    /// Get or create the output mixer (lazy instantiation)
+    var outputMixer: AVAudioMixerNode { core.getOrCreateOutputMixer() }
+    
+    // MARK: - Graph Mutation Callback
+    
+    @ObservationIgnored
+    var onRequestGraphMutation: ((@escaping () -> Void) -> Void)?
+    
+    // MARK: - Initialization
+    
+    init(id: UUID = UUID(), maxSlots: Int = 8) {
+        self.id = id
+        self.maxSlots = maxSlots
+        self.slots = Array(repeating: nil, count: maxSlots)
     }
+    
+    // PluginChainCore handles RAII cleanup — no manual deinit needed.
     
     // MARK: - State Validation
     
     /// Validates that the current state matches actual engine attachment state
-    /// Returns true if state is consistent, false if desync detected
     func validateState() -> Bool {
-        switch state {
+        switch core.state {
         case .uninstalled:
-            // Should have no engine reference and no mixers
-            if engine != nil {
+            if core.engine != nil {
                 AppLogger.shared.warning("PluginChain state=uninstalled but engine != nil", category: .audio)
                 return false
             }
-            if _inputMixer != nil || _outputMixer != nil {
+            if core.inputMixer != nil || core.outputMixer != nil {
                 AppLogger.shared.warning("PluginChain state=uninstalled but mixers exist", category: .audio)
                 return false
             }
             return true
             
         case .installed:
-            // Should have engine reference but mixers not attached
-            guard let engine = engine else {
+            guard let engine = core.engine else {
                 AppLogger.shared.warning("PluginChain state=installed but engine == nil", category: .audio)
                 return false
             }
             
-            // Mixers should either not exist or not be attached
-            if let inputMixer = _inputMixer, inputMixer.engine != nil {
+            if let inputMixer = core.inputMixer, inputMixer.engine != nil {
                 AppLogger.shared.warning("PluginChain state=installed but inputMixer is attached", category: .audio)
                 return false
             }
-            if let outputMixer = _outputMixer, outputMixer.engine != nil {
+            if let outputMixer = core.outputMixer, outputMixer.engine != nil {
                 AppLogger.shared.warning("PluginChain state=installed but outputMixer is attached", category: .audio)
                 return false
             }
             
-            // Engine reference exists and state is consistent
             return true
             
         case .realized:
-            // Should have engine, mixers exist and attached
-            guard let engine = engine else {
+            guard let engine = core.engine else {
                 AppLogger.shared.error("PluginChain state=realized but engine == nil", category: .audio)
                 return false
             }
             
-            guard let inputMixer = _inputMixer else {
+            guard let inputMixer = core.inputMixer else {
                 AppLogger.shared.error("PluginChain state=realized but inputMixer == nil", category: .audio)
                 return false
             }
             
-            guard let outputMixer = _outputMixer else {
+            guard let outputMixer = core.outputMixer else {
                 AppLogger.shared.error("PluginChain state=realized but outputMixer == nil", category: .audio)
                 return false
             }
             
-            // CRITICAL: After engine.reset(), accessing node properties can cause memory corruption
-            // The safest validation is to check if the engine's attachedNodes list has changed
-            // If engine has no attached nodes at all, it was probably reset
             if engine.attachedNodes.isEmpty {
                 AppLogger.shared.error("PluginChain state=realized but engine has no attached nodes (likely reset)", category: .audio)
                 return false
             }
             
-            // Check if our specific mixers are still attached
-            // Use contains() which is safer than checking node.engine property on potentially freed nodes
             let inputAttached = engine.attachedNodes.contains { $0 === inputMixer }
             let outputAttached = engine.attachedNodes.contains { $0 === outputMixer }
             
@@ -210,194 +324,107 @@ class PluginChain {
     }
     
     /// Attempt to reconcile state with actual engine attachment state
-    /// Call this when validateState() returns false
     func reconcileStateWithEngine() {
         AppLogger.shared.warning("PluginChain: Attempting state reconciliation", category: .audio)
         
-        // Determine actual state based on engine attachment
         let actualState: ChainState
         
-        if engine == nil {
+        if core.engine == nil {
             actualState = .uninstalled
-        } else if _inputMixer?.engine != nil && _outputMixer?.engine != nil {
+        } else if core.inputMixer?.engine != nil && core.outputMixer?.engine != nil {
             actualState = .realized
         } else {
             actualState = .installed
         }
         
-        if actualState != state {
-            AppLogger.shared.warning("PluginChain: Reconciling state \(state) -> \(actualState)", category: .audio)
-            state = actualState
+        if actualState != core.state {
+            AppLogger.shared.warning("PluginChain: Reconciling state \(core.state) -> \(actualState)", category: .audio)
+            core.forceState(actualState)
         }
-    }
-    
-    // MARK: - Audio Nodes (Lazy - Only Created When Needed)
-    
-    /// Input mixer node - only created when first plugin is inserted
-    @ObservationIgnored
-    private var _inputMixer: AVAudioMixerNode?
-    
-    /// Output mixer node - only created when first plugin is inserted
-    @ObservationIgnored
-    private var _outputMixer: AVAudioMixerNode?
-    
-    /// Get or create the input mixer (lazy instantiation)
-    var inputMixer: AVAudioMixerNode {
-        if let existing = _inputMixer {
-            return existing
-        }
-        let mixer = AVAudioMixerNode()
-        _inputMixer = mixer
-        return mixer
-    }
-    
-    /// Get or create the output mixer (lazy instantiation)
-    var outputMixer: AVAudioMixerNode {
-        if let existing = _outputMixer {
-            return existing
-        }
-        let mixer = AVAudioMixerNode()
-        _outputMixer = mixer
-        return mixer
-    }
-    
-    /// Whether the chain mixers have been realized (attached to engine)
-    /// This is a derived property based on actual state
-    var isRealized: Bool {
-        return state == .realized
-    }
-    
-    // NOTE: hasActivePlugins is defined later in the file (includes bypass check)
-    
-    @ObservationIgnored
-    private weak var engine: AVAudioEngine?
-    
-    @ObservationIgnored
-    private var chainFormat: AVAudioFormat?
-    
-    @ObservationIgnored
-    var onRequestGraphMutation: ((@escaping () -> Void) -> Void)?
-    
-    // MARK: - Initialization
-    
-    init(id: UUID = UUID(), maxSlots: Int = 8) {
-        self.id = id
-        self.maxSlots = maxSlots
-        self.slots = Array(repeating: nil, count: maxSlots)
-        // NOTE: Mixers are NOT created here - lazy instantiation
     }
     
     // MARK: - Engine Integration
     
     /// Install the chain into an audio engine (stores reference, does NOT create nodes)
-    /// Nodes are created lazily when the first plugin is inserted.
-    /// State transition: uninstalled → installed
     func install(in engine: AVAudioEngine, format: AVAudioFormat?) {
-        self.engine = engine
-        self.chainFormat = format
+        core.engine = engine
+        core.chainFormat = format
         
-        // Transition: uninstalled → installed
-        if state == .uninstalled {
-            transition(to: .installed)
+        if core.state == .uninstalled {
+            core.transition(to: .installed)
         }
-        // NOTE: Mixers are NOT attached here - they're created lazily when needed
-        // This saves 2 nodes per track for tracks without plugins
     }
     
     /// Realize the chain by creating and attaching mixer nodes.
-    /// Called when the first plugin is being inserted.
-    /// State transition: installed → realized
-    /// Returns true if newly realized, false if already realized.
     @discardableResult
     func realize() -> Bool {
-        // Validate current state before attempting realization
         if !validateState() {
             AppLogger.shared.warning("PluginChain: State validation failed before realize(), attempting reconciliation", category: .audio)
             reconcileStateWithEngine()
         }
         
-        guard let engine = self.engine else {
+        guard let engine = core.engine else {
             AppLogger.shared.error("PluginChain: Cannot realize - no engine reference", category: .audio)
             return false
         }
         
-        // Verify engine is running (critical for attach operations)
         guard engine.isRunning else {
             AppLogger.shared.error("PluginChain: Cannot realize - engine is not running", category: .audio)
             return false
         }
         
-        // Already realized?
-        if state == .realized {
-            // Validate it's actually realized
+        if core.state == .realized {
             if validateState() {
                 return false
             } else {
                 AppLogger.shared.warning("PluginChain: State was 'realized' but validation failed, forcing recreation", category: .audio)
-                // Fall through to recreate
             }
         }
         
         // Create mixers if they don't exist
-        if _inputMixer == nil {
-            _inputMixer = AVAudioMixerNode()
-        }
-        if _outputMixer == nil {
-            _outputMixer = AVAudioMixerNode()
-        }
+        let inMixer = core.getOrCreateInputMixer()
+        let outMixer = core.getOrCreateOutputMixer()
         
-        // Attach to engine (safely check if already attached)
-        if let inputMixer = _inputMixer {
-            if inputMixer.engine == nil {
-                engine.attach(inputMixer)
-            } else if inputMixer.engine !== engine {
-                // Attached to wrong engine - detach and reattach
-                AppLogger.shared.warning("PluginChain: inputMixer attached to wrong engine, fixing", category: .audio)
-                if let wrongEngine = inputMixer.engine {
-                    wrongEngine.detach(inputMixer)
-                }
-                engine.attach(inputMixer)
+        // Attach to engine
+        if inMixer.engine == nil {
+            engine.attach(inMixer)
+        } else if inMixer.engine !== engine {
+            AppLogger.shared.warning("PluginChain: inputMixer attached to wrong engine, fixing", category: .audio)
+            if let wrongEngine = inMixer.engine {
+                wrongEngine.detach(inMixer)
             }
+            engine.attach(inMixer)
         }
         
-        if let outputMixer = _outputMixer {
-            if outputMixer.engine == nil {
-                engine.attach(outputMixer)
-            } else if outputMixer.engine !== engine {
-                // Attached to wrong engine - detach and reattach
-                AppLogger.shared.warning("PluginChain: outputMixer attached to wrong engine, fixing", category: .audio)
-                if let wrongEngine = outputMixer.engine {
-                    wrongEngine.detach(outputMixer)
-                }
-                engine.attach(outputMixer)
+        if outMixer.engine == nil {
+            engine.attach(outMixer)
+        } else if outMixer.engine !== engine {
+            AppLogger.shared.warning("PluginChain: outputMixer attached to wrong engine, fixing", category: .audio)
+            if let wrongEngine = outMixer.engine {
+                wrongEngine.detach(outMixer)
             }
+            engine.attach(outMixer)
         }
         
-        // Use the engine's graph format (hardware-derived) for all connections
-        // This ensures plugins match the live engine rate, not a hardcoded value
         let connectionFormat: AVAudioFormat
-        if let format = chainFormat {
+        if let format = core.chainFormat {
             connectionFormat = format
         } else {
-            // Fallback: use engine's processing rate (inputFormat), not hardware output rate, to avoid format mismatch/glitches
             let engineSampleRate = engine.outputNode.inputFormat(forBus: 0).sampleRate
             let fallbackRate = engineSampleRate > 0 ? engineSampleRate : 48000
             connectionFormat = AVAudioFormat(standardFormatWithSampleRate: fallbackRate, channels: 2)!
             AppLogger.shared.warning("PluginChain: chainFormat was nil, using derived rate \(fallbackRate)", category: .audio)
         }
         
-        // Connect mixers
         do {
-            engine.connect(_inputMixer!, to: _outputMixer!, format: connectionFormat)
+            engine.connect(inMixer, to: outMixer, format: connectionFormat)
         } catch {
             AppLogger.shared.error("PluginChain: Failed to connect mixers: \(error.localizedDescription)", category: .audio)
             return false
         }
         
-        // Transition: installed → realized
-        transition(to: .realized)
+        core.transition(to: .realized)
         
-        // Final validation
         if !validateState() {
             AppLogger.shared.error("PluginChain: State validation failed after realize()", category: .audio)
             return false
@@ -407,74 +434,43 @@ class PluginChain {
     }
     
     /// Unrealize the chain by detaching mixer nodes.
-    /// Called when the last plugin is removed.
-    /// State transition: realized → installed
     func unrealize() {
-        guard let engine = self.engine else { return }
+        guard let engine = core.engine else { return }
+        guard core.state == .realized else { return }
         
-        // Only unrealize if currently realized
-        guard state == .realized else { return }
-        
-        // Detach input mixer if attached
-        if let inputMixer = _inputMixer, inputMixer.engine === engine {
+        if let inputMixer = core.inputMixer, inputMixer.engine === engine {
             engine.disconnectNodeInput(inputMixer)
             engine.disconnectNodeOutput(inputMixer)
             engine.detach(inputMixer)
         }
         
-        // Detach output mixer if attached
-        if let outputMixer = _outputMixer, outputMixer.engine === engine {
+        if let outputMixer = core.outputMixer, outputMixer.engine === engine {
             engine.disconnectNodeInput(outputMixer)
             engine.disconnectNodeOutput(outputMixer)
             engine.detach(outputMixer)
         }
         
-        _inputMixer = nil
-        _outputMixer = nil
-        
-        // Transition: realized → installed
-        transition(to: .installed)
+        core.clearMixers()
+        core.transition(to: .installed)
     }
     
-    /// Recreate the input and output mixers to clear any residual state
-    /// ChatGPT: "recreating the mixers is the pragmatic fix" for lingering graph state
-    /// MUST be called within a graph mutation block (engine stopped)
     /// Reset mixer AU state to clear any stale DSP/render state
-    /// ROOT CAUSE: AVAudioMixerNode can retain stale internal state after engine.reset()
-    /// particularly with format changes or bus accumulation. Resetting the underlying
-    /// AUAudioUnit clears this state without needing to recreate the entire node.
     func resetMixerState() {
-        // Only reset if mixers exist
-        guard let inputMixer = _inputMixer, let outputMixer = _outputMixer else {
+        guard let inputMixer = core.inputMixer, let outputMixer = core.outputMixer else {
             return
         }
-        // Reset the underlying AU state - this clears cached formats and DSP state
         inputMixer.auAudioUnit.reset()
         outputMixer.auAudioUnit.reset()
     }
     
     /// Recreate the input/output mixers to clear corrupted state
-    /// This is a more aggressive fix than resetMixerState() - use when reset alone doesn't work.
-    /// ROOT CAUSE IDENTIFIED: AVAudioMixerNode accumulates input buses when sources are
-    /// reconnected multiple times. After engine.reset(), the mixer's internal bus mapping
-    /// can become inconsistent, causing audio to flow to a stale/unused bus.
-    /// The fix is to ensure we explicitly disconnect ALL buses before reconnecting.
     func recreateMixers() {
-        guard let engine = self.engine else {
-            return
-        }
+        guard let engine = core.engine else { return }
+        guard let oldInputMixer = core.inputMixer, let oldOutputMixer = core.outputMixer else { return }
         
-        // Only recreate if mixers exist
-        guard let oldInputMixer = _inputMixer, let oldOutputMixer = _outputMixer else {
-            return
-        }
-        
-        // Diagnostic: Check engine refs and bus count before disconnection
-        let oldInputEngineRef = oldInputMixer.engine
         let oldInputBusCount = oldInputMixer.numberOfInputs
         
-        // Disconnect ALL input buses explicitly (not just the node)
-        // This is the key fix - mixer nodes accumulate buses and we need to clear them all
+        // Disconnect ALL input buses explicitly
         for bus in 0..<oldInputMixer.numberOfInputs {
             engine.disconnectNodeInput(oldInputMixer, bus: bus)
         }
@@ -485,130 +481,93 @@ class PluginChain {
         }
         engine.disconnectNodeOutput(oldOutputMixer)
         
-        // Detach old mixers from engine
         engine.detach(oldInputMixer)
         engine.detach(oldOutputMixer)
         
         // Create new mixers with fresh state
-        _inputMixer = AVAudioMixerNode()
-        _outputMixer = AVAudioMixerNode()
+        core.createFreshMixers()
         
-        // Attach new mixers
-        engine.attach(_inputMixer!)
-        engine.attach(_outputMixer!)
+        engine.attach(core.inputMixer!)
+        engine.attach(core.outputMixer!)
         
-        // Log if we cleared accumulated buses (indicates bus accumulation was the issue)
         if oldInputBusCount > 1 {
-        }
-        
-        if oldInputEngineRef == nil {
         }
     }
     
     /// Ensure the chain has a valid engine reference
-    /// This is needed when tracks are restored from a saved project - the nodes may be
-    /// attached to the engine but the chain's internal reference may be nil
     func ensureEngineReference(_ engine: AVAudioEngine) {
-        if self.engine == nil {
-            self.engine = engine
-            self.chainFormat = engine.outputNode.inputFormat(forBus: 0)
+        if core.engine == nil {
+            core.engine = engine
+            core.chainFormat = engine.outputNode.inputFormat(forBus: 0)
         }
     }
     
     /// Update the chain's format to match the canonical format
-    /// CRITICAL: Call this before rebuilding connections to ensure consistent format
     func updateFormat(_ format: AVAudioFormat) {
-        self.chainFormat = format
+        core.chainFormat = format
     }
     
     /// Remove the chain from the engine
-    /// State transition: (any) → uninstalled
     /// SAFETY (Issue #62): Uses deferred deallocation for plugins
     func uninstall() {
-        guard let engine = engine else { return }
+        guard let engine = core.engine else { return }
         
-        // CRITICAL (Issue #62): Schedule plugins for deferred deallocation
-        // instead of immediate unload() to prevent use-after-free
+        // Schedule plugins for deferred deallocation
         for slot in slots {
             if let plugin = slot {
                 PluginDeferredDeallocationManager.shared.schedulePluginForDeallocation(plugin)
             }
         }
         
-        // Clear slots immediately (plugins are held by deferred manager)
+        // Clear slots immediately
         for i in 0..<maxSlots {
             slots[i] = nil
         }
         
-        // Safely detach mixers - only if they exist and are attached to this engine
-        if let inputMixer = _inputMixer, inputMixer.engine === engine, engine.attachedNodes.contains(inputMixer) {
+        // Safely detach mixers
+        if let inputMixer = core.inputMixer, inputMixer.engine === engine, engine.attachedNodes.contains(inputMixer) {
             engine.disconnectNodeOutput(inputMixer)
             engine.disconnectNodeInput(inputMixer)
             engine.detach(inputMixer)
         }
         
-        if let outputMixer = _outputMixer, outputMixer.engine === engine, engine.attachedNodes.contains(outputMixer) {
+        if let outputMixer = core.outputMixer, outputMixer.engine === engine, engine.attachedNodes.contains(outputMixer) {
             engine.disconnectNodeOutput(outputMixer)
             engine.disconnectNodeInput(outputMixer)
             engine.detach(outputMixer)
         }
         
-        _inputMixer = nil
-        _outputMixer = nil
-        self.engine = nil
-        
-        // Transition to uninstalled (force - this is teardown)
-        state = .uninstalled
+        core.clearMixers()
+        core.engine = nil
+        core.forceState(.uninstalled)
     }
     
     // MARK: - Plugin Management
     
     /// Store a plugin at a specific slot (does not rebuild chain - caller must do that)
     func storePlugin(_ plugin: PluginInstance, atSlot slot: Int) {
-        guard slot >= 0, slot < maxSlots else {
-            return
-        }
+        guard slot >= 0, slot < maxSlots else { return }
         
-        // Remove existing plugin at this slot
         if slots[slot] != nil {
             removePlugin(atSlot: slot)
         }
         
-        // Store the plugin
         slots[slot] = plugin
     }
     
     // MARK: - Playback Preparation (BUG FIX Issue #54)
     
     /// Prepare all plugins for playback by ensuring render resources are allocated.
-    /// Prevents first-note latency caused by lazy AU initialization during first buffer callback.
-    ///
-    /// ARCHITECTURE (Issue #54):
-    /// Without this preparation, the first audio callback may be delayed 10-100ms while
-    /// Audio Units allocate render resources on-demand. This causes the first note to be
-    /// late or completely silent, especially with heavy synthesizers.
-    ///
-    /// SOLUTION:
-    /// - Explicitly call allocateRenderResources() on all active AUs before playback
-    /// - Ensure graph is fully realized with all nodes attached
-    /// - Professional standard: 0ms first-note latency (Logic Pro, Pro Tools)
-    ///
-    /// THREAD SAFETY:
-    /// Must be called from MainActor, ideally during engine stop/start mutation window
-    ///
-    /// - Returns: True if preparation succeeded, false if any plugin failed to prepare
     func prepareForPlayback() -> Bool {
-        guard let engine = self.engine else {
+        guard core.engine != nil else {
             AppLogger.shared.warning("PluginChain.prepareForPlayback: No engine reference", category: .audio)
             return false
         }
         
-        // If no plugins, nothing to prepare
         guard hasActivePlugins else {
             return true
         }
         
-        // Ensure chain is realized (mixers attached)
         if !isRealized {
             let didRealize = realize()
             if !didRealize {
@@ -619,7 +578,6 @@ class PluginChain {
         
         var allPrepared = true
         
-        // Allocate render resources for all active plugins
         for plugin in activePlugins {
             guard let au = plugin.auAudioUnit else {
                 AppLogger.shared.warning("PluginChain.prepareForPlayback: Plugin '\(plugin.descriptor.name)' has no AUAudioUnit", category: .audio)
@@ -627,12 +585,10 @@ class PluginChain {
                 continue
             }
             
-            // Skip bypassed plugins (don't need render resources if not processing)
             if plugin.isBypassed {
                 continue
             }
             
-            // Allocate render resources if not already allocated
             if !au.renderResourcesAllocated {
                 do {
                     try au.allocateRenderResources()
@@ -648,14 +604,9 @@ class PluginChain {
     }
     
     /// Rebuild chain connections - assumes engine is already stopped by caller
-    /// NOTE: If the chain is not realized (no mixers), this is a no-op.
-    /// The caller (AudioEngine) should check isRealized and route directly if false.
     func rebuildChainConnections(engine callerEngine: AVAudioEngine) {
-        // Verify the engine matches
-        guard let storedEngine = self.engine else { return }
-        
-        // If chain is not realized (no plugins), nothing to rebuild
-        guard let inputMixer = _inputMixer, let outputMixer = _outputMixer else { return }
+        guard let storedEngine = core.engine else { return }
+        guard let inputMixer = core.inputMixer, let outputMixer = core.outputMixer else { return }
         
         let engine = storedEngine
         
@@ -672,8 +623,6 @@ class PluginChain {
         }
         
         // STEP 2: Disconnect chain nodes for clean rebuild
-        // FIX 2: Loop-disconnect ALL input buses on mixers, not just bus 0.
-        // This prevents stale buses (and stale converter paths) from persisting.
         for bus in 0..<inputMixer.numberOfInputs {
             engine.disconnectNodeInput(inputMixer, bus: bus)
         }
@@ -684,22 +633,18 @@ class PluginChain {
             engine.disconnectNodeOutput(node)
         }
         
-        // Disconnect ALL outputMixer input buses (keep output connection to EQ)
         for bus in 0..<outputMixer.numberOfInputs {
             engine.disconnectNodeInput(outputMixer, bus: bus)
         }
         
-        // STEP 3: Reconnect the chain using the engine's graph format (hardware-derived)
-        // This ensures all connections match the live engine rate, preventing pitch corruption
-        guard let connectionFormat = chainFormat else {
+        // STEP 3: Reconnect the chain
+        guard let connectionFormat = core.chainFormat else {
             return
         }
         
         if !hasActivePlugins || isBypassed {
-            // Empty or bypassed: input → output
             engine.connect(inputMixer, to: outputMixer, format: connectionFormat)
         } else {
-            // Chain: input → plugin1 → plugin2 → ... → output
             let nonBypassedPlugins = activePlugins.filter { !$0.isBypassed }
             var previousNode: AVAudioNode = inputMixer
             
@@ -716,38 +661,25 @@ class PluginChain {
     
     
     /// Remove a plugin from a slot
-    /// NOTE: Caller must rebuild the graph after calling this
     /// SAFETY (Issue #62): Uses deferred deallocation to prevent use-after-free during hot-swap
     func removePlugin(atSlot slot: Int) {
         guard slot >= 0, slot < maxSlots, let plugin = slots[slot] else { return }
         
-        // CRITICAL (Issue #62): Disconnect first, then schedule deferred deallocation
-        // The plugin's render callback may still be executing, so we MUST NOT
-        // immediately call unload() or detach(). Instead, we:
-        // 1. Disconnect to stop new render calls
-        // 2. Detach from engine (removes from graph)
-        // 3. Schedule plugin for deferred deallocation (0.5s delay)
-        
-        // Detach from engine if attached (safe: removes from graph, but doesn't deallocate yet)
-        if let avUnit = plugin.avAudioUnit, let engine = engine {
+        // Detach from engine if attached
+        if let avUnit = plugin.avAudioUnit, let engine = core.engine {
             engine.disconnectNodeOutput(avUnit)
             engine.disconnectNodeInput(avUnit)
             engine.detach(avUnit)
         }
         
-        // Schedule for deferred deallocation instead of immediate unload
-        // This prevents use-after-free if render callback is still running
+        // Schedule for deferred deallocation
         PluginDeferredDeallocationManager.shared.schedulePluginForDeallocation(
             plugin,
-            trackId: nil,  // PluginChain doesn't know trackId
+            trackId: nil,
             slotIndex: slot
         )
         
-        // Remove from slot immediately (graph rebuild will bypass it)
         slots[slot] = nil
-        
-        // NOTE: Caller must call rebuildChainConnections() or rebuildTrackGraph()
-        // DO NOT call rebuildChain() here - it doesn't properly reset the engine
     }
     
     
@@ -758,7 +690,7 @@ class PluginChain {
     
     /// Get the audio format used by this chain (for external connections)
     var format: AVAudioFormat? {
-        chainFormat
+        core.chainFormat
     }
     
     /// Get the total latency of all plugins in samples
@@ -774,14 +706,10 @@ class PluginChain {
     // MARK: - Offline Render Cloning
     
     /// Clone all active plugins for offline rendering
-    /// Creates fresh AU instances with identical state for use in export
-    /// - Returns: Array of cloned AVAudioUnit nodes in chain order (excludes bypassed plugins)
     nonisolated func cloneActivePlugins() async throws -> [AVAudioUnit] {
-        // Get active plugins on MainActor
         let plugins = await activePlugins
         let chainBypassed = await isBypassed
         
-        // If entire chain is bypassed, return empty array
         guard !chainBypassed else {
             return []
         }
@@ -789,7 +717,6 @@ class PluginChain {
         var clonedNodes: [AVAudioUnit] = []
         
         for plugin in plugins {
-            // Skip bypassed plugins
             let isBypassed = await plugin.isBypassed
             if isBypassed {
                 continue
@@ -799,7 +726,6 @@ class PluginChain {
                 let clonedNode = try await plugin.cloneForOfflineRender()
                 clonedNodes.append(clonedNode)
             } catch {
-                // Log warning but continue - graceful degradation
                 let name = await plugin.descriptor.name
             }
         }
@@ -808,16 +734,7 @@ class PluginChain {
     }
     
     // MARK: - Cleanup
-    
-    nonisolated deinit {
-        // nonisolated prevents the Swift Concurrency runtime from verifying the
-        // MainActor executor during deallocation. Without this, SwiftUI's internal
-        // view tree teardown (hit-testing, hover events) can crash when it
-        // deallocates stale responders that hold PluginChain references.
-        //
-        // All audio node cleanup is handled by uninstall() which is called
-        // explicitly in safeDisconnectTrackNode before the chain is released.
-    }
+    // PluginChainCore handles RAII cleanup — no manual deinit needed.
 }
 
 // MARK: - Track Plugin Extension
@@ -826,7 +743,6 @@ class PluginChain {
 extension TrackAudioNode {
     
     /// Create a plugin chain for this track
-    /// Note: This is called from AudioEngine when setting up a track
     nonisolated static func createPluginChain() -> PluginChain {
         return MainActor.assumeIsolated {
             PluginChain(maxSlots: 8)

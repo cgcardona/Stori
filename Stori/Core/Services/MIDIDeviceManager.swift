@@ -31,29 +31,37 @@ struct MIDIDevice: Identifiable, Equatable, Hashable {
     }
 }
 
-// MARK: - MIDIDeviceManager
+// MARK: - MIDIDeviceCore (Nonisolated Resource Owner)
 
-/// Manages MIDI device discovery, connection, and message routing.
-@MainActor
-@Observable
-class MIDIDeviceManager {
+/// Owns CoreMIDI system resources with deterministic RAII cleanup.
+///
+/// # Architecture: Core + Model Split
+///
+/// `MIDIDeviceCore` is intentionally **not** `@MainActor`. It owns the
+/// CoreMIDI client, ports, and virtual endpoints. These resources are
+/// cleaned up in `deinit`, which can run on any thread without requiring
+/// an actor hop.
+///
+/// The `@MainActor @Observable` `MIDIDeviceManager` holds this core and
+/// exposes UI-safe state for SwiftUI observation.
+///
+/// ## Thread Safety
+///
+/// CoreMIDI functions are thread-safe per Apple documentation. The core
+/// can be called from any thread (including MIDI callback threads).
+/// UI state updates are bridged via `Task { @MainActor in }`.
+final class MIDIDeviceCore {
     
-    // MARK: - Properties
+    // MARK: - CoreMIDI Resources
     
-    /// Available MIDI input devices
-    var availableInputs: [MIDIDevice] = []
+    private(set) var midiClient: MIDIClientRef = 0
+    private(set) var inputPort: MIDIPortRef = 0
+    private(set) var outputPort: MIDIPortRef = 0
+    private(set) var virtualSource: MIDIEndpointRef = 0
+    private(set) var virtualDestination: MIDIEndpointRef = 0
     
-    /// Available MIDI output devices
-    var availableOutputs: [MIDIDevice] = []
-    
-    /// Currently connected input devices
-    var connectedInputs: Set<MIDIEndpointRef> = []
-    
-    /// Is the MIDI system initialized
-    var isInitialized = false
-    
-    /// Last error message
-    var lastError: String?
+    /// Connected input endpoints (tracking for disconnect on teardown)
+    private var connectedInputs: Set<MIDIEndpointRef> = []
     
     // MARK: - Callbacks
     
@@ -75,29 +83,20 @@ class MIDIDeviceManager {
     /// Called when any MIDI message is received (for logging/display)
     var onMIDIMessage: ((String) -> Void)?
     
-    // MARK: - Private Properties
-    
-    @ObservationIgnored private var midiClient: MIDIClientRef = 0
-    @ObservationIgnored private var inputPort: MIDIPortRef = 0
-    @ObservationIgnored private var outputPort: MIDIPortRef = 0
-    @ObservationIgnored private var virtualSource: MIDIEndpointRef = 0
-    @ObservationIgnored private var virtualDestination: MIDIEndpointRef = 0
+    /// Called when MIDI setup changes (device added/removed/changed)
+    var onSetupChanged: (() -> Void)?
     
     // MARK: - Initialization
     
+    /// Initialize CoreMIDI client and ports.
+    /// Returns nil and logs error if MIDI initialization fails.
     init() {
         setupMIDI()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
-    
-    // MARK: - Cleanup
-    
-    /// Explicitly release CoreMIDI resources. Call from SwiftUI .onDisappear
-    /// or from the owning object's cleanup path before releasing this object.
-    func cleanup() {
+    /// RAII: Clean up CoreMIDI resources deterministically.
+    /// Runs on whatever thread releases the last reference.
+    deinit {
         teardownMIDI()
     }
     
@@ -109,13 +108,11 @@ class MIDIDeviceManager {
         
         // Create MIDI client
         status = MIDIClientCreateWithBlock("Stori" as CFString, &midiClient) { [weak self] notification in
-            Task { @MainActor in
-                self?.handleMIDINotification(notification)
-            }
+            self?.handleMIDINotification(notification)
         }
         
         guard status == noErr else {
-            lastError = "Failed to create MIDI client: \(status)"
+            AppLogger.shared.error("Failed to create MIDI client: \(status)", category: .midi)
             return
         }
         
@@ -126,15 +123,13 @@ class MIDIDeviceManager {
             ._1_0,
             &inputPort
         ) { [weak self] eventList, srcConnRefCon in
-            // This is called on a MIDI thread, dispatch to main actor
+            // This is called on a MIDI thread — process directly, no actor hop
             let eventListCopy = eventList.pointee
-            Task { @MainActor in
-                self?.processMIDIEventList(eventListCopy)
-            }
+            self?.processMIDIEventList(eventListCopy)
         }
         
         guard status == noErr else {
-            lastError = "Failed to create MIDI input port: \(status)"
+            AppLogger.shared.error("Failed to create MIDI input port: \(status)", category: .midi)
             return
         }
         
@@ -146,14 +141,9 @@ class MIDIDeviceManager {
         )
         
         guard status == noErr else {
-            lastError = "Failed to create MIDI output port: \(status)"
+            AppLogger.shared.error("Failed to create MIDI output port: \(status)", category: .midi)
             return
         }
-        
-        isInitialized = true
-        
-        // Scan for devices
-        scanDevices()
     }
     
     /// Clean up MIDI resources
@@ -176,23 +166,21 @@ class MIDIDeviceManager {
         if midiClient != 0 {
             MIDIClientDispose(midiClient)
         }
-        
-        isInitialized = false
     }
     
     // MARK: - Device Discovery
     
-    /// Scan for all available MIDI devices
-    func scanDevices() {
-        availableInputs = []
-        availableOutputs = []
+    /// Scan for all available MIDI devices (thread-safe, returns snapshot data)
+    func scanDevices() -> (inputs: [MIDIDevice], outputs: [MIDIDevice]) {
+        var inputs: [MIDIDevice] = []
+        var outputs: [MIDIDevice] = []
         
         // Scan MIDI sources (inputs)
         let sourceCount = MIDIGetNumberOfSources()
         for i in 0..<sourceCount {
             let source = MIDIGetSource(i)
             if let device = createDevice(from: source, isInput: true) {
-                availableInputs.append(device)
+                inputs.append(device)
             }
         }
         
@@ -201,10 +189,11 @@ class MIDIDeviceManager {
         for i in 0..<destCount {
             let dest = MIDIGetDestination(i)
             if let device = createDevice(from: dest, isInput: false) {
-                availableOutputs.append(device)
+                outputs.append(device)
             }
         }
         
+        return (inputs, outputs)
     }
     
     /// Create a MIDIDevice from an endpoint
@@ -233,33 +222,259 @@ class MIDIDeviceManager {
     
     // MARK: - Connection Management
     
-    /// Connect to a MIDI input device
-    func connect(to input: MIDIEndpointRef) {
-        guard isInitialized else {
-            return
-        }
-        
+    /// Connect to a MIDI input endpoint
+    func connect(to input: MIDIEndpointRef) -> OSStatus {
         let status = MIDIPortConnectSource(inputPort, input, nil)
         if status == noErr {
             connectedInputs.insert(input)
+        }
+        return status
+    }
+    
+    /// Disconnect from a MIDI input endpoint
+    func disconnect(from input: MIDIEndpointRef) -> OSStatus {
+        let status = MIDIPortDisconnectSource(inputPort, input)
+        if status == noErr {
+            connectedInputs.remove(input)
+        }
+        return status
+    }
+    
+    /// Check if an endpoint is connected
+    func isConnected(_ endpoint: MIDIEndpointRef) -> Bool {
+        connectedInputs.contains(endpoint)
+    }
+    
+    /// Get the set of connected input endpoints
+    var currentConnectedInputs: Set<MIDIEndpointRef> {
+        connectedInputs
+    }
+    
+    // MARK: - MIDI Output
+    
+    /// Send raw MIDI message to a destination
+    func sendMIDIMessage(_ message: [UInt8], to destination: MIDIEndpointRef) {
+        var packetList = MIDIPacketList()
+        var packet = MIDIPacketListInit(&packetList)
+        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, message.count, message)
+        
+        MIDISend(outputPort, destination, &packetList)
+    }
+    
+    // MARK: - MIDI Event Processing
+    
+    /// Process incoming MIDI event list (called from MIDI thread)
+    private func processMIDIEventList(_ eventList: MIDIEventList) {
+        var mutableEventList = eventList
+        
+        withUnsafeMutablePointer(to: &mutableEventList.packet) { firstPacketPtr in
+            var packetPtr: UnsafeMutablePointer<MIDIEventPacket> = firstPacketPtr
+            
+            for _ in 0..<eventList.numPackets {
+                let packet = packetPtr.pointee
+                let words = Mirror(reflecting: packet.words).children.map { $0.value as! UInt32 }
+                processMIDIPacket(words: words, wordCount: Int(packet.wordCount))
+                
+                packetPtr = MIDIEventPacketNext(packetPtr)
+            }
+        }
+    }
+    
+    /// Process a single MIDI packet (Universal MIDI Packet format)
+    private func processMIDIPacket(words: [UInt32], wordCount: Int) {
+        guard wordCount > 0 else { return }
+        
+        let word = words[0]
+        let messageType = (word >> 28) & 0xF
+        
+        // MIDI 1.0 Channel Voice Messages (MT = 0x2)
+        if messageType == 0x2 {
+            let status = UInt8((word >> 16) & 0xFF)
+            let channel = status & 0x0F
+            let data1 = UInt8((word >> 8) & 0x7F)
+            let data2 = UInt8(word & 0x7F)
+            
+            let messageCategory = status & 0xF0
+            
+            switch messageCategory {
+            case 0x90: // Note On
+                if data2 > 0 {
+                    onNoteOn?(data1, data2, channel)
+                    onMIDIMessage?("Note On: \(MIDIHelper.noteName(for: data1)) vel=\(data2) ch=\(channel + 1)")
+                } else {
+                    // Note On with velocity 0 = Note Off
+                    onNoteOff?(data1, channel)
+                    onMIDIMessage?("Note Off: \(MIDIHelper.noteName(for: data1)) ch=\(channel + 1)")
+                }
+                
+            case 0x80: // Note Off
+                onNoteOff?(data1, channel)
+                onMIDIMessage?("Note Off: \(MIDIHelper.noteName(for: data1)) ch=\(channel + 1)")
+                
+            case 0xB0: // Control Change
+                onControlChange?(data1, data2, channel)
+                onMIDIMessage?("CC\(data1): \(data2) ch=\(channel + 1)")
+                
+            case 0xE0: // Pitch Bend
+                let bendValue = Int16(data1) | (Int16(data2) << 7) - 8192
+                onPitchBend?(bendValue, channel)
+                onMIDIMessage?("Pitch Bend: \(bendValue) ch=\(channel + 1)")
+                
+            case 0xC0: // Program Change
+                onProgramChange?(data1, channel)
+                onMIDIMessage?("Program Change: \(data1) ch=\(channel + 1)")
+                
+            default:
+                break
+            }
+        }
+    }
+    
+    // MARK: - MIDI Notifications
+    
+    /// Handle MIDI setup change notifications (called from MIDI thread)
+    private func handleMIDINotification(_ notification: UnsafePointer<MIDINotification>) {
+        switch notification.pointee.messageID {
+        case .msgSetupChanged, .msgObjectAdded, .msgObjectRemoved:
+            // Bridge to UI via callback — caller (MIDIDeviceManager) dispatches to MainActor
+            onSetupChanged?()
+            
+        case .msgPropertyChanged:
+            break
+            
+        default:
+            break
+        }
+    }
+}
+
+// MARK: - MIDIDeviceManager (@MainActor Observable Model)
+
+/// Manages MIDI device discovery, connection, and message routing.
+///
+/// # Architecture: @MainActor Observable Model
+///
+/// Holds a `MIDIDeviceCore` that owns CoreMIDI system resources.
+/// This model exposes UI-safe state for SwiftUI and handles
+/// bridging MIDI thread callbacks to MainActor.
+///
+/// When this model is released, the core's `deinit` handles
+/// CoreMIDI resource cleanup automatically (RAII).
+@MainActor
+@Observable
+class MIDIDeviceManager {
+    
+    // MARK: - Observable Properties
+    
+    /// Available MIDI input devices
+    var availableInputs: [MIDIDevice] = []
+    
+    /// Available MIDI output devices
+    var availableOutputs: [MIDIDevice] = []
+    
+    /// Currently connected input devices
+    var connectedInputs: Set<MIDIEndpointRef> = []
+    
+    /// Is the MIDI system initialized
+    var isInitialized: Bool = false
+    
+    /// Last error message
+    var lastError: String?
+    
+    // MARK: - Core (Nonisolated Resource Owner)
+    
+    /// Nonisolated core that owns CoreMIDI resources and handles RAII cleanup.
+    @ObservationIgnored
+    private let core: MIDIDeviceCore
+    
+    // MARK: - Callbacks (forwarded from core)
+    
+    /// Called when a Note On is received (pitch, velocity, channel)
+    var onNoteOn: ((UInt8, UInt8, UInt8) -> Void)? {
+        didSet { core.onNoteOn = onNoteOn }
+    }
+    
+    /// Called when a Note Off is received (pitch, channel)
+    var onNoteOff: ((UInt8, UInt8) -> Void)? {
+        didSet { core.onNoteOff = onNoteOff }
+    }
+    
+    /// Called when a Control Change is received (cc, value, channel)
+    var onControlChange: ((UInt8, UInt8, UInt8) -> Void)? {
+        didSet { core.onControlChange = onControlChange }
+    }
+    
+    /// Called when Pitch Bend is received (value, channel)
+    var onPitchBend: ((Int16, UInt8) -> Void)? {
+        didSet { core.onPitchBend = onPitchBend }
+    }
+    
+    /// Called when Program Change is received (program, channel)
+    var onProgramChange: ((UInt8, UInt8) -> Void)? {
+        didSet { core.onProgramChange = onProgramChange }
+    }
+    
+    /// Called when any MIDI message is received (for logging/display)
+    var onMIDIMessage: ((String) -> Void)? {
+        didSet { core.onMIDIMessage = onMIDIMessage }
+    }
+    
+    // MARK: - Initialization
+    
+    init() {
+        let newCore = MIDIDeviceCore()
+        self.core = newCore
+        
+        // Bridge MIDI thread setup-changed notifications to MainActor
+        newCore.onSetupChanged = { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scanDevices()
+            }
+        }
+        
+        // Check if initialization succeeded
+        if newCore.midiClient != 0 {
+            isInitialized = true
+            scanDevices()
         } else {
+            lastError = "Failed to initialize MIDI system"
+        }
+    }
+    
+    // MIDIDeviceCore handles RAII cleanup — no manual deinit needed.
+    
+    // MARK: - Device Discovery
+    
+    /// Scan for all available MIDI devices
+    func scanDevices() {
+        let (inputs, outputs) = core.scanDevices()
+        availableInputs = inputs
+        availableOutputs = outputs
+    }
+    
+    // MARK: - Connection Management
+    
+    /// Connect to a MIDI input device
+    func connect(to input: MIDIEndpointRef) {
+        guard isInitialized else { return }
+        
+        let status = core.connect(to: input)
+        if status == noErr {
+            connectedInputs.insert(input)
         }
     }
     
     /// Connect to a MIDI input device by device struct
     func connect(to device: MIDIDevice) {
-        guard device.isInput else {
-            return
-        }
+        guard device.isInput else { return }
         connect(to: device.id)
     }
     
     /// Disconnect from a MIDI input device
     func disconnect(from input: MIDIEndpointRef) {
-        let status = MIDIPortDisconnectSource(inputPort, input)
+        let status = core.disconnect(from: input)
         if status == noErr {
             connectedInputs.remove(input)
-        } else {
         }
     }
     
@@ -352,105 +567,7 @@ class MIDIDeviceManager {
         }
         
         for dest in destinations {
-            var packetList = MIDIPacketList()
-            var packet = MIDIPacketListInit(&packetList)
-            packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, message.count, message)
-            
-            let status = MIDISend(outputPort, dest, &packetList)
-            if status != noErr {
-            }
-        }
-    }
-    
-    // MARK: - MIDI Event Processing
-    
-    /// Process incoming MIDI event list
-    private func processMIDIEventList(_ eventList: MIDIEventList) {
-        // Copy the event list to a mutable variable to iterate through packets
-        var mutableEventList = eventList
-        
-        withUnsafeMutablePointer(to: &mutableEventList.packet) { firstPacketPtr in
-            var packetPtr: UnsafeMutablePointer<MIDIEventPacket> = firstPacketPtr
-            
-            for _ in 0..<eventList.numPackets {
-                let packet = packetPtr.pointee
-                let words = Mirror(reflecting: packet.words).children.map { $0.value as! UInt32 }
-                processMIDIPacket(words: words, wordCount: Int(packet.wordCount))
-                
-                packetPtr = MIDIEventPacketNext(packetPtr)
-            }
-        }
-    }
-    
-    /// Process a single MIDI packet (Universal MIDI Packet format)
-    private func processMIDIPacket(words: [UInt32], wordCount: Int) {
-        guard wordCount > 0 else { return }
-        
-        let word = words[0]
-        let messageType = (word >> 28) & 0xF
-        
-        // MIDI 1.0 Channel Voice Messages (MT = 0x2)
-        if messageType == 0x2 {
-            let status = UInt8((word >> 16) & 0xFF)
-            let channel = status & 0x0F
-            let data1 = UInt8((word >> 8) & 0x7F)
-            let data2 = UInt8(word & 0x7F)
-            
-            let messageCategory = status & 0xF0
-            
-            switch messageCategory {
-            case 0x90: // Note On
-                if data2 > 0 {
-                    onNoteOn?(data1, data2, channel)
-                    onMIDIMessage?("Note On: \(MIDIHelper.noteName(for: data1)) vel=\(data2) ch=\(channel + 1)")
-                } else {
-                    // Note On with velocity 0 = Note Off
-                    onNoteOff?(data1, channel)
-                    onMIDIMessage?("Note Off: \(MIDIHelper.noteName(for: data1)) ch=\(channel + 1)")
-                }
-                
-            case 0x80: // Note Off
-                onNoteOff?(data1, channel)
-                onMIDIMessage?("Note Off: \(MIDIHelper.noteName(for: data1)) ch=\(channel + 1)")
-                
-            case 0xB0: // Control Change
-                onControlChange?(data1, data2, channel)
-                onMIDIMessage?("CC\(data1): \(data2) ch=\(channel + 1)")
-                
-            case 0xE0: // Pitch Bend
-                let bendValue = Int16(data1) | (Int16(data2) << 7) - 8192
-                onPitchBend?(bendValue, channel)
-                onMIDIMessage?("Pitch Bend: \(bendValue) ch=\(channel + 1)")
-                
-            case 0xC0: // Program Change
-                onProgramChange?(data1, channel)
-                onMIDIMessage?("Program Change: \(data1) ch=\(channel + 1)")
-                
-            default:
-                break
-            }
-        }
-    }
-    
-    // MARK: - MIDI Notifications
-    
-    /// Handle MIDI setup change notifications
-    private func handleMIDINotification(_ notification: UnsafePointer<MIDINotification>) {
-        switch notification.pointee.messageID {
-        case .msgSetupChanged:
-            scanDevices()
-            
-        case .msgObjectAdded:
-            scanDevices()
-            
-        case .msgObjectRemoved:
-            scanDevices()
-            
-        case .msgPropertyChanged:
-            break
-            
-        default:
-            break
+            core.sendMIDIMessage(message, to: dest)
         }
     }
 }
@@ -501,9 +618,6 @@ class MIDIRecordingEngine {
         setupCallbacks()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Setup
     
@@ -683,7 +797,4 @@ class MIDIRecordingEngine {
         )
         recordedPitchBendEvents.append(event)
     }
-    
-    // Prevents double-free from implicit Swift Concurrency property change notification tasks
 }
-
