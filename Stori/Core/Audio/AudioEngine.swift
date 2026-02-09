@@ -340,11 +340,12 @@ class AudioEngine: AudioEngineContext {
         let inputLatencyMs = engine.inputNode.presentationLatency * 1000.0
         
         // 2. I/O buffer latency (round-trip through both input and output buffers)
-        // macOS CoreAudio typically uses 512 frames at 48kHz (10.67ms) or 256 frames (5.33ms)
-        // We estimate based on the engine's actual I/O buffer duration
-        // Note: This is a conservative estimate; actual latency depends on driver implementation
-        let estimatedBufferFrames: Double = 512.0  // Typical macOS I/O buffer size
-        let bufferLatencyMs = (estimatedBufferFrames / sampleRate) * 1000.0
+        // Note: macOS doesn't expose the actual I/O buffer size directly via AVAudioEngine
+        // The presentation latency properties (used below) already include hardware + buffer latency
+        // So we don't double-count by adding a separate buffer latency component here
+        // 
+        // Previously this was hardcoded to 512 frames (~10.67ms @ 48kHz) which inflated the total
+        let bufferLatencyMs = 0.0  // Included in presentationLatency properties
         
         // 3. Plugin processing latency (PDC - Plugin Delay Compensation)
         // This is the maximum latency across all track plugin chains
