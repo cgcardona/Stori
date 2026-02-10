@@ -48,6 +48,14 @@ final class AssetDownloadService {
         storiApplicationSupport?.appendingPathComponent("SoundFonts")
     }
 
+    // MARK: - Auth
+
+    /// JWT required for stage/production asset API. Throws .unauthorized if no token.
+    private func setAuthHeader(on request: inout URLRequest) throws {
+        let token = try TokenManager.shared.getToken()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
+
     // MARK: - List API
 
     /// GET /api/v1/assets/drum-kits
@@ -63,6 +71,10 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        do { try setAuthHeader(on: &request) } catch {
+            lastError = "Please sign in again to access assets."
+            throw AssetDownloadError.unauthorized
+        }
         do {
             let (data, response) = try await session.data(for: request)
             try validateResponse(response, data: data)
@@ -102,6 +114,10 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        do { try setAuthHeader(on: &request) } catch {
+            lastError = "Please sign in again to access assets."
+            throw AssetDownloadError.unauthorized
+        }
         do {
             let (data, response) = try await session.data(for: request)
             try validateResponse(response, data: data)
@@ -138,6 +154,10 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        do { try setAuthHeader(on: &request) } catch {
+            lastError = "Please sign in again to access assets."
+            throw AssetDownloadError.unauthorized
+        }
         do {
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
@@ -221,6 +241,10 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        do { try setAuthHeader(on: &request) } catch {
+            lastError = "Please sign in again to access assets."
+            throw AssetDownloadError.unauthorized
+        }
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(DownloadURLResponse.self, from: data)
@@ -236,6 +260,10 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        do { try setAuthHeader(on: &request) } catch {
+            lastError = "Please sign in again to access assets."
+            throw AssetDownloadError.unauthorized
+        }
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(DownloadURLResponse.self, from: data)
@@ -449,8 +477,12 @@ final class AssetDownloadService {
         guard let http = response as? HTTPURLResponse else { return }
         switch http.statusCode {
         case 200: break
+        case 401:
+            lastError = "Please sign in again to access assets."
+            try? TokenManager.shared.deleteToken()
+            NotificationCenter.default.post(name: .tokenExpired, object: nil)
+            throw AssetDownloadError.unauthorized
         case 404:
-            // Set user-friendly message without server URL
             lastError = "This pack is not available."
             throw AssetDownloadError.notFound
         case 503: throw AssetDownloadError.serviceUnavailable
