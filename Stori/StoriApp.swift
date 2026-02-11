@@ -133,10 +133,7 @@ struct StoriApp: App {
                 
                 Divider()
                 
-                Button("Export Mix...") {
-                    NotificationCenter.default.post(name: .exportProject, object: nil)
-                }
-                .keyboardShortcut("e", modifiers: .command)
+                // Export Mix (Cmd+E) removed: export is broken. Re-add when fixed.
                 
                 Divider()
                 

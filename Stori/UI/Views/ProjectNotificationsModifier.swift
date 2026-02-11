@@ -20,9 +20,10 @@ struct ProjectNotificationsModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
                 onSaveProject()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .exportProject)) { _ in
-                onExportProject()
-            }
+            // Export (Cmd+E) disabled: implementation crashes. Re-enable when export is fixed.
+            // .onReceive(NotificationCenter.default.publisher(for: .exportProject)) { _ in
+            //     onExportProject()
+            // }
             .onReceive(NotificationCenter.default.publisher(for: .skipToBeginning)) { _ in
                 onSkipToBeginning()
             }
