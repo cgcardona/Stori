@@ -179,6 +179,8 @@ BUILD_START=$(date +%s)
 # Build with automatic signing first (uses development cert)
 # We'll re-sign with Developer ID after
 set +e  # Don't exit on error yet, we need to check build status
+# Do not override PRODUCT_NAME/EXECUTABLE_NAME — project already sets them; overriding
+# can trigger Xcode "Multiple commands produce" / RegisterExecutionPolicyException.
 xcodebuild build \
     -project "$XCODE_PROJECT" \
     -scheme "$SCHEME" \
@@ -187,8 +189,6 @@ xcodebuild build \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     CODE_SIGN_STYLE=Automatic \
     PRODUCT_BUNDLE_IDENTIFIER="com.tellurstori.stori" \
-    PRODUCT_NAME="Stori" \
-    EXECUTABLE_NAME="Stori" \
     MACOSX_DEPLOYMENT_TARGET="14.0" \
     2>&1 | tee -a "$LOG_FILE" | grep -E '(Build Succeeded|BUILD SUCCEEDED|error:|BUILD FAILED)'
 
@@ -304,7 +304,9 @@ cp -R "$APP_PATH" "$STAGING_DIR/"
 # Note: Applications symlink is created by create-dmg automatically via --app-drop-link
 # If using hdiutil fallback, we'll create it there
 
-# Create README
+# Create README (Version/Built lines padded to 58 chars so right border aligns)
+VERSION_LINE=$(printf "%-58s" "         Version: ${VERSION}")
+BUILT_LINE=$(printf "%-58s" "         Built: ${BUILD_TIMESTAMP}")
 cat > "$STAGING_DIR/README.txt" << README_EOF
 ╔════════════════════════════════════════════════════════════════╗
 ║                                                                ║
@@ -317,8 +319,8 @@ cat > "$STAGING_DIR/README.txt" << README_EOF
 ║                                                                ║
 ║            Digital Audio Workstation                           ║
 ║                                                                ║
-║         Version: ${VERSION}                                    ║
-║         Built: ${BUILD_TIMESTAMP}                              ║
+║${VERSION_LINE}║
+║${BUILT_LINE}║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
 
@@ -354,7 +356,7 @@ REQUIREMENTS
 
 SUPPORT
 ───────
-For help and feedback, visit: https://tellurstori.com
+For help and feedback, visit: https://stori.audio
 
 Built with ❤️ for musicians and creators
 README_EOF

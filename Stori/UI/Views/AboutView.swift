@@ -38,7 +38,7 @@ struct AboutView: View {
         }
     }
     
-    private let websiteURL = "https://example.com/"
+    private let websiteURL = "https://stori.audio"
     private let copyrightYear = "2026"
     
     var body: some View {
@@ -103,7 +103,7 @@ struct AboutView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "globe")
                             .font(.system(size: 12))
-                        Text("example.com")
+                        Text("stori.audio")
                             .font(.system(size: 13))
                     }
                     .foregroundColor(.accentColor)
