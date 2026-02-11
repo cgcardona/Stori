@@ -4,9 +4,9 @@
 //
 //  Audio node representation for individual tracks
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Accelerate
 
 // MARK: - Track Audio Node
@@ -61,35 +61,30 @@ final class TrackAudioNode: @unchecked Sendable {
     /// IMPLEMENTATION:
     /// We use UInt32 as atomic storage and bit-cast Float ↔ UInt32.
     /// This is safe because Float is 32-bit IEEE-754 (guaranteed by Swift/Apple).
-    private let _currentLevelLeft: UnsafeMutablePointer<UInt32>
-    private let _currentLevelRight: UnsafeMutablePointer<UInt32>
-    private let _peakLevelLeft: UnsafeMutablePointer<UInt32>
-    private let _peakLevelRight: UnsafeMutablePointer<UInt32>
+    /// Single allocation (capacity 4) to avoid "freed pointer was not the last allocation"
+    /// when many nodes are torn down during export/engine teardown.
+    private let _levelStorage: UnsafeMutablePointer<UInt32>  // [currentL, currentR, peakL, peakR]
     
     private var levelTapInstalled: Bool = false
     
     /// Current RMS level for left channel (lock-free read)
     var currentLevelLeft: Float {
-        let bits = _currentLevelLeft.pointee
-        return Float(bitPattern: bits)
+        Float(bitPattern: _levelStorage.advanced(by: 0).pointee)
     }
     
     /// Current RMS level for right channel (lock-free read)
     var currentLevelRight: Float {
-        let bits = _currentLevelRight.pointee
-        return Float(bitPattern: bits)
+        Float(bitPattern: _levelStorage.advanced(by: 1).pointee)
     }
     
     /// Peak level for left channel with decay (lock-free read)
     var peakLevelLeft: Float {
-        let bits = _peakLevelLeft.pointee
-        return Float(bitPattern: bits)
+        Float(bitPattern: _levelStorage.advanced(by: 2).pointee)
     }
     
     /// Peak level for right channel with decay (lock-free read)
     var peakLevelRight: Float {
-        let bits = _peakLevelRight.pointee
-        return Float(bitPattern: bits)
+        Float(bitPattern: _levelStorage.advanced(by: 3).pointee)
     }
     
     // Peak decay rate per callback (see AudioConstants.trackPeakDecayRate)
@@ -150,34 +145,18 @@ final class TrackAudioNode: @unchecked Sendable {
         self.isMuted = isMuted
         self.isSolo = isSolo
         
-        // Allocate atomic storage for lock-free metering (Issue #59 fix)
-        self._currentLevelLeft = .allocate(capacity: 1)
-        self._currentLevelRight = .allocate(capacity: 1)
-        self._peakLevelLeft = .allocate(capacity: 1)
-        self._peakLevelRight = .allocate(capacity: 1)
-        
-        // Initialize to zero
-        self._currentLevelLeft.initialize(to: 0)
-        self._currentLevelRight.initialize(to: 0)
-        self._peakLevelLeft.initialize(to: 0)
-        self._peakLevelRight.initialize(to: 0)
+        // Single allocation for all four level slots (avoids allocator ordering issues on teardown)
+        self._levelStorage = .allocate(capacity: 4)
+        self._levelStorage.initialize(repeating: 0, count: 4)
         
         setupEQ()
         setupLevelMonitoring()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {
+    deinit {
         removeLevelMonitoring()
-        _currentLevelLeft.deinitialize(count: 1)
-        _currentLevelRight.deinitialize(count: 1)
-        _peakLevelLeft.deinitialize(count: 1)
-        _peakLevelRight.deinitialize(count: 1)
-        _currentLevelLeft.deallocate()
-        _currentLevelRight.deallocate()
-        _peakLevelLeft.deallocate()
-        _peakLevelRight.deallocate()
+        _levelStorage.deinitialize(count: 4)
+        _levelStorage.deallocate()
     }
     
     // MARK: - Parameter Smoothing (Thread-Safe)
@@ -593,19 +572,19 @@ final class TrackAudioNode: @unchecked Sendable {
             // LOCK-FREE: Store levels using atomics (Issue #59 fix)
             // Atomic stores via UnsafePointer - no locks, no contention
             // Audio thread writes, UI thread reads, fully lock-free
-            self._currentLevelLeft.pointee = rmsLeft.bitPattern
-            self._currentLevelRight.pointee = rmsRight.bitPattern
+            self._levelStorage.advanced(by: 0).pointee = rmsLeft.bitPattern
+            self._levelStorage.advanced(by: 1).pointee = rmsRight.bitPattern
             
             // Peak with decay (~300ms release at ~21ms callback interval)
             // Read-modify-write for peak calculation (lock-free)
-            let currentPeakLeft = Float(bitPattern: self._peakLevelLeft.pointee)
-            let currentPeakRight = Float(bitPattern: self._peakLevelRight.pointee)
+            let currentPeakLeft = Float(bitPattern: self._levelStorage.advanced(by: 2).pointee)
+            let currentPeakRight = Float(bitPattern: self._levelStorage.advanced(by: 3).pointee)
             
             let newPeakLeft = max(currentPeakLeft * self.peakDecayRate, peakLeft)
             let newPeakRight = max(currentPeakRight * self.peakDecayRate, peakRight)
             
-            self._peakLevelLeft.pointee = newPeakLeft.bitPattern
-            self._peakLevelRight.pointee = newPeakRight.bitPattern
+            self._levelStorage.advanced(by: 2).pointee = newPeakLeft.bitPattern
+            self._levelStorage.advanced(by: 3).pointee = newPeakRight.bitPattern
         }
         
         levelTapInstalled = true

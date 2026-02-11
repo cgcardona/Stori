@@ -17,16 +17,10 @@ final class ConversationService {
     private let baseURL: String
     
     private init() {
-        #if DEBUG
-        self.baseURL = "https://stage.example.com/api/v1"
-        #else
-        self.baseURL = "https://stage.example.com/api/v1"
-        #endif
+        let base = AppConfig.apiBaseURL
+        self.baseURL = base.hasSuffix("/") ? "\(base.dropLast())api/v1" : "\(base)/api/v1"
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - API Requests
     
@@ -55,7 +49,15 @@ final class ConversationService {
         
         return request
     }
-    
+
+    /// On 401: clear token, post .tokenExpired, throw .unauthorized so UI can re-prompt auth.
+    private func handleUnauthorizedIfNeeded(_ httpResponse: HTTPURLResponse) throws {
+        guard httpResponse.statusCode == 401 else { return }
+        try? TokenManager.shared.deleteToken()
+        NotificationCenter.default.post(name: .tokenExpired, object: nil)
+        throw ConversationError.unauthorized
+    }
+
     // MARK: - Create Conversation
     
     func createConversation(title: String = "New Conversation", projectId: String, projectContext: ProjectContextRequest? = nil) async throws -> ConversationDetail {
@@ -67,17 +69,16 @@ final class ConversationService {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ConversationError.invalidResponse
         }
-        
+        try handleUnauthorizedIfNeeded(httpResponse)
         guard httpResponse.statusCode == 201 || httpResponse.statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8) ?? "No body"
             throw ConversationError.httpError(httpResponse.statusCode)
         }
-        
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(ConversationDetail.self, from: data)
     }
-    
+
     // MARK: - List Conversations
     
     func listConversations(projectId: String, limit: Int = 50, offset: Int = 0, includeArchived: Bool = false) async throws -> ConversationListResponse {
@@ -95,21 +96,15 @@ final class ConversationService {
             throw ConversationError.invalidResponse
         }
         
+        try handleUnauthorizedIfNeeded(httpResponse)
         guard httpResponse.statusCode == 200 else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "No body"
-            
-            // Handle specific errors
-            if httpResponse.statusCode == 401 {
-                throw ConversationError.unauthorized
-            }
             throw ConversationError.invalidResponse
         }
-        
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(ConversationListResponse.self, from: data)
     }
-    
+
     // MARK: - Get Conversation with Full History
     
     func getConversation(id: String) async throws -> ConversationDetail {
@@ -120,14 +115,13 @@ final class ConversationService {
             throw ConversationError.invalidResponse
         }
         
+        try handleUnauthorizedIfNeeded(httpResponse)
         if httpResponse.statusCode == 404 {
             throw ConversationError.notFound
         }
-        
         guard httpResponse.statusCode == 200 else {
             throw ConversationError.httpError(httpResponse.statusCode)
         }
-        
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         decoder.dateDecodingStrategy = .iso8601
@@ -157,15 +151,13 @@ final class ConversationService {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ConversationError.invalidResponse
         }
-        
+        try handleUnauthorizedIfNeeded(httpResponse)
         if httpResponse.statusCode == 402 {
             throw ConversationError.insufficientBudget
         }
-        
         guard httpResponse.statusCode == 200 else {
             throw ConversationError.httpError(httpResponse.statusCode)
         }
-        
         // Parse SSE stream
         for try await line in bytes.lines {
             if line.hasPrefix("data: ") {
@@ -268,24 +260,22 @@ final class ConversationService {
         let request = try await makeRequest(endpoint: "/conversations/\(conversationId)", method: "PATCH", body: body)
         
         let (_, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw ConversationError.invalidResponse
-        }
+        guard let httpResponse = response as? HTTPURLResponse else { throw ConversationError.invalidResponse }
+        try handleUnauthorizedIfNeeded(httpResponse)
+        guard httpResponse.statusCode == 200 else { throw ConversationError.invalidResponse }
     }
-    
+
     // MARK: - Archive Conversation
     
     func archiveConversation(id: String) async throws {
         let request = try await makeRequest(endpoint: "/conversations/\(id)", method: "DELETE")
         
         let (_, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 204 else {
-            throw ConversationError.invalidResponse
-        }
+        guard let httpResponse = response as? HTTPURLResponse else { throw ConversationError.invalidResponse }
+        try handleUnauthorizedIfNeeded(httpResponse)
+        guard httpResponse.statusCode == 204 else { throw ConversationError.invalidResponse }
     }
-    
+
     // MARK: - Delete Conversation (Permanent)
     
     func deleteConversation(id: String) async throws {
@@ -293,12 +283,11 @@ final class ConversationService {
         let request = try await makeRequest(endpoint: "/conversations/\(id)", method: "DELETE", queryItems: queryItems)
         
         let (_, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 204 else {
-            throw ConversationError.invalidResponse
-        }
+        guard let httpResponse = response as? HTTPURLResponse else { throw ConversationError.invalidResponse }
+        try handleUnauthorizedIfNeeded(httpResponse)
+        guard httpResponse.statusCode == 204 else { throw ConversationError.invalidResponse }
     }
-    
+
     // MARK: - Search Conversations
     
     func searchConversations(query: String, limit: Int = 20) async throws -> SearchResponse {
@@ -309,16 +298,14 @@ final class ConversationService {
         
         let request = try await makeRequest(endpoint: "/conversations/search", queryItems: queryItems)
         let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw ConversationError.invalidResponse
-        }
-        
+        guard let httpResponse = response as? HTTPURLResponse else { throw ConversationError.invalidResponse }
+        try handleUnauthorizedIfNeeded(httpResponse)
+        guard httpResponse.statusCode == 200 else { throw ConversationError.invalidResponse }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(SearchResponse.self, from: data)
     }
-    
+
     // MARK: - Cleanup
 }
 

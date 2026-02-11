@@ -99,6 +99,7 @@ struct ProfessionalChannelStrip: View {
         }
         .frame(width: displayWidth.width)
         .background(channelBackground)
+        .accessibilityIdentifier(AccessibilityID.Mixer.channelStrip(trackId))
         .onTapGesture {
             onSelect()
         }
@@ -560,6 +561,7 @@ struct ProfessionalChannelStrip: View {
             ) {
                 toggleGroupedMute()
             }
+            .accessibilityIdentifier(AccessibilityID.Mixer.trackMute(trackId))
             
             // Solo with Solo-Safe indicator (with group linking)
             ZStack(alignment: .topTrailing) {
@@ -573,6 +575,7 @@ struct ProfessionalChannelStrip: View {
                 ) {
                     toggleGroupedSolo()
                 }
+                .accessibilityIdentifier(AccessibilityID.Mixer.trackSolo(trackId))
                 .contextMenu {
                     Toggle("Solo Safe", isOn: Binding(
                         get: { track.mixerSettings.soloSafe },
@@ -600,6 +603,7 @@ struct ProfessionalChannelStrip: View {
                 ) {
                     toggleRecordArm()
                 }
+                .accessibilityIdentifier(AccessibilityID.Mixer.trackRecord(trackId))
                 
                 // Input Monitor
                 ChannelButton(

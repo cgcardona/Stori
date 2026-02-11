@@ -2,11 +2,17 @@
 //  VirtualKeyboardLatencyTests.swift
 //  StoriTests
 //
-//  Tests for virtual keyboard UI latency compensation (Issue #68)
+//  Tests for virtual keyboard UI latency compensation (Issue #68, Issue #119)
 //
 //  CRITICAL: Virtual keyboard notes must be timestamped with negative compensation
-//  to account for UI event loop latency (~30ms). This ensures recorded notes align
-//  with user intent, not delayed by SwiftUI event processing.
+//  to account for UI event loop latency. This ensures recorded notes align with
+//  user intent, not delayed by event processing.
+//
+//  Issue #68: Fixed 30ms compensation (baseline implementation)
+//  Issue #119: Hardware timestamp-based dynamic compensation for sub-ms accuracy
+//    - Uses NSEvent.timestamp to measure actual latency (typically 15-50ms)
+//    - Adapts to real system load instead of fixed assumptions
+//    - Falls back to 30ms when hardware timestamp unavailable
 //
 
 import XCTest
@@ -27,7 +33,8 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
         // Create test infrastructure
         projectManager = ProjectManager()
         audioEngine = AudioEngine()
-        instrumentManager = InstrumentManager()
+        // Use shared singleton for compatibility with VirtualKeyboardState
+        instrumentManager = InstrumentManager.shared
         
         // Create test project with MIDI track
         testProject = AudioProject(
@@ -49,6 +56,10 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
     }
     
     override func tearDown() async throws {
+        // Clean up singleton state
+        instrumentManager.removeAll()
+        instrumentManager.selectedTrackId = nil
+        
         instrumentManager = nil
         audioEngine = nil
         projectManager = nil
@@ -67,10 +78,10 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
         instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStartBeat)
         
         // When: User triggers note via virtual keyboard with 30ms UI latency
-        let uiLatencySeconds = 0.030
+        let fallbackLatencySeconds = 0.030
         let tempo = 120.0 // BPM
         let beatsPerSecond = tempo / 60.0
-        let expectedCompensationBeats = uiLatencySeconds * beatsPerSecond // 0.06 beats
+        let expectedCompensationBeats = fallbackLatencySeconds * beatsPerSecond // 0.06 beats
         
         // Simulate note on at beat 4.1 (after 0.1 beats of playback)
         audioEngine.currentPosition.beats = recordingStartBeat + 0.1
@@ -143,9 +154,9 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
             instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStartBeat)
             
             // When: Note triggered with fixed 30ms latency
-            let uiLatencySeconds = 0.030
+            let fallbackLatencySeconds = 0.030
             let beatsPerSecond = testCase.tempo / 60.0
-            let compensationBeats = uiLatencySeconds * beatsPerSecond
+            let compensationBeats = fallbackLatencySeconds * beatsPerSecond
             
             audioEngine.currentPosition.beats = 1.0
             instrumentManager.noteOn(pitch: 60, velocity: 100, compensationBeats: compensationBeats)
@@ -384,5 +395,472 @@ final class VirtualKeyboardLatencyTests: XCTestCase {
             XCTAssertEqual(note.startBeat, intendedBeat, accuracy: 0.001,
                            "Note should align with intended beat after compensation")
         }
+    }
+    
+    // MARK: - Hardware Timestamp Tests (Issue #119)
+    
+    /// Test hardware timestamp latency calculation
+    func testHardwareTimestampLatencyCalculation() throws {
+        // Given: Virtual keyboard configured
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // When: Calculate latency from hardware timestamp
+        let currentTime = CACurrentMediaTime()
+        let hardwareTimestamp = currentTime - 0.025 // 25ms ago (realistic UI latency)
+        
+        // Use reflection to access private method for testing
+        let latencySeconds = keyboardState.calculateActualLatency(hardwareTimestamp: hardwareTimestamp)
+        
+        // Then: Latency should match the time difference
+        XCTAssertEqual(latencySeconds, 0.025, accuracy: 0.001,
+                       "Hardware timestamp should calculate actual latency")
+    }
+    
+    /// Test hardware timestamp latency clamping (0-100ms range)
+    func testHardwareTimestampLatencyClamping() throws {
+        // Given: Virtual keyboard configured
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        
+        // When: Hardware timestamp suggests negative latency (clock domain issue)
+        let currentTime = CACurrentMediaTime()
+        let futureTimestamp = currentTime + 0.010 // 10ms in the future
+        
+        let latencySeconds = keyboardState.calculateActualLatency(hardwareTimestamp: futureTimestamp)
+        
+        // Then: Latency should be clamped to 0 (minimum)
+        XCTAssertEqual(latencySeconds, 0.0, accuracy: 0.001,
+                       "Negative latency should be clamped to 0")
+        
+        // When: Hardware timestamp suggests excessive latency
+        let oldTimestamp = currentTime - 0.150 // 150ms ago (unrealistic)
+        let excessiveLatency = keyboardState.calculateActualLatency(hardwareTimestamp: oldTimestamp)
+        
+        // Then: Latency should be clamped to 100ms (maximum)
+        XCTAssertEqual(excessiveLatency, 0.100, accuracy: 0.001,
+                       "Excessive latency should be clamped to 100ms")
+    }
+    
+    /// Test latency conversion from seconds to beats at various tempos
+    func testLatencySecondsToBeatsConversion() throws {
+        let testCases: [(tempo: Double, latencySeconds: TimeInterval, expectedBeats: Double)] = [
+            (60.0, 0.030, 0.030),   // 60 BPM: 30ms = 0.030 beats
+            (120.0, 0.030, 0.060),  // 120 BPM: 30ms = 0.060 beats
+            (180.0, 0.030, 0.090),  // 180 BPM: 30ms = 0.090 beats
+            (240.0, 0.030, 0.120),  // 240 BPM: 30ms = 0.120 beats
+            (120.0, 0.015, 0.030),  // 120 BPM: 15ms = 0.030 beats
+            (120.0, 0.050, 0.100),  // 120 BPM: 50ms = 0.100 beats
+        ]
+        
+        for testCase in testCases {
+            // Given: Project at specific tempo
+            testProject.tempo = testCase.tempo
+            let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+            keyboardState.configure(audioEngine: audioEngine)
+            
+            // When: Convert latency seconds to beats
+            let beatsPerSecond = testCase.tempo / 60.0
+            let resultBeats = testCase.latencySeconds * beatsPerSecond
+            
+            // Then: Conversion should be accurate
+            XCTAssertEqual(resultBeats, testCase.expectedBeats, accuracy: 0.001,
+                           "At \(testCase.tempo) BPM, \(testCase.latencySeconds)s should equal \(testCase.expectedBeats) beats")
+        }
+    }
+    
+    /// Test fallback to fixed compensation when hardware timestamp is nil
+    func testFallbackToFixedCompensationWhenNoHardwareTimestamp() throws {
+        // Given: Virtual keyboard and recording setup
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        let recordingStartBeat = 0.0
+        audioEngine.currentPosition.beats = recordingStartBeat
+        instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStartBeat)
+        instrumentManager.selectedTrackId = testTrack.id
+        
+        // When: Note triggered WITHOUT hardware timestamp (nil)
+        audioEngine.currentPosition.beats = 1.0
+        keyboardState.noteOn(60, hardwareTimestamp: nil) // No hardware timestamp
+        
+        audioEngine.currentPosition.beats = 1.5
+        keyboardState.noteOff(60, hardwareTimestamp: nil)
+        
+        // Then: Should fall back to fixed 30ms compensation
+        let recordedRegion = instrumentManager.stopRecording()
+        let note = try XCTUnwrap(recordedRegion?.notes.first)
+        
+        // Expected: fallback 30ms at 120 BPM = 0.06 beats
+        let expectedCompensation = 0.06
+        let expectedStart = 1.0 - expectedCompensation
+        
+        XCTAssertEqual(note.startBeat, expectedStart, accuracy: 0.001,
+                       "Should use fallback compensation when hardware timestamp unavailable")
+    }
+    
+    /// Test keyboard events with hardware timestamps
+    func testKeyboardEventsWithHardwareTimestamps() throws {
+        // Given: Virtual keyboard and recording
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        let recordingStartBeat = 0.0
+        audioEngine.currentPosition.beats = recordingStartBeat
+        instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStartBeat)
+        instrumentManager.selectedTrackId = testTrack.id
+        
+        // When: Keyboard event with hardware timestamp
+        audioEngine.currentPosition.beats = 2.0
+        let currentTime = CACurrentMediaTime()
+        let hardwareTimestamp = currentTime - 0.020 // 20ms actual latency
+        
+        keyboardState.noteOn(60, hardwareTimestamp: hardwareTimestamp)
+        
+        audioEngine.currentPosition.beats = 2.5
+        let releaseTime = CACurrentMediaTime()
+        let releaseTimestamp = releaseTime - 0.018 // 18ms actual latency
+        
+        keyboardState.noteOff(60, hardwareTimestamp: releaseTimestamp)
+        
+        // Then: Note should be compensated based on actual latency
+        let recordedRegion = instrumentManager.stopRecording()
+        let note = try XCTUnwrap(recordedRegion?.notes.first)
+        
+        // Compensation should be ~20ms = 0.04 beats at 120 BPM
+        let tempo = 120.0
+        let beatsPerSecond = tempo / 60.0
+        let expectedCompensationOn = 0.020 * beatsPerSecond // 0.04 beats
+        let expectedCompensationOff = 0.018 * beatsPerSecond // 0.036 beats
+        
+        let expectedStart = 2.0 - expectedCompensationOn
+        XCTAssertEqual(note.startBeat, expectedStart, accuracy: 0.01,
+                       "Note should use actual hardware timestamp latency")
+        
+        // Duration should account for both timestamps
+        let expectedDuration = (2.5 - expectedCompensationOff) - (2.0 - expectedCompensationOn)
+        XCTAssertEqual(note.durationBeats, expectedDuration, accuracy: 0.01,
+                       "Duration should use both hardware timestamp compensations")
+    }
+    
+    /// Test mouse click events with hardware timestamps
+    func testMouseEventsWithHardwareTimestamps() throws {
+        // Given: Virtual keyboard and recording
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        let recordingStartBeat = 0.0
+        audioEngine.currentPosition.beats = recordingStartBeat
+        instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStartBeat)
+        instrumentManager.selectedTrackId = testTrack.id
+        
+        // When: Mouse click with hardware timestamp (simulating piano key click)
+        audioEngine.currentPosition.beats = 3.0
+        let clickTime = CACurrentMediaTime()
+        let clickTimestamp = clickTime - 0.035 // 35ms click latency
+        
+        keyboardState.noteOn(64, hardwareTimestamp: clickTimestamp) // E
+        
+        audioEngine.currentPosition.beats = 3.25
+        let releaseTime = CACurrentMediaTime()
+        let releaseTimestamp = releaseTime - 0.030 // 30ms release latency
+        
+        keyboardState.noteOff(64, hardwareTimestamp: releaseTimestamp)
+        
+        // Then: Note should be compensated based on mouse hardware timing
+        let recordedRegion = instrumentManager.stopRecording()
+        let note = try XCTUnwrap(recordedRegion?.notes.first)
+        
+        // Compensation should be ~35ms = 0.07 beats at 120 BPM
+        let tempo = 120.0
+        let beatsPerSecond = tempo / 60.0
+        let expectedCompensationClick = 0.035 * beatsPerSecond // 0.07 beats
+        
+        let expectedStart = 3.0 - expectedCompensationClick
+        XCTAssertEqual(note.startBeat, expectedStart, accuracy: 0.01,
+                       "Mouse click should use hardware timestamp for sub-ms accuracy")
+    }
+    
+    /// Test that hardware timestamps work under variable system load
+    func testHardwareTimestampsAdaptToSystemLoad() throws {
+        // Given: Virtual keyboard configured
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // Simulate varying latencies (realistic under changing system load)
+        let latencies = [0.015, 0.025, 0.045, 0.020, 0.050] // 15ms to 50ms
+        
+        instrumentManager.selectedTrackId = testTrack.id
+        
+        for (index, latency) in latencies.enumerated() {
+            // Start recording for this note
+            let recordingStart = Double(index * 2)
+            audioEngine.currentPosition.beats = recordingStart
+            instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStart)
+            
+            // When: Note triggered with specific latency
+            let noteTime = recordingStart + 1.0
+            audioEngine.currentPosition.beats = noteTime
+            
+            let currentTime = CACurrentMediaTime()
+            let hardwareTimestamp = currentTime - latency
+            
+            keyboardState.noteOn(60, hardwareTimestamp: hardwareTimestamp)
+            
+            audioEngine.currentPosition.beats = noteTime + 0.5
+            keyboardState.noteOff(60, hardwareTimestamp: hardwareTimestamp)
+            
+            // Then: Each note should be compensated by its actual latency
+            let recordedRegion = instrumentManager.stopRecording()
+            let note = try XCTUnwrap(recordedRegion?.notes.first)
+            
+            let tempo = 120.0
+            let beatsPerSecond = tempo / 60.0
+            let expectedCompensation = latency * beatsPerSecond
+            let expectedStart = 1.0 - expectedCompensation
+            
+            XCTAssertEqual(note.startBeat, expectedStart, accuracy: 0.01,
+                           "Note \(index) should adapt to actual latency (\(latency * 1000)ms)")
+            
+            // Clean up for next iteration
+            testProject.tracks[0].midiRegions.removeAll()
+        }
+    }
+    
+    /// Test key repeat filtering (Issue #119 - holding key should not retrigger)
+    func testKeyRepeatFilteringPreventsRetriggering() throws {
+        // Given: Virtual keyboard configured
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        instrumentManager.selectedTrackId = testTrack.id
+        
+        // When: First keyDown (not a repeat)
+        let pitch: UInt8 = 60
+        keyboardState.noteOn(pitch, hardwareTimestamp: nil)
+        
+        // Then: Note should be in pressed notes
+        XCTAssertTrue(keyboardState.pressedNotes.contains(pitch),
+                      "First keyDown should trigger note")
+        
+        // When: Key is held and OS sends repeats (simulated by multiple calls)
+        // In real implementation, isARepeat check prevents these from calling noteOn
+        // Here we verify the state doesn't duplicate
+        let initialPressedCount = keyboardState.pressedNotes.count
+        
+        // Try to trigger same note again (simulating repeat - should not happen in real code)
+        keyboardState.noteOn(pitch, hardwareTimestamp: nil)
+        
+        // Then: Should not add duplicate (retrigger clears and re-adds)
+        XCTAssertEqual(keyboardState.pressedNotes.count, initialPressedCount,
+                       "Note should not be duplicated")
+        
+        // Cleanup
+        keyboardState.noteOff(pitch, hardwareTimestamp: nil)
+    }
+    
+    /// Test multiple simultaneous notes with different hardware timestamps
+    func testMultipleNotesWithDifferentTimestamps() throws {
+        // Given: Virtual keyboard and recording
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        let recordingStartBeat = 0.0
+        audioEngine.currentPosition.beats = recordingStartBeat
+        instrumentManager.startRecording(trackId: testTrack.id, atBeats: recordingStartBeat)
+        instrumentManager.selectedTrackId = testTrack.id
+        
+        // When: Multiple notes triggered with slightly different latencies
+        audioEngine.currentPosition.beats = 1.0
+        let baseTime = CACurrentMediaTime()
+        
+        let notes: [(pitch: UInt8, latency: TimeInterval)] = [
+            (60, 0.020), // C - 20ms latency
+            (64, 0.025), // E - 25ms latency  
+            (67, 0.022), // G - 22ms latency
+        ]
+        
+        for (pitch, latency) in notes {
+            let timestamp = baseTime - latency
+            keyboardState.noteOn(pitch, hardwareTimestamp: timestamp)
+        }
+        
+        // Release all
+        audioEngine.currentPosition.beats = 1.5
+        let releaseTime = CACurrentMediaTime()
+        for (pitch, latency) in notes {
+            let timestamp = releaseTime - latency
+            keyboardState.noteOff(pitch, hardwareTimestamp: timestamp)
+        }
+        
+        // Then: Each note should have its own precise compensation
+        let recordedRegion = instrumentManager.stopRecording()
+        XCTAssertEqual(recordedRegion?.notes.count, 3, "Should record all 3 notes")
+        
+        // Verify each note has appropriate compensation
+        for note in recordedRegion?.notes ?? [] {
+            // All notes started at beat 1.0 but with different compensations
+            // Start times should be slightly different (0.94 to 0.97 range)
+            XCTAssertGreaterThanOrEqual(note.startBeat, 0.93,
+                                        "Note should be compensated")
+            XCTAssertLessThanOrEqual(note.startBeat, 0.99,
+                                     "Compensation should be reasonable")
+        }
+    }
+    
+    // MARK: - Latency Visibility Tests (Issue #118)
+    
+    /// Test that currentLatencyMs property returns fallback latency in milliseconds
+    func testCurrentLatencyMsProperty() throws {
+        // Given: A virtual keyboard state
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        
+        // Then: currentLatencyMs should return 30ms (fallback latency)
+        XCTAssertEqual(keyboardState.currentLatencyMs, 30.0, accuracy: 0.1,
+                       "currentLatencyMs should return fallback latency of 30ms")
+    }
+    
+    /// Test that currentLatencyBeats property returns fallback latency in beats
+    func testCurrentLatencyBeatsProperty() throws {
+        // Given: A virtual keyboard state with 120 BPM tempo
+        // Note: AudioProject is a struct (value type), so we must modify projectManager.currentProject directly
+        projectManager.currentProject?.tempo = 120.0
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // When: Calculate expected beats for 30ms at 120 BPM
+        let expectedBeats = 0.030 * (120.0 / 60.0) // 0.06 beats
+        
+        // Then: currentLatencyBeats should match
+        XCTAssertEqual(keyboardState.currentLatencyBeats, expectedBeats, accuracy: 0.001,
+                       "currentLatencyBeats should return 0.06 beats at 120 BPM")
+    }
+    
+    /// Test that currentTempo property returns audio engine tempo
+    func testCurrentTempoProperty() throws {
+        // Given: A virtual keyboard state with custom tempo
+        // Note: AudioProject is a struct (value type), so we must modify projectManager.currentProject directly
+        projectManager.currentProject?.tempo = 140.0
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // Then: currentTempo should match project tempo
+        XCTAssertEqual(keyboardState.currentTempo, 140.0, accuracy: 0.1,
+                       "currentTempo should return project tempo")
+    }
+    
+    /// Test that currentTempo returns default 120 BPM when no project loaded
+    func testCurrentTempoDefaultsTo120() throws {
+        // Given: A virtual keyboard state with no audio engine configured
+        let keyboardState = VirtualKeyboardState(audioEngine: nil)
+        
+        // Then: currentTempo should default to 120 BPM
+        XCTAssertEqual(keyboardState.currentTempo, 120.0, accuracy: 0.1,
+                       "currentTempo should default to 120 BPM when no project loaded")
+    }
+    
+    /// Test that latency beats scales correctly with tempo changes
+    func testLatencyBeatsScalesWithTempo() throws {
+        // Given: A virtual keyboard state
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // Test cases: different tempos produce proportional beat compensation
+        let testCases: [(tempo: Double, expectedBeats: Double)] = [
+            (60.0, 0.030),    // 60 BPM: 30ms = 0.030 beats (1 beat/second)
+            (120.0, 0.060),   // 120 BPM: 30ms = 0.060 beats (2 beats/second)
+            (140.0, 0.070),   // 140 BPM: 30ms = 0.070 beats
+            (180.0, 0.090),   // 180 BPM: 30ms = 0.090 beats (3 beats/second)
+            (240.0, 0.120),   // 240 BPM: 30ms = 0.120 beats (4 beats/second)
+        ]
+        
+        for testCase in testCases {
+            // When: Tempo is changed (AudioProject is a struct, so modify projectManager directly)
+            projectManager.currentProject?.tempo = testCase.tempo
+            
+            // Then: Latency beats should scale proportionally
+            XCTAssertEqual(keyboardState.currentLatencyBeats, testCase.expectedBeats, accuracy: 0.001,
+                           "At \(testCase.tempo) BPM, 30ms should equal \(testCase.expectedBeats) beats")
+        }
+    }
+    
+    /// Test that latency compensation values update when tempo changes (Observable behavior)
+    func testLatencyCompensationUpdatesWithTempoChange() throws {
+        // Given: A virtual keyboard state at 120 BPM
+        // Note: AudioProject is a struct (value type), so we must modify projectManager.currentProject directly
+        projectManager.currentProject?.tempo = 120.0
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // Verify initial state
+        let initialBeats = keyboardState.currentLatencyBeats
+        XCTAssertEqual(initialBeats, 0.060, accuracy: 0.001,
+                       "Initial compensation at 120 BPM should be 0.06 beats")
+        
+        // When: Tempo changes to 180 BPM
+        projectManager.currentProject?.tempo = 180.0
+        
+        // Then: Latency beats should update automatically
+        let updatedBeats = keyboardState.currentLatencyBeats
+        XCTAssertEqual(updatedBeats, 0.090, accuracy: 0.001,
+                       "Compensation should update to 0.09 beats at 180 BPM")
+        
+        // Verify the change is proportional
+        XCTAssertEqual(updatedBeats / initialBeats, 180.0 / 120.0, accuracy: 0.01,
+                       "Compensation should scale proportionally with tempo")
+    }
+    
+    /// Test latency compensation display formatting (ms precision)
+    func testLatencyMillisecondFormatting() throws {
+        // Given: A virtual keyboard state
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        
+        // Then: Milliseconds should be formatted to integer precision
+        let ms = keyboardState.currentLatencyMs
+        XCTAssertEqual(ms, 30.0, accuracy: 0.1,
+                       "Latency should be 30ms")
+        
+        // Verify it formats correctly for display (no decimal places)
+        let formatted = String(format: "%.0f", ms)
+        XCTAssertEqual(formatted, "30", "Should format as integer milliseconds")
+    }
+    
+    /// Test latency compensation display formatting (beats precision)
+    func testLatencyBeatsFormatting() throws {
+        // Given: A virtual keyboard state at 120 BPM
+        // Note: AudioProject is a struct (value type), so we must modify projectManager.currentProject directly
+        projectManager.currentProject?.tempo = 120.0
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // Then: Beats should be formatted to 3 decimal places
+        let beats = keyboardState.currentLatencyBeats
+        XCTAssertEqual(beats, 0.060, accuracy: 0.001,
+                       "Latency should be 0.060 beats")
+        
+        // Verify it formats correctly for display (3 decimal places)
+        let formatted = String(format: "%.3f", beats)
+        XCTAssertEqual(formatted, "0.060", "Should format with 3 decimal places")
+    }
+    
+    /// Test latency compensation at extreme tempos (boundary testing)
+    func testLatencyCompensationAtExtremeTempos() throws {
+        // Given: A virtual keyboard state
+        let keyboardState = VirtualKeyboardState(audioEngine: audioEngine)
+        keyboardState.configure(audioEngine: audioEngine)
+        
+        // Test very slow tempo (AudioProject is a struct, so modify projectManager directly)
+        projectManager.currentProject?.tempo = 40.0
+        let slowBeats = keyboardState.currentLatencyBeats
+        XCTAssertEqual(slowBeats, 0.020, accuracy: 0.001,
+                       "At 40 BPM, 30ms should equal 0.02 beats")
+        
+        // Test very fast tempo
+        projectManager.currentProject?.tempo = 300.0
+        let fastBeats = keyboardState.currentLatencyBeats
+        XCTAssertEqual(fastBeats, 0.150, accuracy: 0.001,
+                       "At 300 BPM, 30ms should equal 0.15 beats")
+        
+        // Verify reasonable compensation range (0.02 to 0.15 beats for typical tempos)
+        XCTAssertGreaterThan(fastBeats, slowBeats,
+                             "Faster tempo should have larger beat compensation")
     }
 }

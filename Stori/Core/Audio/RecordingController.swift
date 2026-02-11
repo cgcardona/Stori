@@ -17,8 +17,9 @@
 //  This pattern matches `AutomationProcessor`, `RecordingBufferPool`, `TrackAudioNode`, and `MeteringService`.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import AVKit
 import os.lock
 
@@ -146,7 +147,6 @@ final class RecordingController: @unchecked Sendable {
         self.loadProject = loadProject
     }
     
-    nonisolated deinit {}
     
     // MARK: - Helpers
     

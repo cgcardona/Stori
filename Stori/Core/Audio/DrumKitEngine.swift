@@ -6,8 +6,9 @@
 //  Uses the same samples as Step Sequencer for consistent sound.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Drum Kit Engine
 
@@ -64,9 +65,6 @@ class DrumKitEngine {
         self.mixerNode = AVAudioMixerNode()
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     /// Attach the drum kit to an audio engine
     /// - Parameters:

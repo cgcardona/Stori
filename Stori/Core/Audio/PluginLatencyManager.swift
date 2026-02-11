@@ -5,15 +5,25 @@
 //  Manages plugin delay compensation (PDC) to keep all tracks phase-aligned.
 //  Professional DAWs compensate for plugin processing latency automatically.
 //
-
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
-import Observation
 import os.lock
 
 // MARK: - Plugin Latency Manager
 
 /// Manages plugin delay compensation (PDC) for the entire project
+///
+/// # Architecture: Nonisolated, Thread-Safe Singleton
+///
+/// This class is intentionally NOT `@MainActor` because `getCompensationDelay`
+/// is called from the audio render thread (via MIDIPlaybackEngine). Making the
+/// entire class `@MainActor` would require an actor hop from the RT thread,
+/// which is unacceptable for audio performance.
+///
+/// Thread safety is ensured via `os_unfair_lock` for all mutable state.
+/// Methods that access `@MainActor`-isolated types (like `PluginInstance`)
+/// are individually marked `@MainActor`.
 ///
 /// # Plugin Delay Compensation (PDC)
 ///
@@ -27,21 +37,6 @@ import os.lock
 /// 2. **Calculate Compensation**: Find the track with maximum latency, then delay all other tracks to match
 /// 3. **Apply Delays**: Add sample-accurate delays to tracks during audio scheduling
 ///
-/// ## Example
-///
-/// ```
-/// Track 1: Linear-phase EQ (10ms latency)
-/// Track 2: Standard EQ (0ms latency)
-/// Track 3: No plugins (0ms latency)
-///
-/// PDC Compensation:
-/// Track 1: 0ms delay (highest latency)
-/// Track 2: 10ms delay (compensate for difference)
-/// Track 3: 10ms delay (compensate for difference)
-///
-/// Result: All tracks play in perfect phase alignment
-/// ```
-///
 /// ## WYHIWYG (What You Hear Is What You Get)
 ///
 /// PDC is critical for WYHIWYG because:
@@ -51,51 +46,62 @@ import os.lock
 ///
 /// ## Thread Safety
 ///
-/// - `calculateCompensation` runs on main thread (called when plugin chain changes)
-/// - `getCompensationDelay` is thread-safe and can be called from audio thread
-/// - Uses `os_unfair_lock` for minimal overhead on compensation delay reads
+/// - All mutable state is protected by `os_unfair_lock`
+/// - `getCompensationDelay` can be called from the audio thread (lock-based, no allocation)
+/// - `calculateCompensation` is `@MainActor` because it accesses `PluginInstance` properties
 ///
-@Observable
-@MainActor
-class PluginLatencyManager {
+final class PluginLatencyManager: @unchecked Sendable {
     
     // MARK: - Singleton
     
     static let shared = PluginLatencyManager()
     
-    // MARK: - Observable Properties
+    // MARK: - Thread-Safe State
+    
+    /// Lock protecting all mutable state
+    private var lock = os_unfair_lock_s()
     
     /// Whether PDC is enabled (can be disabled for low-latency monitoring)
-    var isEnabled: Bool = true
+    var isEnabled: Bool {
+        get {
+            os_unfair_lock_lock(&lock)
+            defer { os_unfair_lock_unlock(&lock) }
+            return _isEnabled
+        }
+        set {
+            os_unfair_lock_lock(&lock)
+            _isEnabled = newValue
+            os_unfair_lock_unlock(&lock)
+        }
+    }
     
     /// Maximum latency across all tracks (in samples)
-    private(set) var maxLatencySamples: UInt32 = 0
+    var maxLatencySamples: UInt32 {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return _maxLatencySamples
+    }
     
     /// Maximum latency in milliseconds (for display)
-    private(set) var maxLatencyMs: Double = 0.0
+    var maxLatencyMs: Double {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return _maxLatencyMs
+    }
     
-    // MARK: - Private Properties
+    // MARK: - Private Backing Storage (lock-protected)
     
-    /// Current sample rate for latency calculations
-    @ObservationIgnored
-    internal var sampleRate: Double = 48000.0  // internal for testing
-    
-    /// Track latency info cache
-    @ObservationIgnored
-    private var trackLatencies: [UUID: TrackLatencyInfo] = [:]
-    
-    /// Compensation delays applied to each track (protected by compensationLock)
-    @ObservationIgnored
-    private nonisolated(unsafe) var compensationDelays: [UUID: UInt32] = [:]
-    
-    /// Lock for thread-safe access to compensation delays from audio thread
-    @ObservationIgnored
-    private nonisolated(unsafe) var compensationLock = os_unfair_lock_s()
+    private var _isEnabled: Bool = true
+    private var _maxLatencySamples: UInt32 = 0
+    private var _maxLatencyMs: Double = 0.0
+    private var _sampleRate: Double = 48000.0
+    private var _trackLatencies: [UUID: TrackLatencyInfo] = [:]
+    private var _compensationDelays: [UUID: UInt32] = [:]
     
     // MARK: - Types
     
     /// Information about a single track's latency
-    struct TrackLatencyInfo {
+    struct TrackLatencyInfo: Sendable {
         let trackId: UUID
         let totalLatencySamples: UInt32
         let pluginLatencies: [PluginLatencyEntry]
@@ -113,7 +119,7 @@ class PluginLatencyManager {
     }
     
     /// Latency entry for a single plugin
-    struct PluginLatencyEntry {
+    struct PluginLatencyEntry: Sendable {
         let pluginId: UUID
         let pluginName: String
         let latencySamples: UInt32
@@ -127,29 +133,41 @@ class PluginLatencyManager {
     
     private init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
+    // Lock-based state is trivially cleaned up by ARC — no manual deinit needed.
     
-    // MARK: - Configuration
+    // MARK: - Configuration (Thread-Safe)
     
     /// Update the sample rate used for latency calculations
     func setSampleRate(_ sampleRate: Double) {
-        self.sampleRate = sampleRate
+        os_unfair_lock_lock(&lock)
+        _sampleRate = sampleRate
+        os_unfair_lock_unlock(&lock)
     }
     
-    // MARK: - Latency Calculation
+    /// Current sample rate (thread-safe read)
+    var sampleRate: Double {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return _sampleRate
+    }
+    
+    // MARK: - Latency Calculation (@MainActor — accesses PluginInstance)
     
     /// Calculate the total latency for a single plugin
+    /// - Note: `@MainActor` because `PluginInstance` is `@MainActor`-isolated
+    @MainActor
     func getPluginLatency(_ plugin: PluginInstance) -> UInt32 {
         guard let au = plugin.auAudioUnit else { return 0 }
         
         // AU latency is in seconds, convert to samples
         let latencySeconds = au.latency
-        return UInt32(latencySeconds * sampleRate)
+        let sr = sampleRate  // thread-safe read
+        return UInt32(latencySeconds * sr)
     }
     
     /// Calculate total latency for a track with the given plugins
+    /// - Note: `@MainActor` because `PluginInstance` is `@MainActor`-isolated
+    @MainActor
     func calculateTrackLatency(trackId: UUID, plugins: [PluginInstance]) -> TrackLatencyInfo {
         var pluginLatencies: [PluginLatencyEntry] = []
         var totalLatency: UInt32 = 0
@@ -167,14 +185,18 @@ class PluginLatencyManager {
             }
         }
         
+        let sr = sampleRate  // thread-safe read
         let info = TrackLatencyInfo(
             trackId: trackId,
             totalLatencySamples: totalLatency,
             pluginLatencies: pluginLatencies,
-            sampleRate: sampleRate
+            sampleRate: sr
         )
         
-        trackLatencies[trackId] = info
+        os_unfair_lock_lock(&lock)
+        _trackLatencies[trackId] = info
+        os_unfair_lock_unlock(&lock)
+        
         return info
     }
     
@@ -185,14 +207,17 @@ class PluginLatencyManager {
     /// - Parameter trackLatencies: Map of track ID to total latency in samples
     /// - Returns: Map of track ID to compensation delay in samples
     func calculateCompensationWithExplicitLatencies(_ trackLatencies: [UUID: UInt32]) -> [UUID: UInt32] {
-        guard isEnabled else {
+        os_unfair_lock_lock(&lock)
+        
+        guard _isEnabled else {
+            os_unfair_lock_unlock(&lock)
             return trackLatencies.mapValues { _ in 0 }
         }
         
         // Find maximum latency
         let maxLatency = trackLatencies.values.max() ?? 0
-        self.maxLatencySamples = maxLatency
-        self.maxLatencyMs = Double(maxLatency) / sampleRate * 1000.0
+        _maxLatencySamples = maxLatency
+        _maxLatencyMs = Double(maxLatency) / _sampleRate * 1000.0
         
         // Calculate compensation for each track
         var compensation: [UUID: UInt32] = [:]
@@ -203,17 +228,17 @@ class PluginLatencyManager {
             compensation[trackId] = needed
         }
         
-        // Thread-safe write (same pattern as calculateCompensation)
-        os_unfair_lock_lock(&compensationLock)
-        self.compensationDelays = compensation
-        os_unfair_lock_unlock(&compensationLock)
+        _compensationDelays = compensation
+        os_unfair_lock_unlock(&lock)
         
         return compensation
     }
     
     /// Calculate latencies for all tracks and determine compensation delays
+    /// - Note: `@MainActor` because `PluginInstance` is `@MainActor`-isolated
+    @MainActor
     func calculateCompensation(trackPlugins: [UUID: [PluginInstance]]) -> [UUID: UInt32] {
-        // Calculate latency for each track
+        // Calculate latency for each track (MainActor: accesses PluginInstance)
         var allLatencies: [TrackLatencyInfo] = []
         
         for (trackId, plugins) in trackPlugins {
@@ -221,10 +246,13 @@ class PluginLatencyManager {
             allLatencies.append(info)
         }
         
+        // Lock for state mutation
+        os_unfair_lock_lock(&lock)
+        
         // Find maximum latency
         let maxLatency = allLatencies.map(\.totalLatencySamples).max() ?? 0
-        self.maxLatencySamples = maxLatency
-        self.maxLatencyMs = Double(maxLatency) / sampleRate * 1000.0
+        _maxLatencySamples = maxLatency
+        _maxLatencyMs = Double(maxLatency) / _sampleRate * 1000.0
         
         // Calculate compensation for each track
         var compensation: [UUID: UInt32] = [:]
@@ -235,48 +263,45 @@ class PluginLatencyManager {
             compensation[info.trackId] = needed
         }
         
-        // Thread-safe write
-        os_unfair_lock_lock(&compensationLock)
-        self.compensationDelays = compensation
-        os_unfair_lock_unlock(&compensationLock)
+        _compensationDelays = compensation
+        os_unfair_lock_unlock(&lock)
         
         return compensation
     }
     
     /// Get the compensation delay for a specific track
     /// Thread-safe: Can be called from audio thread (MIDI dispatch)
-    nonisolated func getCompensationDelay(for trackId: UUID) -> UInt32 {
-        os_unfair_lock_lock(&compensationLock)
-        defer { os_unfair_lock_unlock(&compensationLock) }
-        return compensationDelays[trackId] ?? 0
+    func getCompensationDelay(for trackId: UUID) -> UInt32 {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return _compensationDelays[trackId] ?? 0
     }
     
     /// Get latency info for a specific track
     func getTrackLatency(for trackId: UUID) -> TrackLatencyInfo? {
-        return trackLatencies[trackId]
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return _trackLatencies[trackId]
     }
     
-    // MARK: - Track Management
+    // MARK: - Track Management (Thread-Safe)
     
     /// Remove latency tracking for a track (when track is deleted)
     func removeTrack(_ trackId: UUID) {
-        trackLatencies.removeValue(forKey: trackId)
-        
-        os_unfair_lock_lock(&compensationLock)
-        compensationDelays.removeValue(forKey: trackId)
-        os_unfair_lock_unlock(&compensationLock)
+        os_unfair_lock_lock(&lock)
+        _trackLatencies.removeValue(forKey: trackId)
+        _compensationDelays.removeValue(forKey: trackId)
+        os_unfair_lock_unlock(&lock)
     }
     
     /// Clear all latency data
     func reset() {
-        trackLatencies.removeAll()
-        
-        os_unfair_lock_lock(&compensationLock)
-        compensationDelays.removeAll()
-        os_unfair_lock_unlock(&compensationLock)
-        
-        maxLatencySamples = 0
-        maxLatencyMs = 0.0
+        os_unfair_lock_lock(&lock)
+        _trackLatencies.removeAll()
+        _compensationDelays.removeAll()
+        _maxLatencySamples = 0
+        _maxLatencyMs = 0.0
+        os_unfair_lock_unlock(&lock)
     }
     
     // MARK: - Cleanup

@@ -6,8 +6,9 @@
 //  Replaces closure-based injection for better testability and clarity.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 
 // MARK: - Transport Delegate Protocol
 

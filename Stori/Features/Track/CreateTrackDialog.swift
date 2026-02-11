@@ -221,6 +221,7 @@ struct CreateTrackDialog: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .disabled(isCreating)
+                    .storiAccessibilityID(AccessibilityID.Track.createDialogCancel)
                     
                 // Create Button
                 Button("Create") {
@@ -240,7 +241,9 @@ struct CreateTrackDialog: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(isCreating)
+                .storiAccessibilityID(AccessibilityID.Track.createDialogConfirm)
                 }
+                .accessibilityElement(children: .contain)
                 .padding(.horizontal, 28)
                 .padding(.vertical, 16)
             }
@@ -253,6 +256,7 @@ struct CreateTrackDialog: View {
                     Color.black.opacity(0.02)
                 )
         )
+        .accessibilityIdentifier(AccessibilityID.Track.createDialog)
     }
     
     // MARK: - Output Routing Section
@@ -373,5 +377,6 @@ struct TrackTypeCard: View {
             .scaleEffect(isSelected ? 1.0 : 0.98)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(type == .audio ? AccessibilityID.Track.createDialogTypeAudio : AccessibilityID.Track.createDialogTypeMIDI)
     }
 }

@@ -9,7 +9,7 @@ import Security
 import Foundation
 
 @Observable
-class TokenManager {
+class TokenManager: @unchecked Sendable {
     static let shared = TokenManager()
     
     private let service = "com.tellurstori.stori"
@@ -17,9 +17,6 @@ class TokenManager {
     
     private init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Public API
     

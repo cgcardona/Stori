@@ -112,8 +112,8 @@ final class UpdateServiceTests: XCTestCase {
     private var suiteName: String!
     private var mockSession: URLSession!
     
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         
         MockURLProtocol.reset()
         
@@ -133,7 +133,7 @@ final class UpdateServiceTests: XCTestCase {
         )
     }
     
-    override func tearDown() {
+    override func tearDown() async throws {
         MockURLProtocol.reset()
         UserDefaults.standard.removePersistentDomain(forName: suiteName)
         testDefaults = nil
@@ -141,7 +141,7 @@ final class UpdateServiceTests: XCTestCase {
         store = nil
         service = nil
         mockSession = nil
-        super.tearDown()
+        try await super.tearDown()
     }
     
     // MARK: - Initial State

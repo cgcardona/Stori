@@ -25,16 +25,14 @@ final class AssetDownloadService {
     /// Last error message for UI
     private(set) var lastError: String?
 
-    init(baseURL: String = AppConfig.apiBaseURL) {
+    /// - Parameter session: Optional for tests (e.g. URLSession with custom URLProtocol). Production uses default.
+    init(baseURL: String = AppConfig.apiBaseURL, session: URLSession? = nil) {
         self.baseURL = baseURL
-        self.session = URLSession(configuration: .default)
+        self.session = session ?? URLSession(configuration: .default)
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 
     // MARK: - Paths
 
@@ -49,6 +47,15 @@ final class AssetDownloadService {
 
     private static var soundFontsDirectory: URL? {
         storiApplicationSupport?.appendingPathComponent("SoundFonts")
+    }
+
+    // MARK: - Device ID (assets)
+
+    /// Same app-instance UUID used for composer registration; backend allows/rate-limits asset downloads by this.
+    /// Assets use device UUID; composer APIs use JWT.
+    private func setDeviceIdHeader(on request: inout URLRequest) {
+        let deviceId = UserManager.shared.getOrCreateUserId()
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
     }
 
     // MARK: - List API
@@ -66,6 +73,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         do {
             let (data, response) = try await session.data(for: request)
             try validateResponse(response, data: data)
@@ -105,6 +113,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         do {
             let (data, response) = try await session.data(for: request)
             try validateResponse(response, data: data)
@@ -141,6 +150,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         do {
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
@@ -224,6 +234,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(DownloadURLResponse.self, from: data)
@@ -239,6 +250,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(DownloadURLResponse.self, from: data)
@@ -452,8 +464,10 @@ final class AssetDownloadService {
         guard let http = response as? HTTPURLResponse else { return }
         switch http.statusCode {
         case 200: break
+        case 401:
+            lastError = "Could not load from server. Please try again later."
+            throw AssetDownloadError.unauthorized
         case 404:
-            // Set user-friendly message without server URL
             lastError = "This pack is not available."
             throw AssetDownloadError.notFound
         case 503: throw AssetDownloadError.serviceUnavailable
@@ -601,6 +615,8 @@ final class AssetDownloadService {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
         process.arguments = ["-o", zipURL.path, "-d", destDir.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
@@ -663,7 +679,7 @@ final class AssetDownloadService {
 
 // MARK: - Download Delegate for Progress Tracking
 
-private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     let progressHandler: (Double) -> Void
     var completion: CheckedContinuation<(URL, URLResponse), Error>?
     
@@ -671,9 +687,6 @@ private class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         self.progressHandler = progressHandler
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let response = downloadTask.response else {

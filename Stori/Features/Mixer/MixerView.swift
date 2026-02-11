@@ -57,6 +57,7 @@ struct MixerView: View {
                 mixerContent
             }
         }
+        .storiAccessibilityID(AccessibilityID.Mixer.container)
     }
     
     @ViewBuilder

@@ -54,7 +54,6 @@ class AICommandDispatcher {
         self.undoService = undoService
     }
 
-    nonisolated deinit {}
     
     // MARK: - Batch Execution
     

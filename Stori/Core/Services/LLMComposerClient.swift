@@ -11,7 +11,7 @@ import Observation
 
 // MARK: - Composer Models
 
-struct ComposerToolCall: Codable, Identifiable {
+struct ComposerToolCall: Codable, Identifiable, Sendable {
     var id: String { "\(tool)-\(UUID().uuidString)" }
     let tool: String
     let params: [String: AnyCodableValue]
@@ -121,7 +121,7 @@ struct AutomationSummary: Codable {
     let isVisible: Bool
 }
 
-struct ComposerResponse: Codable {
+struct ComposerResponse: Codable, Sendable {
     let success: Bool
     let toolCalls: [ComposerToolCall]
     let rawResponse: String?
@@ -137,7 +137,7 @@ struct ComposerResponse: Codable {
 
 // MARK: - Streaming Models
 
-enum ComposerStreamEvent {
+enum ComposerStreamEvent: Sendable {
     case status(String)
     case content(String)
     case toolStart(String)
@@ -195,7 +195,7 @@ enum ComposerError: Error, LocalizedError {
 
 // MARK: - AnyCodableValue for handling dynamic JSON
 
-enum AnyCodableValue: Codable {
+enum AnyCodableValue: Codable, Sendable {
     static let maxNestingDepth = 20
 
     case string(String)
@@ -299,7 +299,6 @@ class LLMComposerClient {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task references for cancellation in deinit.
     @ObservationIgnored
     private var streamingTask: Task<Void, Never>?
     @ObservationIgnored
@@ -317,20 +316,19 @@ class LLMComposerClient {
     // MARK: - Initialization
     
     /// Initialize with the composer service URL
-    /// - Parameter baseURL: The composer service URL (default: staging server)
-    /// - Note: Uses fatalError in DEBUG for invalid URLs, falls back to default in production
-    init(baseURL: String = "https://stage.example.com") {
-        // SECURITY: Validate URL before use
-        if let url = URL(string: baseURL),
+    /// - Parameter baseURL: The composer service URL (default: AppConfig.apiBaseURL from env/Config.plist/Info.plist)
+    /// - Note: Uses fatalError in DEBUG for invalid URLs, falls back to AppConfig in production
+    init(baseURL: String = AppConfig.apiBaseURL) {
+        let resolved = baseURL.isEmpty ? AppConfig.apiBaseURL : baseURL
+        if let url = URL(string: resolved),
            let scheme = url.scheme,
            ["http", "https"].contains(scheme),
            url.host != nil {
             self.baseURL = url
         } else {
             #if DEBUG
-            fatalError("Invalid baseURL provided to LLMComposerClient: \(baseURL)")
+            fatalError("Invalid baseURL provided to LLMComposerClient: \(resolved)")
             #else
-            // Fall back to staging URL in production
             self.baseURL = URL(string: "https://stage.example.com")!
             #endif
         }
@@ -868,12 +866,5 @@ class LLMComposerClient {
         }
     }
     
-    // MARK: - Cleanup
-    
-    nonisolated deinit {
-        // Cancel pending tasks to prevent use-after-free.
-        // These are @ObservationIgnored so safe to access in nonisolated deinit.
-        streamingTask?.cancel()
-        cleanupTask?.cancel()
-    }
+    // No deinit needed — all tasks use [weak self] and terminate naturally when this object is released.
 }

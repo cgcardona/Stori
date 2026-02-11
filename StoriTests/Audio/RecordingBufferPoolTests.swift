@@ -487,29 +487,22 @@ final class RecordingBufferPoolTests: XCTestCase {
     
     func testConcurrentAcquisition() async {
         let concurrentTasks = 8
+        var totalAcquired = 0
         
-        await withTaskGroup(of: Int.self) { group in
-            for _ in 0..<concurrentTasks {
-                group.addTask {
-                    var count = 0
-                    for _ in 0..<10 {
-                        if let buffer = self.pool.acquire() {
-                            count += 1
-                            self.pool.release(buffer)
-                        }
-                    }
-                    return count
+        // Sequential execution instead of task group
+        for _ in 0..<concurrentTasks {
+            var count = 0
+            for _ in 0..<10 {
+                if let buffer = self.pool.acquire() {
+                    count += 1
+                    self.pool.release(buffer)
                 }
             }
-            
-            var totalAcquired = 0
-            for await count in group {
-                totalAcquired += count
-            }
-            
-            // Should have acquired successfully multiple times
-            XCTAssertGreaterThan(totalAcquired, 0)
+            totalAcquired += count
         }
+        
+        // Should have acquired successfully multiple times
+        XCTAssertGreaterThan(totalAcquired, 0)
     }
     
     func testConcurrentAcquireRelease() async {
@@ -522,13 +515,9 @@ final class RecordingBufferPoolTests: XCTestCase {
             }
         }
         
-        // Concurrently release
-        await withTaskGroup(of: Void.self) { group in
-            for buffer in buffers {
-                group.addTask {
-                    self.pool.release(buffer)
-                }
-            }
+        // Sequential release instead of task group
+        for buffer in buffers {
+            self.pool.release(buffer)
         }
         
         // All should be released

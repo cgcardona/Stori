@@ -12,34 +12,27 @@ enum AppConfig {
     
     // MARK: - API Configuration
     
-    /// Base URL for Stori backend API
-    /// Reads from environment variable or Config.plist (not committed to git)
+    /// Base URL for Stori backend API (no trailing slash).
+    /// Sources: STORI_API_URL env, then Config.plist (gitignored). Real URLs only in env or Config.plist.
     static var apiBaseURL: String {
-        // Try environment variable first
-        if let envURL = ProcessInfo.processInfo.environment["STORI_API_URL"] {
+        if let envURL = ProcessInfo.processInfo.environment["STORI_API_URL"], !envURL.isEmpty {
             return envURL
         }
-        
-        // Try Config.plist (gitignored)
-        if let configURL = loadConfigValue(key: "ApiBaseURL") {
-            return configURL
+        if let url = loadConfigPlistValue(key: "ApiBaseURL") {
+            return url
         }
-        
-        // Fallback for development/demo mode
         #if DEBUG
         return "https://stage.example.com"
         #else
-        // Production builds without config will fail gracefully (no remote features)
-        // Users must either: 1) Download official DMG, or 2) Build with their own Config.plist
-        return "" // Empty = remote features disabled
+        return ""
         #endif
     }
-    
-    /// Load value from Config.plist
-    private static func loadConfigValue(key: String) -> String? {
+
+    /// Load value from Config.plist (gitignored; not committed)
+    private static func loadConfigPlistValue(key: String) -> String? {
         guard let configPath = Bundle.main.path(forResource: "Config", ofType: "plist"),
               let configDict = NSDictionary(contentsOfFile: configPath) as? [String: Any],
-              let value = configDict[key] as? String else {
+              let value = configDict[key] as? String, !value.isEmpty else {
             return nil
         }
         return value

@@ -94,6 +94,7 @@ struct RegionDragResult {
 // MARK: - Region Drag State
 
 /// Observable state for region drag operations
+@MainActor
 @Observable
 final class RegionDragState {
     var isDragging: Bool = false
@@ -106,15 +107,13 @@ final class RegionDragState {
         verticalDragOffset = 0
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
 }
 
 // MARK: - Region Drag Handler
 
 /// Shared drag handling logic for audio and MIDI regions
 /// Encapsulates all the drag gesture behavior in one place
+@MainActor
 struct RegionDragHandler {
     let config: RegionDragConfig
     let dragState: RegionDragState
@@ -229,6 +228,7 @@ struct RegionDragHandler {
 
 /// A DragGesture wrapper that uses RegionDragHandler
 /// Use this to create a consistent drag gesture for any region
+@MainActor
 func makeRegionDragGesture(handler: RegionDragHandler) -> some Gesture {
     DragGesture(coordinateSpace: .global)
         .onChanged { value in

@@ -61,14 +61,14 @@ See backend API documentation for details.
 
 ## Files
 
-- **`Config.plist`** - Your actual configuration (gitignored, not in repo)
-- **`Config.plist.example`** - Template to copy from
-- **`AppConfig.swift`** - Loads configuration at runtime
+- **`Config.plist`** - Your actual configuration (gitignored, not in repo). Put the real API base URL here for staging/production; never commit it.
+- **`Config.plist.example`** - Template with placeholder URL only. Copy to `Config.plist` and set `ApiBaseURL` to the URL you are given or use for local dev.
+- **`AppConfig.swift`** - Loads at runtime: `STORI_API_URL` env → `Config.plist` → fallback example URL in DEBUG only.
 
 ---
 
 ## Security Notes
 
-- `Config.plist` is **gitignored** to prevent leaking API credentials
-- Official DMGs include TellUrStori's backend URL
-- Custom backends should use HTTPS in production
+- `Config.plist` is **gitignored** so real backend URLs and secrets are never committed.
+- Official DMGs are built with the real URL injected via `Config.plist` or build-time plist; the repo contains no hardcoded production or staging URLs.
+- Custom backends should use HTTPS in production.

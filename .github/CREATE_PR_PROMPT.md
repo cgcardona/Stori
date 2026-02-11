@@ -90,12 +90,20 @@ Add extensive test coverage.
 - Unit tests for the fixed logic
 - Regression test that would have caught the bug
 - Edge-case tests (seek, loop, stop/start, device change, buffer change)
+- XCUITest coverage for UI changes (if applicable)
 
 ### Audio expectations
 - No timing drift
 - No dropped or duplicated MIDI events
 - No gain / pan mismatches
 - Deterministic results across runs
+
+### Accessibility requirements (if UI changed)
+- All new interactive elements have `.accessibilityIdentifier()` for XCUITests
+- All new interactive elements have `.accessibilityLabel()` for VoiceOver
+- Use dot notation naming: `"feature.component.element"` (e.g., `"transport.playButton"`)
+- Add keyboard shortcuts for primary actions
+- Test focus navigation and high contrast mode
 
 ---
 
@@ -127,6 +135,13 @@ Closes <ISSUE_URL>
 ## Tests Added
 - <Test name>
 - <Test name>
+
+## Accessibility (if UI changed)
+- [ ] All interactive elements have accessibility identifiers (XCUITests)
+- [ ] All interactive elements have accessibility labels (VoiceOver)
+- [ ] Keyboard shortcuts implemented for primary actions
+- [ ] Focus navigation tested
+- [ ] High contrast mode verified
 
 ## Audiophile Impact
 Why this prevents audible artifacts or WYSIWYG violations.

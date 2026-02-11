@@ -38,11 +38,16 @@ SCHEME="Stori"
 TEAM_ID="KS7G78R93R"
 NOTARIZE_PROFILE="StoriNotarize"
 
-# Read version from VERSION file
-if [[ -f "$PROJECT_ROOT/VERSION" ]]; then
-    VERSION=$(tr -d '\n' < "$PROJECT_ROOT/VERSION")
+# Read version from Info.plist (single source of truth)
+INFO_PLIST="$PROJECT_ROOT/Stori/Info.plist"
+if [[ -f "$INFO_PLIST" ]]; then
+    VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST" 2>/dev/null || echo "")
+    if [[ -z "$VERSION" ]]; then
+        echo "❌ Error: Could not read CFBundleShortVersionString from Info.plist"
+        exit 1
+    fi
 else
-    echo "❌ Error: VERSION file not found"
+    echo "❌ Error: Info.plist not found at $INFO_PLIST"
     exit 1
 fi
 
@@ -303,10 +308,17 @@ cp -R "$APP_PATH" "$STAGING_DIR/"
 cat > "$STAGING_DIR/README.txt" << README_EOF
 ╔════════════════════════════════════════════════════════════════╗
 ║                                                                ║
-║            🎵 Stori - Digital Audio Workstation               ║
+║     ███████╗████████╗ ██████╗ ██████╗ ██╗                      ║
+║     ██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗██║                      ║
+║     ███████╗   ██║   ██║   ██║██████╔╝██║                      ║
+║     ╚════██║   ██║   ██║   ██║██╔══██╗██║                      ║
+║     ███████║   ██║   ╚██████╔╝██║  ██║██║                      ║
+║     ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═╝                      ║
 ║                                                                ║
-║         Version: ${VERSION}
-║         Built: ${BUILD_TIMESTAMP}
+║            Digital Audio Workstation                           ║
+║                                                                ║
+║         Version: ${VERSION}                                    ║
+║         Built: ${BUILD_TIMESTAMP}                              ║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
 

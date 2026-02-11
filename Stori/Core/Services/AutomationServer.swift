@@ -63,17 +63,14 @@ class AutomationServer {
     
     // MARK: - Task Lifecycle Management
     
-    /// Task references — nonisolated(unsafe) so deinit can cancel them.
-    /// deinit is nonisolated and can't access @MainActor properties,
-    /// but cancelling orphaned tasks is important for cleanup.
     @ObservationIgnored
-    nonisolated(unsafe) private var stateChangeTask: Task<Void, Never>?
+    private var stateChangeTask: Task<Void, Never>?
     @ObservationIgnored
-    nonisolated(unsafe) private var requestHandlerTask: Task<Void, Never>?
+    private var requestHandlerTask: Task<Void, Never>?
     @ObservationIgnored
-    nonisolated(unsafe) private var statusResponseTask: Task<Void, Never>?
+    private var statusResponseTask: Task<Void, Never>?
     @ObservationIgnored
-    nonisolated(unsafe) private var promptExecutionTask: Task<Void, Never>?
+    private var promptExecutionTask: Task<Void, Never>?
     
     // MARK: - Initialization
     
@@ -108,20 +105,21 @@ class AutomationServer {
             listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
             
             listener?.stateUpdateHandler = { [weak self] state in
-                // Cancel any existing state change task to prevent buildup
-                self?.stateChangeTask?.cancel()
-                self?.stateChangeTask = Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    // Cancel any existing state change task to prevent buildup
+                    self.stateChangeTask?.cancel()
                     switch state {
                     case .ready:
-                        self?.isRunning = true
-                    case .failed(let error):
-                        self?.isRunning = false
+                        self.isRunning = true
+                    case .failed:
+                        self.isRunning = false
                     case .cancelled:
-                        self?.isRunning = false
+                        self.isRunning = false
                     default:
                         break
                     }
-                    self?.stateChangeTask = nil
+                    self.stateChangeTask = nil
                 }
             }
             
@@ -448,14 +446,5 @@ class AutomationServer {
         }
     }
     
-    // MARK: - Cleanup
-    
-    nonisolated deinit {
-        // Cancel pending tasks to prevent use-after-free.
-        // These are nonisolated(unsafe) so safe to access in nonisolated deinit.
-        stateChangeTask?.cancel()
-        requestHandlerTask?.cancel()
-        statusResponseTask?.cancel()
-        promptExecutionTask?.cancel()
-    }
+    // No deinit needed — all tasks use [weak self] and terminate naturally when this object is released.
 }

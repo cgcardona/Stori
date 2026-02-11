@@ -74,7 +74,7 @@ struct TokenInputView: View {
             
             // Success message
             if showSuccess {
-                VStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -82,15 +82,17 @@ struct TokenInputView: View {
                             .foregroundStyle(.green)
                             .fontWeight(.medium)
                     }
-                    
                     if let expirationInfo = expirationInfo {
                         Text(expirationInfo)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                    Text("Your sign-in is stored securely. When you use the AI Composer, macOS may ask you to allow access once—choose Allow or Always Allow.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 .padding(12)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.green.opacity(0.1))
                 .cornerRadius(8)
                 .transition(.opacity)
@@ -161,11 +163,7 @@ struct TokenInputView: View {
                         object: nil,
                         userInfo: ["validation": validation]
                     )
-                    
-                    // Auto-dismiss immediately after success
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        dismiss()
-                    }
+                    // No auto-dismiss: user should read the keychain message and tap Continue
                 }
             } catch let error as AuthError {
                 await MainActor.run {

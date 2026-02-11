@@ -83,9 +83,6 @@ final class AudioPerformanceMonitor {
     
     init() {}
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Timing Measurement
     
@@ -110,7 +107,7 @@ final class AudioPerformanceMonitor {
     }
     
     /// Measure async operation performance
-    func measureAsync<T>(
+    func measureAsync<T: Sendable>(
         operation: String,
         context: [String: String] = [:],
         _ work: () async throws -> T

@@ -22,9 +22,6 @@ final class TransportQueryCoordinator {
         self.continuation = continuation
     }
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     func resumeOnce(returning value: Bool) {
         lock.lock()
@@ -110,7 +107,6 @@ class ProjectManager {
         setupNotificationObservers()
     }
     
-    nonisolated deinit {}
     
     // MARK: - Notification Observers
     private func setupNotificationObservers() {
@@ -388,9 +384,10 @@ class ProjectManager {
     func scheduleSave() {
         saveDebounceTask?.cancel()
         saveDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(saveDebounceMs)))
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(Int(self.saveDebounceMs)))
             guard !Task.isCancelled else { return }
-            self?.saveCurrentProject()
+            self.saveCurrentProject()
         }
     }
     

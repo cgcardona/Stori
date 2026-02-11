@@ -6,8 +6,9 @@
 //  CRITICAL: Prevents silent failures where UI shows "playing" but audio is broken.
 //
 
+//  NOTE: @preconcurrency import must be the first import of that module in this file (Swift compiler limitation).
+@preconcurrency import AVFoundation
 import Foundation
-import AVFoundation
 import Observation
 
 // MARK: - Engine Health Status
@@ -95,9 +96,6 @@ final class AudioEngineHealthMonitor {
     private var getIsGraphReady: (() -> Bool)?
     private var getTrackNodes: (() -> [UUID: TrackAudioNode])?
     
-    /// Run deinit off the executor to avoid Swift Concurrency task-local bad-free (ASan) when
-    /// the runtime deinits this object on MainActor/task-local context.
-    nonisolated deinit {}
     
     // MARK: - Configuration
     
