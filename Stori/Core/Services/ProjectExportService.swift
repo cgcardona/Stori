@@ -363,6 +363,18 @@ class ProjectExportService {
     @ObservationIgnored
     private var exportTempo: Double = 120.0
     
+    /// Current export engine and tap node; set for duration of renderProjectAudio so the timeout Task
+    /// does not capture them (avoiding "freed pointer was not the last allocation" when task outlives engine).
+    @ObservationIgnored
+    private var currentExportRenderEngine: AVAudioEngine?
+    @ObservationIgnored
+    private var currentExportTapNode: AVAudioNode?
+    
+    /// Serial queue for export teardown and continuation.resume. Teardown and resume must NOT run
+    /// from the tap callback (real-time audio thread); they run here to avoid allocator/order issues.
+    @ObservationIgnored
+    private let exportTeardownQueue = DispatchQueue(label: "ExportTeardown")
+    
     /// Export directory for rendered projects
     private var exportDirectory: URL {
         let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -433,33 +445,30 @@ class ProjectExportService {
         // Calculate project CONTENT duration (before plugins are cloned)
         let contentDuration = calculateProjectDuration(project)
         
-        // Create offline render engine
-        let renderEngine = AVAudioEngine()
-        
-        exportStatus = "Setting up audio graph..."
-        exportProgress = 0.1
-        
-        // Set up the audio graph for offline rendering
-        try await setupOfflineAudioGraph(
-            renderEngine: renderEngine,
-            project: project,
-            audioEngine: audioEngine,
-            sampleRate: sampleRate
-        )
-        
-        exportStatus = "Rendering audio..."
-        exportProgress = 0.2
-        
-        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
-        // This ensures we query actual cloned plugin tail times, not live engine instances
-        let totalDuration = calculateExportDurationWithTail(contentDuration)
-        
-        // Perform offline rendering
-        let renderedBuffer = try await renderProjectAudio(
-            renderEngine: renderEngine,
-            duration: totalDuration,
-            sampleRate: sampleRate
-        )
+        let renderedBuffer: AVAudioPCMBuffer
+        do {
+            // Create offline render engine; scope so it deallocates before cleanupExportResources()
+            // to avoid "freed pointer was not the last allocation" (allocator ordering on teardown).
+            let renderEngine = AVAudioEngine()
+            exportStatus = "Setting up audio graph..."
+            exportProgress = 0.1
+            try await setupOfflineAudioGraph(
+                renderEngine: renderEngine,
+                project: project,
+                audioEngine: audioEngine,
+                sampleRate: sampleRate
+            )
+            exportStatus = "Rendering audio..."
+            exportProgress = 0.2
+            let totalDuration = calculateExportDurationWithTail(contentDuration)
+            renderedBuffer = try await renderProjectAudio(
+                renderEngine: renderEngine,
+                duration: totalDuration,
+                sampleRate: sampleRate
+            )
+            // Release our refs to nodes while engine is still in scope (ChatGPT #4); then engine deallocates as sole owner.
+            cleanupExportResources()
+        }
         
         exportStatus = "Writing to file..."
         exportProgress = 0.9
@@ -471,9 +480,6 @@ class ProjectExportService {
             sampleRate: sampleRate,
             bitDepth: bitDepth
         )
-        
-        // Clean up export resources (samplers, renderers)
-        cleanupExportResources()
         
         exportProgress = 1.0
         exportStatus = "Export complete!"
@@ -530,32 +536,29 @@ class ProjectExportService {
             throw ExportError.cancelled
         }
         
-        // Create offline render engine
-        let renderEngine = AVAudioEngine()
-        
-        exportStatus = "Setting up audio graph..."
-        exportProgress = 0.1
-        
-        // Set up the audio graph for offline rendering
-        try await setupOfflineAudioGraph(
-            renderEngine: renderEngine,
-            project: project,
-            audioEngine: audioEngine,
-            sampleRate: sampleRate
-        )
-        
-        exportStatus = "Rendering audio..."
-        exportProgress = 0.2
-        
-        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
-        let totalDuration = calculateExportDurationWithTail(contentDuration)
-        
-        // Perform offline rendering
-        let renderedBuffer = try await renderProjectAudio(
-            renderEngine: renderEngine,
-            duration: totalDuration,
-            sampleRate: sampleRate
-        )
+        let renderedBuffer: AVAudioPCMBuffer
+        do {
+            // Create offline render engine; scope so it deallocates before cleanupExportResources()
+            // to avoid "freed pointer was not the last allocation" (allocator ordering on teardown).
+            let renderEngine = AVAudioEngine()
+            exportStatus = "Setting up audio graph..."
+            exportProgress = 0.1
+            try await setupOfflineAudioGraph(
+                renderEngine: renderEngine,
+                project: project,
+                audioEngine: audioEngine,
+                sampleRate: sampleRate
+            )
+            exportStatus = "Rendering audio..."
+            exportProgress = 0.2
+            let totalDuration = calculateExportDurationWithTail(contentDuration)
+            renderedBuffer = try await renderProjectAudio(
+                renderEngine: renderEngine,
+                duration: totalDuration,
+                sampleRate: sampleRate
+            )
+            cleanupExportResources()
+        }
         
         exportStatus = "Converting to \(settings.format.displayName)..."
         exportProgress = 0.85
@@ -606,9 +609,6 @@ class ProjectExportService {
             // Note: Normalization would be applied during rendering for best quality
             // This is a placeholder for future implementation
         }
-        
-        // Clean up export resources (samplers, renderers, cloned plugins)
-        cleanupExportResources()
         
         exportProgress = 1.0
         exportStatus = "Export complete!"
@@ -1566,31 +1566,26 @@ class ProjectExportService {
     
     /// Clean up export resources
     private func cleanupExportResources() {
-        // Stop and release all export samplers
+        // Stop samplers first (no release order concern)
         for (_, sampler) in exportSamplers {
             sampler.allNotesOff()
             sampler.stop()
         }
+        // Release in reverse (LIFO) order of setup to satisfy allocator and avoid
+        // "freed pointer was not the last allocation" when many nodes are torn down.
+        // Setup order: buses → track mixers/EQ/plugins/samplers → master chain.
+        exportMasterLimiter = nil
+        exportMasterEQ = nil
         exportSamplers.removeAll()
         samplerEvents.removeAll()
         midiRenderers.removeAll()
-        trackMixerNodes.removeAll()
         trackEQNodes.removeAll()
-        exportAutomationProcessor = nil
-        
-        // Clean up cloned AU plugins
-        // The AVAudioUnit instances will be released when the dictionaries are cleared
-        // and the render engine is deallocated
-        let trackPluginCount = clonedTrackPlugins.values.reduce(0) { $0 + $1.count }
-        let busPluginCount = clonedBusPlugins.values.reduce(0) { $0 + $1.count }
-        
+        trackMixerNodes.removeAll()
         clonedTrackPlugins.removeAll()
-        clonedBusPlugins.removeAll()
-        exportBusInputs.removeAll()
         exportBusOutputs.removeAll()
-        
-        if trackPluginCount > 0 || busPluginCount > 0 {
-        }
+        exportBusInputs.removeAll()
+        clonedBusPlugins.removeAll()
+        exportAutomationProcessor = nil
     }
     
     /// Configure a 3-band EQ node from track mixer settings
@@ -1845,36 +1840,6 @@ class ProjectExportService {
         // Set initial length to total capacity, will trim to target at end
         outputBuffer.frameLength = totalCapacity
         
-        // Capture audio using a tap on the main mixer
-        var capturedFrames: AVAudioFrameCount = 0
-        
-        // Use a class to track if continuation has been resumed (thread-safe)
-        final class ContinuationState: @unchecked Sendable {
-            /// Lock for thread-safe access to resume state (BUG FIX Issue #50)
-            /// Using os_unfair_lock instead of NSLock for real-time safety
-            /// NSLock can cause priority inversion in render callback
-            private var lock = os_unfair_lock_s()
-            private var _isResumed = false
-            
-            var isResumed: Bool {
-                os_unfair_lock_lock(&lock)
-                defer { os_unfair_lock_unlock(&lock) }
-                return _isResumed
-            }
-            
-            /// Returns true if this call set the resumed flag (i.e., first caller wins)
-            func tryResume() -> Bool {
-                os_unfair_lock_lock(&lock)
-                defer { os_unfair_lock_unlock(&lock) }
-                if _isResumed { return false }
-                _isResumed = true
-                return true
-            }
-            
-        }
-        
-        let state = ContinuationState()
-        
         // Start the engine AFTER setup but BEFORE triggering notes
         try renderEngine.start()
         
@@ -1886,147 +1851,107 @@ class ProjectExportService {
         }
         
         // Track which sample position we've processed up to for sampler events
-        // This ensures CONTINUOUS coverage with no gaps
         var samplerEventPosition: AVAudioFramePosition = 0
-        
-        // Pre-trigger events for the first buffer (sampler needs time to produce audio)
-        // Use a generous lookahead to ensure notes sound on time
         let initialLookahead = Int(bufferSize) * 2
-        
-        
         self.processSamplerEventsInRange(startSample: 0, frameCount: initialLookahead)
         samplerEventPosition = AVAudioFramePosition(initialLookahead)
         
-        // CRITICAL: Store tapNode reference for proper cleanup
-        // The tap MUST be removed from the same node it was installed on
-        let tapNode = exportMasterLimiter ?? renderEngine.mainMixerNode
+        // Use manual rendering mode instead of a tap to avoid "freed pointer was not the last allocation".
+        // Tap callbacks run on a real-time thread and teardown/continuation from that thread causes
+        // allocator and Swift concurrency order issues. renderOffline() runs on the calling thread.
+        currentExportRenderEngine = nil
+        currentExportTapNode = nil
         
-        return try await withCheckedThrowingContinuation { continuation in
-            // CRITICAL FIX (Bug #02): Tap from master limiter output (not mainMixer) to match live signal path
-            // Live path ends at: mixer → masterEQ → masterLimiter → output
-            // Export MUST tap after limiter for WYHIWYG
-            
-            tapNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
-                guard let self = self else { return }
-                
-                // Don't process if already resumed
-                guard !state.isResumed else { return }
-                
-                // Get actual sample time from engine
-                let actualSampleTime = time.sampleTime
-                
-                // Log tap callback timing periodically
-                if capturedFrames % (48000 * 2) < buffer.frameLength {  // Every ~2 seconds
+        return try await withThrowingTaskGroup(of: AVAudioPCMBuffer.self) { group in
+            group.addTask { @MainActor in
+                try renderEngine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: bufferSize)
+                defer {
+                    renderEngine.stop()
+                    renderEngine.disableManualRenderingMode()
+                    renderEngine.reset()
                 }
                 
-                // Process sampler events with CONTINUOUS coverage
-                // Trigger events from where we left off up to current position + lookahead
-                // This ensures NO GAPS in event triggering
-                let targetPosition = actualSampleTime + AVAudioFramePosition(buffer.frameLength) * 2  // 2-buffer lookahead
+                let renderBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: bufferSize)!
+                var capturedFrames: AVAudioFrameCount = 0
+                let automationUpdateInterval = Int(sampleRate / 120.0)
                 
-                if targetPosition > samplerEventPosition {
-                    let framesToProcess = Int(targetPosition - samplerEventPosition)
-                    self.processSamplerEventsInRange(
-                        startSample: samplerEventPosition,
-                        frameCount: framesToProcess
-                    )
-                    samplerEventPosition = targetPosition
-                }
-                
-                // SAMPLE-ACCURATE AUTOMATION:
-                // Apply automation at 120Hz intervals (same as playback) for smooth parameter changes.
-                // This ensures export matches playback exactly - no stepped automation.
-                //
-                // Calculate: 120Hz = 8.33ms interval = 400 samples at 48kHz
-                let automationUpdateInterval = Int(sampleRate / 120.0)  // ~400 samples at 48kHz
-                let bufferFrameCount = Int(buffer.frameLength)
-                
-                // Apply automation multiple times within this buffer for smooth curves
-                var sampleOffset = 0
-                while sampleOffset < bufferFrameCount {
-                    let automationSamplePos = capturedFrames + AVAudioFrameCount(sampleOffset)
-                    self.applyExportAutomation(atSample: automationSamplePos, sampleRate: sampleRate)
-                    sampleOffset += automationUpdateInterval
-                }
-                
-                // Apply one final time at the end of the buffer for precision
-                self.applyExportAutomation(atSample: capturedFrames + AVAudioFrameCount(bufferFrameCount), sampleRate: sampleRate)
-                
-                // Copy buffer data to output buffer
-                let framesToCopy = min(buffer.frameLength, totalCapacity - capturedFrames)
-                
-                if framesToCopy > 0, let outputData = outputBuffer.floatChannelData {
-                    if let bufferData = buffer.floatChannelData {
+                while capturedFrames < totalCapacity {
+                    try Task.checkCancellation()
+                    if self.isCancelled { throw ExportError.cancelled }
+                    
+                    let framesToRender = min(bufferSize, totalCapacity - capturedFrames)
+                    let targetPosition = samplerEventPosition + AVAudioFramePosition(framesToRender) + AVAudioFramePosition(initialLookahead)
+                    if targetPosition > samplerEventPosition {
+                        let framesToProcess = Int(targetPosition - samplerEventPosition)
+                        self.processSamplerEventsInRange(startSample: samplerEventPosition, frameCount: framesToProcess)
+                        samplerEventPosition = targetPosition
+                    }
+                    
+                    let status = try renderEngine.renderOffline(framesToRender, to: renderBuffer)
+                    let framesGot: AVAudioFrameCount
+                    switch status {
+                    case .success:
+                        framesGot = renderBuffer.frameLength
+                    case .insufficientDataFromInputNode:
+                        renderBuffer.frameLength = framesToRender
+                        if let channelData = renderBuffer.floatChannelData {
+                            for channel in 0..<Int(format.channelCount) {
+                                memset(channelData[channel], 0, Int(framesToRender) * MemoryLayout<Float>.size)
+                            }
+                        }
+                        framesGot = framesToRender
+                    case .cannotDoInCurrentContext:
+                        throw ExportError.renderTimeout
+                    case .error:
+                        throw ExportError.bufferCreationFailed
+                    @unknown default:
+                        framesGot = 0
+                    }
+                    
+                    let bufferFrameCount = Int(framesGot)
+                    var sampleOffset = 0
+                    while sampleOffset < bufferFrameCount {
+                        let automationSamplePos = capturedFrames + AVAudioFrameCount(sampleOffset)
+                        self.applyExportAutomation(atSample: automationSamplePos, sampleRate: sampleRate)
+                        sampleOffset += automationUpdateInterval
+                    }
+                    self.applyExportAutomation(atSample: capturedFrames + AVAudioFrameCount(bufferFrameCount), sampleRate: sampleRate)
+                    
+                    if framesGot > 0, let outputData = outputBuffer.floatChannelData, let bufferData = renderBuffer.floatChannelData {
+                        let framesToCopy = min(framesGot, totalCapacity - capturedFrames)
                         for channel in 0..<Int(format.channelCount) {
                             let src = bufferData[channel]
                             let dst = outputData[channel].advanced(by: Int(capturedFrames))
                             memcpy(dst, src, Int(framesToCopy) * MemoryLayout<Float>.size)
                         }
+                        capturedFrames += framesToCopy
                     }
                     
-                    capturedFrames += framesToCopy
-                    
-                    // Update progress and time estimates (based on target frames, not total capacity)
-                    // Cancel previous update to prevent task buildup
-                    progressUpdateTask?.cancel()
-                    progressUpdateTask = Task { @MainActor [weak self] in
+                    self.progressUpdateTask?.cancel()
+                    self.progressUpdateTask = Task { @MainActor [weak self] in
                         guard let self else { return }
                         let progress = Double(min(capturedFrames, targetFrameCount)) / Double(targetFrameCount)
                         self.exportProgress = 0.2 + (progress * 0.7)
-                        
-                        // Update elapsed time
                         if let startTime = self.exportStartTime {
                             self.elapsedTime = Date().timeIntervalSince(startTime)
-                            
-                            // Calculate estimated time remaining
-                            if progress > 0.05 { // Wait for 5% to get a better estimate
-                                let totalEstimatedTime = self.elapsedTime / progress
-                                self.estimatedTimeRemaining = totalEstimatedTime - self.elapsedTime
+                            if progress > 0.05 {
+                                self.estimatedTimeRemaining = (self.elapsedTime / progress) - self.elapsedTime
                             }
                         }
                         self.progressUpdateTask = nil
                     }
                 }
                 
-                // Check for cancellation
-                if self.isCancelled {
-                    if state.tryResume() {
-                        tapNode.removeTap(onBus: 0)
-                        renderEngine.stop()
-                        continuation.resume(throwing: ExportError.cancelled)
-                    }
-                    return
-                }
-                
-                // Check if we're done
-                // ISSUE #10 FIX: Continue capturing through drain period for plugin tails
-                // After target frames, capture additional drain buffers to ensure reverb/delay tails
-                if capturedFrames >= totalCapacity {
-                    // All frames captured (target + drain) - ready to finalize
-                    if state.tryResume() {
-                        tapNode.removeTap(onBus: 0)
-                        renderEngine.stop()
-                        
-                        // Trim output buffer to exact target length
-                        // This removes the drain frames but keeps all the tail content
-                        outputBuffer.frameLength = targetFrameCount
-                        
-                        continuation.resume(returning: outputBuffer)
-                    }
-                }
+                outputBuffer.frameLength = targetFrameCount
+                return outputBuffer
             }
-            
-            // Safety timeout - track to prevent memory corruption on deinit
-            timeoutTask?.cancel()
-            timeoutTask = Task { [weak self] in
+            group.addTask {
                 try await Task.sleep(nanoseconds: UInt64((duration + 10) * 1_000_000_000))
-                if state.tryResume() {
-                    tapNode.removeTap(onBus: 0)
-                    renderEngine.stop()
-                    continuation.resume(throwing: ExportError.renderTimeout)
-                }
-                self?.timeoutTask = nil
+                throw ExportError.renderTimeout
             }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
     
@@ -2075,29 +2000,25 @@ class ProjectExportService {
             throw ExportError.bufferCreationFailed
         }
         
-        // Create offline render engine
-        let renderEngine = AVAudioEngine()
-        
-        // Set up the audio graph for offline rendering
-        try await setupOfflineAudioGraph(
-            renderEngine: renderEngine,
-            project: project,
-            audioEngine: audioEngine,
-            sampleRate: sampleRate
-        )
-        
-        // CRITICAL (Issue #61): Calculate TOTAL duration (content + tail) AFTER plugins are cloned
-        let totalDuration = calculateExportDurationWithTail(contentDuration)
-        
-        // Perform offline rendering
-        let renderedBuffer = try await renderProjectAudio(
-            renderEngine: renderEngine,
-            duration: totalDuration,
-            sampleRate: sampleRate
-        )
-        
-        // Clean up export resources
-        cleanupExportResources()
+        let renderedBuffer: AVAudioPCMBuffer
+        do {
+            // Create offline render engine. We call cleanupExportResources() before leaving scope
+            // so our refs are released while the engine is still alive; then engine deallocates as sole owner.
+            let renderEngine = AVAudioEngine()
+            try await setupOfflineAudioGraph(
+                renderEngine: renderEngine,
+                project: project,
+                audioEngine: audioEngine,
+                sampleRate: sampleRate
+            )
+            let totalDuration = calculateExportDurationWithTail(contentDuration)
+            renderedBuffer = try await renderProjectAudio(
+                renderEngine: renderEngine,
+                duration: totalDuration,
+                sampleRate: sampleRate
+            )
+            cleanupExportResources()
+        }
         
         // Convert buffer to WAV data
         return try bufferToWAVData(buffer: renderedBuffer, sampleRate: sampleRate, bitDepth: bitDepth)
@@ -2139,26 +2060,24 @@ class ProjectExportService {
             return modifiedBus
         }
         
-        // Create offline render engine
-        let renderEngine = AVAudioEngine()
-        
-        // Set up the audio graph for offline rendering
-        try await setupOfflineAudioGraph(
-            renderEngine: renderEngine,
-            project: soloProject,
-            audioEngine: audioEngine,
-            sampleRate: sampleRate
-        )
-        
-        // Perform offline rendering (add small tail for release/reverb)
-        let renderedBuffer = try await renderProjectAudio(
-            renderEngine: renderEngine,
-            duration: trackDuration + 1.0,  // 1 second tail
-            sampleRate: sampleRate
-        )
-        
-        // Clean up export resources
-        cleanupExportResources()
+        let renderedBuffer: AVAudioPCMBuffer
+        do {
+            // Create offline render engine. We call cleanupExportResources() before leaving scope
+            // so our refs are released while the engine is still alive; then engine deallocates as sole owner.
+            let renderEngine = AVAudioEngine()
+            try await setupOfflineAudioGraph(
+                renderEngine: renderEngine,
+                project: soloProject,
+                audioEngine: audioEngine,
+                sampleRate: sampleRate
+            )
+            renderedBuffer = try await renderProjectAudio(
+                renderEngine: renderEngine,
+                duration: trackDuration + 1.0,  // 1 second tail
+                sampleRate: sampleRate
+            )
+            cleanupExportResources()
+        }
         
         // Convert buffer to WAV data
         return try bufferToWAVData(buffer: renderedBuffer, sampleRate: sampleRate, bitDepth: bitDepth)

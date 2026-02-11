@@ -36,6 +36,7 @@ struct DownloadURLResponse: Codable {
 enum AssetDownloadError: LocalizedError {
     case invalidURL
     case notFound
+    case unauthorized
     case serviceUnavailable
     case network(Error)
     case unzipFailed
@@ -45,6 +46,7 @@ enum AssetDownloadError: LocalizedError {
         switch self {
         case .invalidURL: return "Invalid download URL."
         case .notFound: return "This pack is not available."
+        case .unauthorized: return "Could not load from server. Please try again later."
         case .serviceUnavailable: return "Asset service unavailable. Try again later."
         case .network(let e): 
             // Remove server URL from user-facing network errors

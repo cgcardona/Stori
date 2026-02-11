@@ -25,9 +25,10 @@ final class AssetDownloadService {
     /// Last error message for UI
     private(set) var lastError: String?
 
-    init(baseURL: String = AppConfig.apiBaseURL) {
+    /// - Parameter session: Optional for tests (e.g. URLSession with custom URLProtocol). Production uses default.
+    init(baseURL: String = AppConfig.apiBaseURL, session: URLSession? = nil) {
         self.baseURL = baseURL
-        self.session = URLSession(configuration: .default)
+        self.session = session ?? URLSession(configuration: .default)
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
@@ -48,6 +49,14 @@ final class AssetDownloadService {
         storiApplicationSupport?.appendingPathComponent("SoundFonts")
     }
 
+    // MARK: - Device ID (no Keychain)
+
+    /// Same app-instance UUID used for composer registration; backend can rate-limit or allow assets by this.
+    private func setDeviceIdHeader(on request: inout URLRequest) {
+        let deviceId = UserManager.shared.getOrCreateUserId()
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
+    }
+
     // MARK: - List API
 
     /// GET /api/v1/assets/drum-kits
@@ -63,6 +72,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         do {
             let (data, response) = try await session.data(for: request)
             try validateResponse(response, data: data)
@@ -102,6 +112,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         do {
             let (data, response) = try await session.data(for: request)
             try validateResponse(response, data: data)
@@ -138,6 +149,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         do {
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
@@ -221,6 +233,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(DownloadURLResponse.self, from: data)
@@ -236,6 +249,7 @@ final class AssetDownloadService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = AppConfig.defaultTimeout
+        setDeviceIdHeader(on: &request)
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(DownloadURLResponse.self, from: data)
@@ -449,6 +463,9 @@ final class AssetDownloadService {
         guard let http = response as? HTTPURLResponse else { return }
         switch http.statusCode {
         case 200: break
+        case 401:
+            lastError = "Could not load from server. Please try again later."
+            throw AssetDownloadError.unauthorized
         case 404:
             // Set user-friendly message without server URL
             lastError = "This pack is not available."
@@ -598,6 +615,8 @@ final class AssetDownloadService {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
         process.arguments = ["-o", zipURL.path, "-d", destDir.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {

@@ -2930,9 +2930,8 @@ struct KitSelectorView: View {
             
             Divider()
             
-            // Always show full grid of all drum options (download + select)
+            // Grid of drum options; remote list loads only when user taps "Load from server" (avoids keychain prompt on sheet open)
             stepSequencerNoKitsView
-                .task { await loadRemoteDrumKitsForStepSequencer() }
             
             Divider()
         }
@@ -2952,7 +2951,23 @@ struct KitSelectorView: View {
                             Spacer()
                             if isNetworkConnected {
                                 stepSequencerDownloadAllControl
+                            } else if !AppConfig.apiBaseURL.isEmpty && !kitListLoading {
+                                Button(action: { Task { await loadRemoteDrumKitsForStepSequencer() } }) {
+                                    Label("Load kits from server", systemImage: "arrow.down.circle")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel("Load available drum kits from server")
                             }
+                        }
+                        if kitListLoading {
+                            HStack(spacing: 6) {
+                                ProgressView().scaleEffect(0.7)
+                                Text("Loading…")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
                         }
                         if let error = kitListError {
                             HStack(spacing: 6) {
@@ -3136,9 +3151,6 @@ struct KitSelectorView: View {
     }
     
     private func loadRemoteDrumKitsForStepSequencer() async {
-        guard sequencer.kitLoader.availableKits.isEmpty else { return }
-        
-        // Check if backend is configured (Config.plist or environment variable)
         guard !AppConfig.apiBaseURL.isEmpty else {
             kitListError = "Backend not configured. Download official DMG or configure your own backend (see Config.plist.example)"
             return
