@@ -630,6 +630,10 @@ class TrackInstrument: Identifiable {
         engine.fullRenderReset()
     }
     
+    /// Whether this instrument has a GM SoundFont program loaded.
+    /// Used to skip AU reset during graph rebuild so the loaded program is not cleared.
+    var hasLoadedGMInstrument: Bool { type == .sampler && gmInstrument != nil }
+    
     /// Reload the actual SoundFont instrument (expensive operation).
     /// Only use this when the instrument actually needs to change.
     func forceReloadInstrument() {

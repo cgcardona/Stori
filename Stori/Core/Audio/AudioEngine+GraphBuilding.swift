@@ -131,8 +131,11 @@ extension AudioEngine {
         // PHASE 1: AU resets BEFORE topology edits.
         // AU reset can take internal locks that conflict with graph mutation locks,
         // causing lock-order inversions. Do them outside the mutation closure.
+        // Skip sampler reset when a GM instrument is loaded — reset() clears the loaded program
+        // (regression from 574314bc: GM voice must persist through save/restart).
         if let instrument = InstrumentManager.shared.getInstrument(for: trackId),
-           let sampler = instrument.samplerEngine?.sampler {
+           let sampler = instrument.samplerEngine?.sampler,
+           !instrument.hasLoadedGMInstrument {
             sampler.auAudioUnit.reset()
         }
         for plugin in pluginChain.activePlugins {

@@ -785,9 +785,12 @@ struct MainDAWView: View {
     }
     
     private func handleGMInstrumentSelection(trackId: UUID, instrument gmInstrument: GMInstrument, trackName: String) {
-        // Update track's voice preset so Library UI shows selection
+        // Update track model with numeric program and display name (same as mixer/import so save/load uses gmProgram)
         if var project = projectManager.currentProject,
            let trackIndex = project.tracks.firstIndex(where: { $0.id == trackId }) {
+            project.tracks[trackIndex].drumKitId = nil
+            project.tracks[trackIndex].synthPresetId = nil
+            project.tracks[trackIndex].gmProgram = gmInstrument.rawValue
             project.tracks[trackIndex].voicePreset = gmInstrument.name
             projectManager.currentProject = project
             projectManager.hasUnsavedChanges = true  // Mark as unsaved, don't auto-save

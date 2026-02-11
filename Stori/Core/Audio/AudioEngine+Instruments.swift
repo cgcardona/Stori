@@ -76,9 +76,16 @@ extension AudioEngine {
     /// Called after plugin restoration to ensure samplers are routed through effects
     @MainActor
     func createAndConnectMIDIInstrumentsInternal(for project: AudioProject) async {
-        
-        // Ensure InstrumentManager has our engine reference
+        // Ensure InstrumentManager has our engine reference BEFORE any getOrCreateInstrument
         InstrumentManager.shared.audioEngine = self
+        
+        // Clear any instruments created earlier (e.g. by UI) with nil engine — they would have
+        // pendingSamplerSetup and no actual sampler, and can leave the track with wrong voice.
+        // We create instruments here with engine set so setupInstrument loads the GM program.
+        let midiTracks = project.tracks.filter { $0.trackType == .midi || $0.trackType == .instrument }
+        for track in midiTracks {
+            InstrumentManager.shared.unregisterInstrument(for: track.id)
+        }
         
         // Also ensure projectManager is set (needed for getOrCreateInstrument)
         if InstrumentManager.shared.projectManager == nil {
