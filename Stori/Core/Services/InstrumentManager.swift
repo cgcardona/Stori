@@ -238,7 +238,6 @@ class InstrumentManager: InstrumentManagerProtocol {
             instrument.isEnabled = !track.mixerSettings.isMuted
             instrument.samplerEngine?.setPan(track.mixerSettings.pan)
             instruments[track.id] = instrument
-            // Reduced logging: per-track instrument creation is noisy
             return instrument
         }
         
