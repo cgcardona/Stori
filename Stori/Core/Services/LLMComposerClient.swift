@@ -316,20 +316,19 @@ class LLMComposerClient {
     // MARK: - Initialization
     
     /// Initialize with the composer service URL
-    /// - Parameter baseURL: The composer service URL (default: staging server)
-    /// - Note: Uses fatalError in DEBUG for invalid URLs, falls back to default in production
-    init(baseURL: String = "https://stage.example.com") {
-        // SECURITY: Validate URL before use
-        if let url = URL(string: baseURL),
+    /// - Parameter baseURL: The composer service URL (default: AppConfig.apiBaseURL from env/Config.plist/Info.plist)
+    /// - Note: Uses fatalError in DEBUG for invalid URLs, falls back to AppConfig in production
+    init(baseURL: String = AppConfig.apiBaseURL) {
+        let resolved = baseURL.isEmpty ? AppConfig.apiBaseURL : baseURL
+        if let url = URL(string: resolved),
            let scheme = url.scheme,
            ["http", "https"].contains(scheme),
            url.host != nil {
             self.baseURL = url
         } else {
             #if DEBUG
-            fatalError("Invalid baseURL provided to LLMComposerClient: \(baseURL)")
+            fatalError("Invalid baseURL provided to LLMComposerClient: \(resolved)")
             #else
-            // Fall back to staging URL in production
             self.baseURL = URL(string: "https://stage.example.com")!
             #endif
         }

@@ -61,11 +61,8 @@ struct TokenValidation: Codable {
 class AuthService {
     static let shared = AuthService()
     
-    #if DEBUG
-    let baseURL = "https://stage.example.com"
-    #else
-    let baseURL = "https://api.example.com"  // Production URL
-    #endif
+    /// Uses AppConfig (env or Config.plist); no real URLs in code.
+    var baseURL: String { AppConfig.apiBaseURL }
     
     private init() {}
     

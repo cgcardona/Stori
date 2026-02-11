@@ -72,12 +72,8 @@ class UserManager {
     // MARK: - Initialization
     
     private init() {
-        #if DEBUG
-        self.baseURL = "https://stage.example.com"
-        #else
-        self.baseURL = "https://api.example.com"  // Production URL
-        #endif
-        
+        self.baseURL = AppConfig.apiBaseURL
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
@@ -126,6 +122,11 @@ class UserManager {
             throw UserManagerError.invalidResponse
         }
         
+        if httpResponse.statusCode == 401 {
+            try? TokenManager.shared.deleteToken()
+            NotificationCenter.default.post(name: .tokenExpired, object: nil)
+            throw UserManagerError.noToken
+        }
         switch httpResponse.statusCode {
         case 200, 201:
             let userResponse = try JSONDecoder().decode(UserRegistrationResponse.self, from: data)
@@ -181,12 +182,17 @@ class UserManager {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         
         let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw UserManagerError.fetchFailed
         }
-        
+        if httpResponse.statusCode == 401 {
+            try? TokenManager.shared.deleteToken()
+            NotificationCenter.default.post(name: .tokenExpired, object: nil)
+            throw UserManagerError.noToken
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw UserManagerError.fetchFailed
+        }
         let userResponse = try JSONDecoder().decode(UserRegistrationResponse.self, from: data)
         
         // Update local state
@@ -218,16 +224,26 @@ class UserManager {
     
     // MARK: - Model Management
     
-    /// Fetch available AI models from backend
+    /// Fetch available AI models from backend (requires JWT on stage)
     func fetchAvailableModels() async throws {
         guard let url = URL(string: "\(baseURL)/api/v1/models") else {
             throw UserManagerError.invalidURL
         }
-        
-        let (data, response) = try await session.data(from: url)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
+        guard let token = try? TokenManager.shared.getToken() else {
+            throw UserManagerError.noToken
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw UserManagerError.fetchFailed
+        }
+        if httpResponse.statusCode == 401 {
+            try? TokenManager.shared.deleteToken()
+            NotificationCenter.default.post(name: .tokenExpired, object: nil)
+            throw UserManagerError.noToken
+        }
+        guard httpResponse.statusCode == 200 else {
             throw UserManagerError.fetchFailed
         }
         

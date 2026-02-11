@@ -49,9 +49,10 @@ final class AssetDownloadService {
         storiApplicationSupport?.appendingPathComponent("SoundFonts")
     }
 
-    // MARK: - Device ID (no Keychain)
+    // MARK: - Device ID (assets)
 
-    /// Same app-instance UUID used for composer registration; backend can rate-limit or allow assets by this.
+    /// Same app-instance UUID used for composer registration; backend allows/rate-limits asset downloads by this.
+    /// Assets use device UUID; composer APIs use JWT.
     private func setDeviceIdHeader(on request: inout URLRequest) {
         let deviceId = UserManager.shared.getOrCreateUserId()
         request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
@@ -467,7 +468,6 @@ final class AssetDownloadService {
             lastError = "Could not load from server. Please try again later."
             throw AssetDownloadError.unauthorized
         case 404:
-            // Set user-friendly message without server URL
             lastError = "This pack is not available."
             throw AssetDownloadError.notFound
         case 503: throw AssetDownloadError.serviceUnavailable

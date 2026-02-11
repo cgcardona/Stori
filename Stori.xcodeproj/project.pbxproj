@@ -39,6 +39,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Assets.xcassets,
+				Config.plist,
 				ContentView.swift,
 				Core/Audio/AudioAnalyzer.swift,
 				Core/Audio/AudioEngine.swift,
