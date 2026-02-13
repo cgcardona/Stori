@@ -160,19 +160,23 @@ struct MainDAWView: View {
     }
     
     private var mixerHeight: CGFloat {
-        CGFloat(projectManager.currentProject?.uiState.mixerHeight ?? 600)
+        let raw = CGFloat(projectManager.currentProject?.uiState.mixerHeight ?? 600)
+        return max(BottomPanelLayout.minContentHeight, raw)
     }
-    
+
     private var stepSequencerHeight: CGFloat {
-        CGFloat(projectManager.currentProject?.uiState.stepSequencerHeight ?? 600)
+        let raw = CGFloat(projectManager.currentProject?.uiState.stepSequencerHeight ?? 600)
+        return max(BottomPanelLayout.minContentHeight, raw)
     }
-    
+
     private var pianoRollHeight: CGFloat {
-        CGFloat(projectManager.currentProject?.uiState.pianoRollHeight ?? 600)
+        let raw = CGFloat(projectManager.currentProject?.uiState.pianoRollHeight ?? 600)
+        return max(BottomPanelLayout.minContentHeight, raw)
     }
-    
+
     private var synthesizerHeight: CGFloat {
-        CGFloat(projectManager.currentProject?.uiState.synthesizerHeight ?? 500)
+        let raw = CGFloat(projectManager.currentProject?.uiState.synthesizerHeight ?? 500)
+        return max(BottomPanelLayout.minContentHeight, raw)
     }
     
     // MARK: - UI State Setters (update project.uiState)
@@ -258,25 +262,25 @@ struct MainDAWView: View {
     
     private func setMixerHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.mixerHeight = Double(value)
+        project.uiState.mixerHeight = Double(max(BottomPanelLayout.minContentHeight, value))
         projectManager.currentProject = project
     }
-    
+
     private func setStepSequencerHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.stepSequencerHeight = Double(value)
+        project.uiState.stepSequencerHeight = Double(max(BottomPanelLayout.minContentHeight, value))
         projectManager.currentProject = project
     }
-    
+
     private func setPianoRollHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.pianoRollHeight = Double(value)
+        project.uiState.pianoRollHeight = Double(max(BottomPanelLayout.minContentHeight, value))
         projectManager.currentProject = project
     }
-    
+
     private func setSynthesizerHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.synthesizerHeight = Double(value)
+        project.uiState.synthesizerHeight = Double(max(BottomPanelLayout.minContentHeight, value))
         projectManager.currentProject = project
     }
     
@@ -1629,8 +1633,14 @@ struct MainDAWView: View {
 }
 
 extension MainDAWView {
-    
-    
+
+    /// Minimum content height for bottom panels (mixer, step sequencer, piano roll, synthesizer).
+    /// Keeps the resize handle strip visible and hittable when "collapsed" (avoids handle going inactive).
+    /// Exposed for unit tests.
+    enum BottomPanelLayout {
+        static let minContentHeight: CGFloat = 44
+    }
+
     /// Maximum height a bottom panel's **content** can occupy.
     /// Subtracts panel chrome (resize handle + header ≈ 60pt) so the
     /// content frame never overflows the VStack. The timeline can shrink
@@ -1719,10 +1729,13 @@ extension MainDAWView {
             // Resize Handle - at TOP so it's clear this is a resizable panel
             ResizeHandle(
                 orientation: .horizontal,
+                accessibilityIdentifier: AccessibilityID.Panel.resizeHandlePianoRoll,
+                accessibilityLabel: "Resize piano roll panel",
+                accessibilityHint: "Drag to resize",
                 onDragStarted: { dragStartPanelHeight = pianoRollHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setPianoRollHeight(max(0, min(maxContent, newHeight)))
+                    setPianoRollHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
                 }
             )
             
@@ -1877,10 +1890,13 @@ extension MainDAWView {
             // Resize Handle
             ResizeHandle(
                 orientation: .horizontal,
+                accessibilityIdentifier: AccessibilityID.Panel.resizeHandleSynthesizer,
+                accessibilityLabel: "Resize synthesizer panel",
+                accessibilityHint: "Drag to resize",
                 onDragStarted: { dragStartPanelHeight = synthesizerHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setSynthesizerHeight(max(0, min(maxContent, newHeight)))
+                    setSynthesizerHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
                 }
             )
             
@@ -1903,10 +1919,13 @@ extension MainDAWView {
             // Resize Handle with visible styling
             ResizeHandle(
                 orientation: .horizontal,
+                accessibilityIdentifier: AccessibilityID.Panel.resizeHandleSequencer,
+                accessibilityLabel: "Resize step sequencer panel",
+                accessibilityHint: "Drag to resize",
                 onDragStarted: { dragStartPanelHeight = stepSequencerHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setStepSequencerHeight(max(0, min(maxContent, newHeight)))
+                    setStepSequencerHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
@@ -1971,10 +1990,13 @@ extension MainDAWView {
             // Resize Handle with visible styling
             ResizeHandle(
                 orientation: .horizontal,
+                accessibilityIdentifier: AccessibilityID.Panel.resizeHandleMixer,
+                accessibilityLabel: "Resize mixer panel",
+                accessibilityHint: "Drag to resize",
                 onDragStarted: { dragStartPanelHeight = mixerHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setMixerHeight(max(0, min(maxContent, newHeight)))
+                    setMixerHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))

@@ -7,13 +7,30 @@
 
 import SwiftUI
 
+// MARK: - Optional Accessibility Modifier
+private struct OptionalAccessibilityModifier: ViewModifier {
+    let identifier: String?
+    let label: String?
+    let hint: String?
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityIdentifier(identifier ?? "")
+            .accessibilityLabel(label ?? "")
+            .accessibilityHint(hint ?? "")
+    }
+}
+
 // MARK: - Resizable Panel Handle
 struct ResizeHandle: View {
     enum Orientation {
         case horizontal, vertical
     }
-    
+
     let orientation: Orientation
+    var accessibilityIdentifier: String?
+    var accessibilityLabel: String?
+    var accessibilityHint: String?
     /// Called once when the drag gesture begins.
     let onDragStarted: () -> Void
     /// Called on every drag movement with the **cumulative** delta from
@@ -21,13 +38,19 @@ struct ResizeHandle: View {
     /// (snapshotted in `onDragStarted`) so they never depend on reading
     /// back the current model value mid-drag.
     let onDrag: (CGFloat) -> Void
-    
+
     /// Convenience initialiser that omits `onDragStarted` for call sites
     /// that don't need it (e.g. the inspector width handle).
     init(orientation: Orientation,
+         accessibilityIdentifier: String? = nil,
+         accessibilityLabel: String? = nil,
+         accessibilityHint: String? = nil,
          onDragStarted: @escaping () -> Void = {},
          onDrag: @escaping (CGFloat) -> Void) {
         self.orientation = orientation
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
         self.onDragStarted = onDragStarted
         self.onDrag = onDrag
     }
@@ -67,10 +90,16 @@ struct ResizeHandle: View {
             width: orientation == .vertical ? 10 : nil,
             height: orientation == .horizontal ? 10 : nil
         )
+        .contentShape(Rectangle())
         .cursor(orientation == .vertical ? .resizeLeftRight : .resizeUpDown)
         .onHover { hovering in
             isHovered = hovering
         }
+        .modifier(OptionalAccessibilityModifier(
+            identifier: accessibilityIdentifier,
+            label: accessibilityLabel,
+            hint: accessibilityHint
+        ))
         .gesture(
             // IMPORTANT: Use .global coordinate space. The handle lives
             // inside the panel it resizes. With the default .local space,
