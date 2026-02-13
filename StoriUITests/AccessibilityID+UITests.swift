@@ -110,6 +110,11 @@ enum AccessibilityID {
         static let dialogCancel = "export.dialog.cancel"
     }
 
+    // MARK: - Window
+    enum Window {
+        static let resetDefaultView = "window.resetDefaultView"
+    }
+
     // MARK: - Project
     enum Project {
         static let newButton = "project.new"

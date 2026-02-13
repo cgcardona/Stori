@@ -299,6 +299,17 @@ struct StoriApp: App {
                 }
                 .keyboardShortcut("d", modifiers: .command)
             }
+
+            // Window menu: Reset Default View (restore panel sizes)
+            CommandGroup(after: .windowList) {
+                Divider()
+                Button("Reset Default View") {
+                    NotificationCenter.default.post(name: .resetDefaultView, object: nil)
+                }
+                .keyboardShortcut("0", modifiers: [.command, .option])
+                .accessibilityLabel("Reset default view")
+                .accessibilityIdentifier(AccessibilityID.Window.resetDefaultView)
+            }
             
             // Help menu
             CommandGroup(replacing: .help) {
@@ -953,6 +964,7 @@ extension Notification.Name {
     static let projectRepaired = Notification.Name("projectRepaired")
     static let showServiceDiagnostics = Notification.Name("showServiceDiagnostics")
     static let showAboutWindow = Notification.Name("showAboutWindow")
+    static let resetDefaultView = Notification.Name("resetDefaultView")
     static let toggleSnapToGrid = Notification.Name("toggleSnapToGrid")
     static let showTokenInput = Notification.Name("showTokenInput")
     

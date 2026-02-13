@@ -161,22 +161,22 @@ struct MainDAWView: View {
     
     private var mixerHeight: CGFloat {
         let raw = CGFloat(projectManager.currentProject?.uiState.mixerHeight ?? 600)
-        return max(BottomPanelLayout.minContentHeight, raw)
+        return max(Self.minBottomPanelContentHeight, raw)
     }
 
     private var stepSequencerHeight: CGFloat {
         let raw = CGFloat(projectManager.currentProject?.uiState.stepSequencerHeight ?? 600)
-        return max(BottomPanelLayout.minContentHeight, raw)
+        return max(Self.minBottomPanelContentHeight, raw)
     }
 
     private var pianoRollHeight: CGFloat {
         let raw = CGFloat(projectManager.currentProject?.uiState.pianoRollHeight ?? 600)
-        return max(BottomPanelLayout.minContentHeight, raw)
+        return max(Self.minBottomPanelContentHeight, raw)
     }
 
     private var synthesizerHeight: CGFloat {
         let raw = CGFloat(projectManager.currentProject?.uiState.synthesizerHeight ?? 500)
-        return max(BottomPanelLayout.minContentHeight, raw)
+        return max(Self.minBottomPanelContentHeight, raw)
     }
     
     // MARK: - UI State Setters (update project.uiState)
@@ -262,25 +262,25 @@ struct MainDAWView: View {
     
     private func setMixerHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.mixerHeight = Double(max(BottomPanelLayout.minContentHeight, value))
+        project.uiState.mixerHeight = Double(max(Self.minBottomPanelContentHeight, value))
         projectManager.currentProject = project
     }
 
     private func setStepSequencerHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.stepSequencerHeight = Double(max(BottomPanelLayout.minContentHeight, value))
+        project.uiState.stepSequencerHeight = Double(max(Self.minBottomPanelContentHeight, value))
         projectManager.currentProject = project
     }
 
     private func setPianoRollHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.pianoRollHeight = Double(max(BottomPanelLayout.minContentHeight, value))
+        project.uiState.pianoRollHeight = Double(max(Self.minBottomPanelContentHeight, value))
         projectManager.currentProject = project
     }
 
     private func setSynthesizerHeight(_ value: CGFloat) {
         guard var project = projectManager.currentProject else { return }
-        project.uiState.synthesizerHeight = Double(max(BottomPanelLayout.minContentHeight, value))
+        project.uiState.synthesizerHeight = Double(max(Self.minBottomPanelContentHeight, value))
         projectManager.currentProject = project
     }
     
@@ -1634,11 +1634,9 @@ struct MainDAWView: View {
 
 extension MainDAWView {
 
-    /// Minimum content height for bottom panels (mixer, step sequencer, piano roll, synthesizer).
-    /// Keeps the resize handle strip visible and hittable when "collapsed" (avoids handle going inactive).
-    /// Exposed for unit tests.
-    enum BottomPanelLayout {
-        static let minContentHeight: CGFloat = 44
+    /// Minimum content height for bottom panels; uses shared constant from ProjectUIState.PanelLayout.
+    private static var minBottomPanelContentHeight: CGFloat {
+        CGFloat(ProjectUIState.PanelLayout.minContentHeight)
     }
 
     /// Maximum height a bottom panel's **content** can occupy.
@@ -1735,7 +1733,7 @@ extension MainDAWView {
                 onDragStarted: { dragStartPanelHeight = pianoRollHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setPianoRollHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
+                    setPianoRollHeight(max(Self.minBottomPanelContentHeight, min(maxContent, newHeight)))
                 }
             )
             
@@ -1896,7 +1894,7 @@ extension MainDAWView {
                 onDragStarted: { dragStartPanelHeight = synthesizerHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setSynthesizerHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
+                    setSynthesizerHeight(max(Self.minBottomPanelContentHeight, min(maxContent, newHeight)))
                 }
             )
             
@@ -1925,7 +1923,7 @@ extension MainDAWView {
                 onDragStarted: { dragStartPanelHeight = stepSequencerHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setStepSequencerHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
+                    setStepSequencerHeight(max(Self.minBottomPanelContentHeight, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
@@ -1996,7 +1994,7 @@ extension MainDAWView {
                 onDragStarted: { dragStartPanelHeight = mixerHeight },
                 onDrag: { cumulativeDelta in
                     let newHeight = dragStartPanelHeight - cumulativeDelta
-                    setMixerHeight(max(BottomPanelLayout.minContentHeight, min(maxContent, newHeight)))
+                    setMixerHeight(max(Self.minBottomPanelContentHeight, min(maxContent, newHeight)))
                 }
             )
             .background(Color(.windowBackgroundColor))
@@ -2322,6 +2320,15 @@ private struct AlertsAndNotificationsModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .showTokenInput)) { _ in
                 showingTokenInput = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .resetDefaultView)) { _ in
+                guard var project = projectManager.currentProject else { return }
+                project.uiState.inspectorWidth = ProjectUIState.PanelLayout.defaultInspectorWidth
+                project.uiState.mixerHeight = ProjectUIState.PanelLayout.defaultMixerHeight
+                project.uiState.stepSequencerHeight = ProjectUIState.PanelLayout.defaultStepSequencerHeight
+                project.uiState.pianoRollHeight = ProjectUIState.PanelLayout.defaultPianoRollHeight
+                project.uiState.synthesizerHeight = ProjectUIState.PanelLayout.defaultSynthesizerHeight
+                projectManager.currentProject = project
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SetHorizontalZoom"))) { notification in
                 if let zoom = notification.userInfo?["zoom"] as? Double {

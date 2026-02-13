@@ -17,7 +17,7 @@ final class BottomPanelResizeTests: XCTestCase {
     /// remains visible and hittable when the panel is "collapsed".
     func testMinimumBottomPanelContentHeightIsEnforced() {
         XCTAssertEqual(
-            MainDAWView.BottomPanelLayout.minContentHeight,
+            ProjectUIState.PanelLayout.minContentHeight,
             44,
             "Minimum bottom panel content height should be 44pt (accessibility hit target)"
         )
@@ -43,7 +43,7 @@ final class BottomPanelResizeTests: XCTestCase {
     /// Clamping logic: effective height used by the view is max(minContentHeight, raw).
     /// Regression test for issue #157 — would have caught allowing 0 and making handle inactive.
     func testEffectivePanelHeightNeverBelowMinimum() {
-        let minH = MainDAWView.BottomPanelLayout.minContentHeight
+        let minH = CGFloat(ProjectUIState.PanelLayout.minContentHeight)
         let testValues: [CGFloat] = [0, 1, 10, 43, 44, 45, 600]
 
         for raw in testValues {

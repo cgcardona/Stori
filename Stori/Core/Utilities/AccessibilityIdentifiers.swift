@@ -153,6 +153,11 @@ enum AccessibilityID {
         static let progressView = "export.progress"
     }
 
+    // MARK: - Window Menu
+    enum Window {
+        static let resetDefaultView = "window.resetDefaultView"
+    }
+
     // MARK: - Project Management
     enum Project {
         static let newButton = "project.new"
