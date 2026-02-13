@@ -57,17 +57,17 @@ struct ResizeHandle: View {
     
     @State private var isHovered = false
     @State private var isDragging = false
-    
+    @FocusState private var isFocused: Bool
+
     var body: some View {
         ZStack {
-            // Background
+            // Background (semantic colors for high-contrast compatibility)
             Rectangle()
                 .fill(isHovered || isDragging ? Color.accentColor.opacity(0.3) : Color(.windowBackgroundColor))
                 .animation(.easeInOut(duration: 0.15), value: isHovered)
-            
-            // Always-visible grip indicator
+
+            // Always-visible grip indicator (separatorColor/accentColor adapt to Increase Contrast)
             if orientation == .horizontal {
-                // Horizontal grip dots
                 HStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { _ in
                         Circle()
@@ -76,7 +76,6 @@ struct ResizeHandle: View {
                     }
                 }
             } else {
-                // Vertical grip dots
                 VStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { _ in
                         Circle()
@@ -91,6 +90,19 @@ struct ResizeHandle: View {
             height: orientation == .horizontal ? 10 : nil
         )
         .contentShape(Rectangle())
+        .overlay(
+            // High-contrast: always-visible border so handle bounds are clear (Increase Contrast / Reduce Transparency)
+            Rectangle()
+                .strokeBorder(Color(.separatorColor), lineWidth: 1)
+        )
+        .overlay(
+            // Focus order: visible focus ring when handle has keyboard focus (Tab navigation)
+            RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isFocused ? 1 : 0)
+        )
+        .focusable(true)
+        .focused($isFocused)
         .cursor(orientation == .vertical ? .resizeLeftRight : .resizeUpDown)
         .onHover { hovering in
             isHovered = hovering
