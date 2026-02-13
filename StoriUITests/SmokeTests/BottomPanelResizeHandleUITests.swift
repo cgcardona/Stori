@@ -80,4 +80,72 @@ final class BottomPanelResizeHandleUITests: StoriUITestCase {
             XCTAssertTrue(handleAfter.isHittable, "Resize handle should remain hittable after shrink")
         }
     }
+
+    // MARK: - Piano Roll Resize Handle
+
+    /// Open piano roll and verify the resize handle exists and is hittable.
+    func testPianoRollResizeHandleExistsAndIsHittableWhenPianoRollOpen() throws {
+        tap(AccessibilityID.Panel.togglePianoRoll)
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let handle = element(AccessibilityID.Panel.resizeHandlePianoRoll)
+        XCTAssertTrue(handle.waitForExistence(timeout: defaultTimeout),
+                      "Piano roll resize handle should exist when piano roll is open")
+        XCTAssertTrue(handle.isHittable,
+                      "Piano roll resize handle should be hittable when piano roll is open")
+    }
+
+    /// Open piano roll, drag resize handle down (shrink), then verify handle is still hittable.
+    func testPianoRollResizeHandleRemainsHittableAfterShrinking() throws {
+        tap(AccessibilityID.Panel.togglePianoRoll)
+        Thread.sleep(forTimeInterval: 0.6)
+
+        let handle = element(AccessibilityID.Panel.resizeHandlePianoRoll)
+        XCTAssertTrue(handle.waitForExistence(timeout: defaultTimeout), "Resize handle should exist")
+
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: 0, dy: 100))
+        start.press(forDuration: 0.3, thenDragTo: end)
+        Thread.sleep(forTimeInterval: 0.4)
+
+        let handleAfter = element(AccessibilityID.Panel.resizeHandlePianoRoll)
+        XCTAssertTrue(handleAfter.waitForExistence(timeout: 5), "Resize handle should still exist after shrink")
+        if handleAfter.exists {
+            XCTAssertTrue(handleAfter.isHittable, "Resize handle should remain hittable after shrink")
+        }
+    }
+
+    // MARK: - Synthesizer Resize Handle
+
+    /// Open synthesizer and verify the resize handle exists and is hittable.
+    func testSynthesizerResizeHandleExistsAndIsHittableWhenSynthesizerOpen() throws {
+        tap(AccessibilityID.Panel.toggleSynthesizer)
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let handle = element(AccessibilityID.Panel.resizeHandleSynthesizer)
+        XCTAssertTrue(handle.waitForExistence(timeout: defaultTimeout),
+                      "Synthesizer resize handle should exist when synthesizer is open")
+        XCTAssertTrue(handle.isHittable,
+                      "Synthesizer resize handle should be hittable when synthesizer is open")
+    }
+
+    /// Open synthesizer, drag resize handle down (shrink), then verify handle is still hittable.
+    func testSynthesizerResizeHandleRemainsHittableAfterShrinking() throws {
+        tap(AccessibilityID.Panel.toggleSynthesizer)
+        Thread.sleep(forTimeInterval: 0.6)
+
+        let handle = element(AccessibilityID.Panel.resizeHandleSynthesizer)
+        XCTAssertTrue(handle.waitForExistence(timeout: defaultTimeout), "Resize handle should exist")
+
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: 0, dy: 100))
+        start.press(forDuration: 0.3, thenDragTo: end)
+        Thread.sleep(forTimeInterval: 0.4)
+
+        let handleAfter = element(AccessibilityID.Panel.resizeHandleSynthesizer)
+        XCTAssertTrue(handleAfter.waitForExistence(timeout: 5), "Resize handle should still exist after shrink")
+        if handleAfter.exists {
+            XCTAssertTrue(handleAfter.isHittable, "Resize handle should remain hittable after shrink")
+        }
+    }
 }
