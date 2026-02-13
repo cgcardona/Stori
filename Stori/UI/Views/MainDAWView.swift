@@ -1497,17 +1497,23 @@ struct MainDAWView: View {
     // MARK: - Export Handler Methods
     
     private func handleSaveProject() {
-        if projectManager.currentProject != nil {
-            // Capture complete UI state before saving
-            captureUIState()
-            
-            // Save the project with plugin sync (async)
-            Task {
-                await projectManager.performSaveWithPluginSync()
-                
-                // Capture screenshot of the main window for project thumbnail (async)
-                captureProjectScreenshot()
-            }
+        guard let _ = projectManager.currentProject else {
+            // No project to save; notify so save-before-quit doesn't hang (Issue #158)
+            NotificationCenter.default.post(
+                name: .saveProjectCompleted,
+                object: nil,
+                userInfo: ["success": true]
+            )
+            return
+        }
+        // Capture complete UI state before saving
+        captureUIState()
+        Task {
+            await projectManager.performSaveWithPluginSync()
+            // Persist to disk (posts .saveProjectCompleted when done for save-before-quit)
+            projectManager.saveCurrentProject()
+            // Capture screenshot of the main window for project thumbnail (async)
+            captureProjectScreenshot()
         }
     }
     

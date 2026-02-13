@@ -31,6 +31,72 @@ class SharedAudioEngine {
     static let shared = AudioEngine()
 }
 
+// MARK: - Save Before Close Coordinator
+/// Coordinates save-before-quit and save-before-new/open project. When user chooses "Save"
+/// we post .saveProject; when save completes we reply to terminate or post .newProject/.openProject.
+/// All mutable state is only accessed on the main queue via queue.async.
+final class SaveBeforeCloseCoordinator: NSObject, @unchecked Sendable {
+    static let shared = SaveBeforeCloseCoordinator()
+    
+    private var pendingQuitAfterSave = false
+    private var pendingNewProjectAfterSave = false
+    private var pendingOpenProjectAfterSave = false
+    private let queue = DispatchQueue.main
+    
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSaveProjectCompleted(_:)),
+            name: .saveProjectCompleted,
+            object: nil
+        )
+    }
+    
+    @objc private func handleSaveProjectCompleted(_ notification: Notification) {
+        queue.async { [weak self] in
+            self?.handleSaveCompletedOnMain(notification)
+        }
+    }
+    
+    private func handleSaveCompletedOnMain(_ notification: Notification) {
+        let success = (notification.userInfo?["success"] as? Bool) ?? false
+        if pendingQuitAfterSave {
+            pendingQuitAfterSave = false
+            NSApp.reply(toApplicationShouldTerminate: success)
+        }
+        if pendingNewProjectAfterSave {
+            pendingNewProjectAfterSave = false
+            NotificationCenter.default.post(name: .newProject, object: nil)
+        }
+        if pendingOpenProjectAfterSave {
+            pendingOpenProjectAfterSave = false
+            NotificationCenter.default.post(name: .openProject, object: nil)
+        }
+    }
+    
+    func requestSaveThenQuit() {
+        queue.async { [weak self] in
+            self?.pendingQuitAfterSave = true
+            NotificationCenter.default.post(name: .saveProject, object: nil)
+        }
+    }
+    
+    func requestSaveThenNewProject() {
+        queue.async { [weak self] in
+            self?.pendingNewProjectAfterSave = true
+            NotificationCenter.default.post(name: .saveProject, object: nil)
+        }
+    }
+    
+    func requestSaveThenOpenProject() {
+        queue.async { [weak self] in
+            self?.pendingOpenProjectAfterSave = true
+            NotificationCenter.default.post(name: .saveProject, object: nil)
+        }
+    }
+}
+
 // MARK: - App Delegate
 /// Handles macOS app lifecycle events like reopening windows
 class StoriAppDelegate: NSObject, NSApplicationDelegate {
@@ -48,6 +114,25 @@ class StoriAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         TempFileManager.cleanupAll()
     }
+    
+    /// Intercept quit to prompt for unsaved changes (Issue #158).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard getHasUnsavedChangesSync() else { return .terminateNow }
+        let name = currentProjectNameSync()
+        let choice = showSaveBeforeCloseAlert(
+            messageText: "Do you want to save the project \"\(name)\" before quitting?"
+        )
+        switch choice {
+        case .save:
+            SaveBeforeCloseCoordinator.shared.requestSaveThenQuit()
+            return .terminateLater
+        case .dontSave:
+            return .terminateNow
+        case .cancel:
+            return .terminateCancel
+        }
+    }
+    
     
     /// Show existing main window or create a new one
     private func showOrCreateMainWindow() {
@@ -754,30 +839,118 @@ private struct ProjectRow: View {
 
 // MARK: - Window Command Handlers
 
-/// Handles Cmd+N - shows new project dialog (standalone if no main window)
-private func handleNewProjectCommand() {
+/// User choice from the "save before close" dialog (Issue #158)
+private enum SaveBeforeCloseChoice {
+    case save
+    case dontSave
+    case cancel
+}
+
+/// Shows the standard Save / Don't Save / Cancel alert. Uses project name for message.
+/// Returns the user's choice. Buttons have accessibility identifiers for VoiceOver/XCUITest.
+private func showSaveBeforeCloseAlert(messageText: String, informativeText: String = "Your changes will be lost if you don't save.") -> SaveBeforeCloseChoice {
+    let alert = NSAlert()
+    alert.messageText = messageText
+    alert.informativeText = informativeText
+    alert.alertStyle = .warning
+    let dontSave = alert.addButton(withTitle: "Don't Save")
+    let cancel = alert.addButton(withTitle: "Cancel")
+    let save = alert.addButton(withTitle: "Save")
+    dontSave.setAccessibilityIdentifier(AccessibilityID.Project.saveBeforeQuitDontSave)
+    dontSave.setAccessibilityLabel("Don't Save")
+    cancel.setAccessibilityIdentifier(AccessibilityID.Project.saveBeforeQuitCancel)
+    cancel.setAccessibilityLabel("Cancel")
+    save.setAccessibilityIdentifier(AccessibilityID.Project.saveBeforeQuitSave)
+    save.setAccessibilityLabel("Save")
+    let response = alert.runModal()
+    switch response {
+    case .alertFirstButtonReturn: return .dontSave
+    case .alertSecondButtonReturn: return .cancel
+    case .alertThirdButtonReturn: return .save
+    default: return .cancel
+    }
+}
+
+private func getHasUnsavedChangesSync() -> Bool {
+    if Thread.isMainThread {
+        return MainActor.assumeIsolated { SharedProjectManager.shared.hasUnsavedChanges }
+    }
+    return DispatchQueue.main.sync {
+        MainActor.assumeIsolated { SharedProjectManager.shared.hasUnsavedChanges }
+    }
+}
+
+private func currentProjectNameSync() -> String {
+    if Thread.isMainThread {
+        return MainActor.assumeIsolated {
+            SharedProjectManager.shared.currentProject?.name ?? "Untitled"
+        }
+    }
+    return DispatchQueue.main.sync {
+        MainActor.assumeIsolated {
+            SharedProjectManager.shared.currentProject?.name ?? "Untitled"
+        }
+    }
+}
+
+/// Proceed with new project flow (post notification or open standalone window).
+private func proceedWithNewProject() {
     let hasMainWindow = hasVisibleMainWindow()
-    
     if hasMainWindow {
-        // Main window exists, use sheet
         NotificationCenter.default.post(name: .newProject, object: nil)
     } else {
-        // No main window, open standalone window
         openStandaloneWindow(id: .newProject)
     }
 }
 
-/// Handles Cmd+O - shows open project dialog (standalone if no main window)
-private func handleOpenProjectCommand() {
+/// Proceed with open project flow.
+private func proceedWithOpenProject() {
     let hasMainWindow = hasVisibleMainWindow()
-    
     if hasMainWindow {
-        // Main window exists, use sheet
         NotificationCenter.default.post(name: .openProject, object: nil)
     } else {
-        // No main window, open standalone window
         openStandaloneWindow(id: .openProject)
     }
+}
+
+/// Handles Cmd+N - prompts to save if unsaved, then shows new project dialog (Issue #158)
+private func handleNewProjectCommand() {
+    if getHasUnsavedChangesSync() {
+        let name = currentProjectNameSync()
+        let choice = showSaveBeforeCloseAlert(
+            messageText: "Do you want to save the project \"\(name)\" before creating a new project?"
+        )
+        switch choice {
+        case .save:
+            SaveBeforeCloseCoordinator.shared.requestSaveThenNewProject()
+            return
+        case .cancel:
+            return
+        case .dontSave:
+            break
+        }
+    }
+    proceedWithNewProject()
+}
+
+/// Handles Cmd+O - prompts to save if unsaved, then shows open project dialog (Issue #158)
+private func handleOpenProjectCommand() {
+    if getHasUnsavedChangesSync() {
+        let name = currentProjectNameSync()
+        let choice = showSaveBeforeCloseAlert(
+            messageText: "Do you want to save the project \"\(name)\" before opening another project?"
+        )
+        switch choice {
+        case .save:
+            SaveBeforeCloseCoordinator.shared.requestSaveThenOpenProject()
+            return
+        case .cancel:
+            return
+        case .dontSave:
+            break
+        }
+    }
+    proceedWithOpenProject()
 }
 
 /// Check if there's a visible main DAW window
@@ -919,6 +1092,8 @@ extension Notification.Name {
     static let willSaveProject = Notification.Name("willSaveProject")  // Posted before save to collect plugin states
     static let pluginConfigsSaved = Notification.Name("pluginConfigsSaved")  // Posted when AudioEngine finishes saving plugin configs
     static let saveProject = Notification.Name("saveProject")
+    /// Posted when save completes (e.g. for save-before-quit). userInfo["success"] (Bool).
+    static let saveProjectCompleted = Notification.Name("saveProjectCompleted")
     
     // Issue #63: Transport-ProjectManager save coordination notifications
     static let queryTransportState = Notification.Name("queryTransportState")  // Query if transport is playing

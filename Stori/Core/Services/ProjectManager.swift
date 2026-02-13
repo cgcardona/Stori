@@ -458,10 +458,21 @@ class ProjectManager {
                     // Clear unsaved changes flag
                     hasUnsavedChanges = false
                 }
+                // Notify save-before-quit / save-before-new-project (Issue #158)
+                NotificationCenter.default.post(
+                    name: .saveProjectCompleted,
+                    object: nil,
+                    userInfo: ["success": true]
+                )
             } catch {
                 await MainActor.run {
                     errorMessage = "Failed to save project: \(error.localizedDescription)"
                 }
+                NotificationCenter.default.post(
+                    name: .saveProjectCompleted,
+                    object: nil,
+                    userInfo: ["success": false]
+                )
             }
         }
     }

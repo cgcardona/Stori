@@ -165,6 +165,10 @@ enum AccessibilityID {
         static let saveButton = "project.save"
         static let browserView = "project.browser"
         static let nameField = "project.name_field"
+        /// Save-before-quit / save-before-new-project dialog (Issue #158)
+        static let saveBeforeQuitSave = "project.saveBeforeQuit.save"
+        static let saveBeforeQuitDontSave = "project.saveBeforeQuit.dontSave"
+        static let saveBeforeQuitCancel = "project.saveBeforeQuit.cancel"
     }
 
     // MARK: - Piano Roll
