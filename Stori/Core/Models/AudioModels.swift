@@ -227,6 +227,18 @@ struct ProjectUIState: Codable, Equatable {
     var showingPianoRoll: Bool = false        // Piano roll panel
     var showingSynthesizer: Bool = false      // Synthesizer panel
     
+    // MARK: - Panel Layout Constants (single source of truth for min height and defaults)
+    /// Shared minimum and defaults for panel sizes. Used by MainDAWView and AICommandDispatcher.
+    enum PanelLayout {
+        /// Minimum content height for bottom panels so the resize handle stays visible and hittable.
+        static let minContentHeight: Double = 44
+        static let defaultInspectorWidth: Double = 300
+        static let defaultMixerHeight: Double = 600
+        static let defaultStepSequencerHeight: Double = 600
+        static let defaultPianoRollHeight: Double = 600
+        static let defaultSynthesizerHeight: Double = 500
+    }
+
     // MARK: - Panel Sizes
     var inspectorWidth: Double = 300          // Right panel width
     var mixerHeight: Double = 600             // Bottom mixer height

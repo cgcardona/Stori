@@ -48,6 +48,12 @@ enum AccessibilityID {
         static let toggleStepSequencer = "toggle_step_sequencer"
         static let toggleSelection = "toggle_selection"
         static let toggleInspector = "toggle_inspector"
+
+        /// Bottom panel resize handles (five-dot drag strip).
+        static let resizeHandleMixer = "panels.mixer.resizeHandle"
+        static let resizeHandleSequencer = "panels.sequencer.resizeHandle"
+        static let resizeHandlePianoRoll = "panels.pianoRoll.resizeHandle"
+        static let resizeHandleSynthesizer = "panels.synthesizer.resizeHandle"
     }
 
     // MARK: - Timeline
@@ -145,6 +151,11 @@ enum AccessibilityID {
         static let formatPicker = "export.format_picker"
         static let bitDepthPicker = "export.bit_depth_picker"
         static let progressView = "export.progress"
+    }
+
+    // MARK: - Window Menu
+    enum Window {
+        static let resetDefaultView = "window.resetDefaultView"
     }
 
     // MARK: - Project Management

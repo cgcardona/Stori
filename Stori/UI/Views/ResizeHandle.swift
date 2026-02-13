@@ -7,13 +7,30 @@
 
 import SwiftUI
 
+// MARK: - Optional Accessibility Modifier
+private struct OptionalAccessibilityModifier: ViewModifier {
+    let identifier: String?
+    let label: String?
+    let hint: String?
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityIdentifier(identifier ?? "")
+            .accessibilityLabel(label ?? "")
+            .accessibilityHint(hint ?? "")
+    }
+}
+
 // MARK: - Resizable Panel Handle
 struct ResizeHandle: View {
     enum Orientation {
         case horizontal, vertical
     }
-    
+
     let orientation: Orientation
+    var accessibilityIdentifier: String?
+    var accessibilityLabel: String?
+    var accessibilityHint: String?
     /// Called once when the drag gesture begins.
     let onDragStarted: () -> Void
     /// Called on every drag movement with the **cumulative** delta from
@@ -21,30 +38,36 @@ struct ResizeHandle: View {
     /// (snapshotted in `onDragStarted`) so they never depend on reading
     /// back the current model value mid-drag.
     let onDrag: (CGFloat) -> Void
-    
+
     /// Convenience initialiser that omits `onDragStarted` for call sites
     /// that don't need it (e.g. the inspector width handle).
     init(orientation: Orientation,
+         accessibilityIdentifier: String? = nil,
+         accessibilityLabel: String? = nil,
+         accessibilityHint: String? = nil,
          onDragStarted: @escaping () -> Void = {},
          onDrag: @escaping (CGFloat) -> Void) {
         self.orientation = orientation
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
         self.onDragStarted = onDragStarted
         self.onDrag = onDrag
     }
     
     @State private var isHovered = false
     @State private var isDragging = false
-    
+    @FocusState private var isFocused: Bool
+
     var body: some View {
         ZStack {
-            // Background
+            // Background (semantic colors for high-contrast compatibility)
             Rectangle()
                 .fill(isHovered || isDragging ? Color.accentColor.opacity(0.3) : Color(.windowBackgroundColor))
                 .animation(.easeInOut(duration: 0.15), value: isHovered)
-            
-            // Always-visible grip indicator
+
+            // Always-visible grip indicator (separatorColor/accentColor adapt to Increase Contrast)
             if orientation == .horizontal {
-                // Horizontal grip dots
                 HStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { _ in
                         Circle()
@@ -53,7 +76,6 @@ struct ResizeHandle: View {
                     }
                 }
             } else {
-                // Vertical grip dots
                 VStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { _ in
                         Circle()
@@ -67,10 +89,29 @@ struct ResizeHandle: View {
             width: orientation == .vertical ? 10 : nil,
             height: orientation == .horizontal ? 10 : nil
         )
+        .contentShape(Rectangle())
+        .overlay(
+            // High-contrast: always-visible border so handle bounds are clear (Increase Contrast / Reduce Transparency)
+            Rectangle()
+                .strokeBorder(Color(.separatorColor), lineWidth: 1)
+        )
+        .overlay(
+            // Focus order: visible focus ring when handle has keyboard focus (Tab navigation)
+            RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isFocused ? 1 : 0)
+        )
+        .focusable(true)
+        .focused($isFocused)
         .cursor(orientation == .vertical ? .resizeLeftRight : .resizeUpDown)
         .onHover { hovering in
             isHovered = hovering
         }
+        .modifier(OptionalAccessibilityModifier(
+            identifier: accessibilityIdentifier,
+            label: accessibilityLabel,
+            hint: accessibilityHint
+        ))
         .gesture(
             // IMPORTANT: Use .global coordinate space. The handle lives
             // inside the panel it resizes. With the default .local space,

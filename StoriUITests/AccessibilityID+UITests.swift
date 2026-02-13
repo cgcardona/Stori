@@ -37,6 +37,12 @@ enum AccessibilityID {
         static let toggleStepSequencer = "toggle_step_sequencer"
         static let toggleSelection = "toggle_selection"
         static let toggleInspector = "toggle_inspector"
+
+        /// Bottom panel resize handles (five-dot drag strip).
+        static let resizeHandleMixer = "panels.mixer.resizeHandle"
+        static let resizeHandleSequencer = "panels.sequencer.resizeHandle"
+        static let resizeHandlePianoRoll = "panels.pianoRoll.resizeHandle"
+        static let resizeHandleSynthesizer = "panels.synthesizer.resizeHandle"
     }
 
     // MARK: - Mixer
@@ -102,6 +108,11 @@ enum AccessibilityID {
         static let dialog = "export.dialog"
         static let dialogConfirm = "export.dialog.confirm"
         static let dialogCancel = "export.dialog.cancel"
+    }
+
+    // MARK: - Window
+    enum Window {
+        static let resetDefaultView = "window.resetDefaultView"
     }
 
     // MARK: - Project

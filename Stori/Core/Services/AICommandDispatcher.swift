@@ -1335,21 +1335,22 @@ class AICommandDispatcher {
                     throw AICommandError.invalidParameter("panel, size")
                 }
                 
-                // Update project state for persistence with clamped values
+                // Update project state for persistence with clamped values.
+                // Uses ProjectUIState.PanelLayout.minContentHeight for bottom panels (single source of truth).
                 if var project = projectManager.currentProject {
+                    let minBottom = ProjectUIState.PanelLayout.minContentHeight
+                    let maxBottom: Double = 450  // Leave room for timeline + control bar
                     switch panel {
                     case "inspector":
-                        // Inspector width: 250-500
                         project.uiState.inspectorWidth = max(250, min(500, size))
                     case "mixer":
-                        // Bottom panels max 450px to leave room for timeline + control bar
-                        project.uiState.mixerHeight = max(200, min(450, size))
+                        project.uiState.mixerHeight = max(minBottom, min(maxBottom, size))
                     case "stepSequencer":
-                        project.uiState.stepSequencerHeight = max(200, min(450, size))
+                        project.uiState.stepSequencerHeight = max(minBottom, min(maxBottom, size))
                     case "pianoRoll":
-                        project.uiState.pianoRollHeight = max(250, min(450, size))
+                        project.uiState.pianoRollHeight = max(minBottom, min(maxBottom, size))
                     case "synthesizer":
-                        project.uiState.synthesizerHeight = max(200, min(450, size))
+                        project.uiState.synthesizerHeight = max(minBottom, min(maxBottom, size))
                     default:
                         throw AICommandError.invalidParameter("panel: \(panel)")
                     }
